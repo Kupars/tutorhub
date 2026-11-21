@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>家教招募大厅</title>
+  <link rel="stylesheet" href="./css/styles.css?v=5" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <nav class="nav-tabs" id="desktopNav">
+        <button class="nav-btn active" data-view="hall">招募大厅</button>
+        <button class="nav-btn" data-view="my-orders">我的接单</button>
+        <button class="nav-btn" data-view="resume">简历与自动投递</button>
+        <button class="nav-btn" data-view="admin">安全后台</button>
+      </nav>
+
+      <div class="user-actions" id="userActions"></div>
+    </div>
+  </header>
+
+  <div class="announcement">
+    <div class="container announcement-inner">
+      <span id="siteAnnouncement">欢迎使用！填写你的默认出发地址即可在每张家教单上自动展示骑行与公交耗时。</span>
+      <a href="./fast.html" class="btn btn-sm" style="text-decoration:none;">⚡ 自动选快节点</a>
+    </div>
+  </div>
+
+  <main class="container">
+    <!-- 视图 1：家教招募大厅 -->
+    <section id="view-hall" class="view active">
+      <div class="search-panel">
+        <div class="search-row">
+          <input id="qSearch" type="search" placeholder="统一检索：单号 / 科目 / 年级 / 小区 / 要求 / 标签..." />
+          <select id="qSubject"><option value="">全部科目</option></select>
+          <select id="qGrade"><option value="">全部年级</option></select>
+          <select id="qMode">
+            <option value="">授课方式（全部）</option>
+            <option value="上门">仅看上门</option>
+            <option value="线上">仅看线上</option>
+            <option value="均可">上门/线上均可</option>
+          </select>
+          <select id="qSort">
+            <option value="latest">最新发布</option>
+            <option value="commute">路程最近优先</option>
+            <option value="rate">课时费最高优先</option>
+          </select>
+        </div>
+
+        <div class="origin-bar">
+          <div class="origin-select-group" style="flex:1;min-width:260px;">
+            <span style="white-space:nowrap;">📍 默认地址：</span>
+            <input id="originAddressInput" list="originPresets" placeholder="输入你的常驻地址/校区/小区（如：南开区天大卫津路校区）" style="max-width:300px;padding:6px 10px;font-size:13px;" />
+            <datalist id="originPresets"></datalist>
+            <button class="btn btn-primary btn-sm" id="btnSaveOrigin">保存地址</button>
+          </div>
+          <div class="origin-select-group">
+            <button class="btn btn-sm" id="btnOnlyOpen">仅看招募中：开</button>
+            <button class="btn btn-sm" id="btnOnlyBookmarks">⭐ 仅看收藏</button>
+            <button class="btn btn-primary btn-sm" id="btnRunAutoApply">🤖 按规则自动投递</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-bar">
+        <span id="resultStats">正在加载家教单...</span>
+        <span id="modeBadge"></span>
+      </div>
+
+      <div class="orders-grid" id="ordersGrid"></div>
+    </section>
+
+    <!-- 视图 2：老师我的接单 -->
+    <section id="view-my-orders" class="view">
+      <div class="panel">
+        <h2>我的投递与接单管理</h2>
+        <div id="myAppsContainer"></div>
+      </div>
+    </section>
+
+    <!-- 视图 3：老师简历模板 + AI 优化 + 自动投递规则 -->
+    <section id="view-resume" class="view">
+      <div class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+          <h2 style="margin:0;">标准家教简历模板 & AI 润色</h2>
+          <div style="display:flex;gap:8px;">
+            <button class="btn" id="btnOptimizeResume">✨ AI 一键优化简历</button>
+            <button class="btn btn-primary" id="btnSaveResume">💾 保存简历</button>
+          </div>
+        </div>
+        <div id="resumeFormContainer"></div>
+      </div>
+    </section>
+
+    <!-- 视图 4：管理员安全后台 -->
+    <section id="view-admin" class="view">
+      <div id="adminContainer"></div>
+    </section>
+  </main>
+
+  <!-- 移动端底部导航 -->
+  <nav class="mobile-nav" id="mobileNav">
+    <button class="active" data-view="hall">🏠<span>大厅</span></button>
+    <button data-view="my-orders">📋<span>接单</span></button>
+    <button data-view="resume">📄<span>简历</span></button>
+    <button data-view="admin">🛡️<span>后台</span></button>
+  </nav>
+
+  <!-- 登录 / 注册弹窗 -->
+  <div class="modal-backdrop" id="authModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="authModalTitle">老师登录 / 注册</h3>
+        <button class="btn btn-sm" id="closeAuthModal">关闭</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button class="btn btn-primary btn-sm" id="tabLogin">登录</button>
+        <button class="btn btn-sm" id="tabRegister">注册新老师账号</button>
+      </div>
+      <div class="field" id="registerNameField" style="display:none;margin-bottom:10px;">
+        <label>姓名 / 称呼 *</label>
+        <input id="authName" placeholder="例如：张老师 / 李同学" />
+      </div>
+      <div class="field" id="registerWechatField" style="display:none;margin-bottom:10px;">
+        <label>微信号 *（必填，供管理员审核与派单联系）</label>
+        <input id="authWechat" placeholder="请填写准确的微信号" />
+      </div>
+      <div class="field" id="registerAddressField" style="display:none;margin-bottom:10px;">
+        <label>默认出发地址（选填，用于计算骑行/公交耗时，注册后可随时改）</label>
+        <input id="authAddress" list="originPresets" placeholder="例如：天津大学卫津路校区 / 南开区某某小区" />
+      </div>
+      <div class="field" style="margin-bottom:10px;">
+        <label>邮箱 *</label>
+        <input id="authEmail" type="email" placeholder="请输入邮箱" />
+      </div>
+      <div class="field" style="margin-bottom:14px;">
+        <label>密码 *</label>
+        <input id="authPassword" type="password" placeholder="请输入密码" />
+      </div>
+      <button class="btn btn-primary" id="btnSubmitAuth" style="width:100%;">确认提交</button>
+    </div>
+  </div>
+
+  <!-- 一键投递弹窗 -->
+  <div class="modal-backdrop" id="applyModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="applyModalTitle">一键投递家教单</h3>
+        <button class="btn btn-sm" id="closeApplyModal">关闭</button>
+      </div>
+      <p id="applyOrderSummary" style="font-size:13px;color:var(--muted);margin-bottom:10px;"></p>
+      <div class="field" style="margin-bottom:12px;">
+        <label>给家长的定制自荐语（已根据你的简历与该单要求自动生成，可直接修改）</label>
+        <textarea id="applyPitch" rows="5"></textarea>
+      </div>
+      <button class="btn btn-primary" id="btnConfirmApply" style="width:100%;">确认投递简历</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script type="module" src="./js/app.js?v=5"></script>
+</body>
+</html>
