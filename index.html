@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>家教招募大厅</title>
-  <link rel="stylesheet" href="./css/styles.css?v=5" />
+  <link rel="stylesheet" href="./css/styles.css?v=6" />
 </head>
 <body>
   <header class="topbar">
@@ -49,6 +49,22 @@
             <option value="commute">路程最近优先</option>
             <option value="rate">课时费最高优先</option>
           </select>
+        </div>
+        <div class="search-row search-row-extra">
+          <select id="qStudentGender" aria-label="学生性别">
+            <option value="">学生性别（全部）</option>
+            <option value="男生">男生</option>
+            <option value="女生">女生</option>
+            <option value="待补充">性别待补充</option>
+          </select>
+          <select id="qDistrict" aria-label="补课区域"><option value="">全部区域</option></select>
+          <select id="qTime" aria-label="补课时间">
+            <option value="">上课时间（全部）</option>
+            <option value="weekend">周末</option>
+            <option value="weekday">周中</option>
+          </select>
+          <input id="qMinRate" type="number" min="0" placeholder="最低时薪（元）" aria-label="最低时薪" />
+          <button class="btn btn-sm" id="btnClearFilters">重置筛选</button>
         </div>
 
         <div class="origin-bar">
@@ -162,6 +178,6 @@
   </div>
 
   <div class="toast" id="toast"></div>
-  <script type="module" src="./js/app.js?v=5"></script>
+  <script type="module" src="./js/app.js?v=6"></script>
 </body>
 </html>

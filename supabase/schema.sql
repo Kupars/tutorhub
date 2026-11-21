@@ -41,6 +41,14 @@ create table if not exists public.tutoring_orders (
   title text not null,
   subject text not null,
   grade text not null,
+  student_gender text default '待补充',
+  teacher_count integer not null default 1 check (teacher_count >= 1),
+  current_scores text default '成绩待补充',
+  weekly_frequency text default '待协商',
+  salary_text text default '',
+  trial_time text default '',
+  notes text default '',
+  online_allowed boolean default false,
   mode text not null default '上门' check (mode in ('上门', '线上', '均可')),
   district text default '',
   address text default '',
@@ -60,6 +68,16 @@ create table if not exists public.tutoring_orders (
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+-- 兼容先前已创建的数据库（目前线上 KV 无需执行本脚本）。
+alter table public.tutoring_orders add column if not exists student_gender text default '待补充';
+alter table public.tutoring_orders add column if not exists teacher_count integer default 1;
+alter table public.tutoring_orders add column if not exists current_scores text default '成绩待补充';
+alter table public.tutoring_orders add column if not exists weekly_frequency text default '待协商';
+alter table public.tutoring_orders add column if not exists salary_text text default '';
+alter table public.tutoring_orders add column if not exists trial_time text default '';
+alter table public.tutoring_orders add column if not exists notes text default '';
+alter table public.tutoring_orders add column if not exists online_allowed boolean default false;
 
 -- 4. 老师投递与接单记录表
 create table if not exists public.applications (

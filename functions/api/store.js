@@ -198,7 +198,15 @@ export async function onRequest(context) {
     }
 
     if (action === "admin_add_orders") {
+      if (!Array.isArray(body.orders) || !body.orders.length || body.orders.length > 100) {
+        return jsonResp({ ok: false, error: "请提供 1～100 条有效家教单" }, 400);
+      }
       const existing = await kvGet(env.TUTOR_KV, "orders", []);
+      const incomingIds = body.orders.map((o) => String(o.id || ""));
+      if (incomingIds.some((id) => !id || id.length > 50) || new Set(incomingIds).size !== incomingIds.length ||
+          incomingIds.some((id) => existing.some((item) => item.id === id))) {
+        return jsonResp({ ok: false, error: "家教单编号为空或与已有单重复，请确认编号后发布" }, 409);
+      }
       const merged = [...(body.orders || []), ...existing];
       await kvPut(env.TUTOR_KV, "orders", merged);
       return jsonResp({ ok: true, orders: merged });
@@ -206,6 +214,7 @@ export async function onRequest(context) {
 
     if (action === "admin_update_order") {
       const existing = await kvGet(env.TUTOR_KV, "orders", []);
+      if (!existing.some((o) => o.id === body.id)) return jsonResp({ ok: false, error: "找不到该家教单" }, 404);
       const next = existing.map((o) => (o.id === body.id ? { ...o, ...body.patch } : o));
       await kvPut(env.TUTOR_KV, "orders", next);
       return jsonResp({ ok: true, orders: next });
@@ -213,6 +222,7 @@ export async function onRequest(context) {
 
     if (action === "admin_delete_order") {
       const existing = await kvGet(env.TUTOR_KV, "orders", []);
+      if (!existing.some((o) => o.id === body.id)) return jsonResp({ ok: false, error: "家教单不存在或已删除" }, 404);
       const next = existing.filter((o) => o.id !== body.id);
       await kvPut(env.TUTOR_KV, "orders", next);
       return jsonResp({ ok: true, orders: next });

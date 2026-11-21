@@ -1,5 +1,6 @@
 import { APP_CONFIG } from "./app-env.js";
 import { DEFAULT_SITE_CONFIG, SAMPLE_ORDERS } from "./data.js";
+import { normalizeOrder } from "./order-format.js";
 
 const KEYS = {
   orders: "tutorhub_orders_v3",
@@ -94,7 +95,8 @@ export const Store = {
         if (data?.ok && data.cloud) {
           cloudReady = true;
           cloudState.siteConfig = { ...DEFAULT_SITE_CONFIG, ...(data.siteConfig || {}) };
-          cloudState.orders = Array.isArray(data.orders) && data.orders.length > 0 ? data.orders : SAMPLE_ORDERS;
+          // [] 是有效的云端状态：已清空家教单时绝不能恢复演示数据。
+          cloudState.orders = Array.isArray(data.orders) ? data.orders : [];
 
           if (localStorage.getItem(KEYS.token)) {
             await this.syncSessionFromCloud();
@@ -122,7 +124,7 @@ export const Store = {
           if (adm?.ok) {
             cloudState.teachers = adm.teachers || [];
             cloudState.applications = adm.applications || [];
-            if (adm.orders?.length) cloudState.orders = adm.orders;
+            if (Array.isArray(adm.orders)) cloudState.orders = adm.orders;
             if (adm.siteConfig) cloudState.siteConfig = { ...DEFAULT_SITE_CONFIG, ...adm.siteConfig };
           }
         }
@@ -170,22 +172,26 @@ export const Store = {
   },
 
   getOrders() {
-    return cloudReady ? cloudState.orders : readJSON(KEYS.orders, SAMPLE_ORDERS);
+    const orders = cloudReady ? cloudState.orders : readJSON(KEYS.orders, SAMPLE_ORDERS);
+    return Array.isArray(orders) ? orders.map((o) => normalizeOrder(o)) : [];
   },
   async addOrders(newOrders) {
+    const normalized = newOrders.map((o) => normalizeOrder(o));
     if (cloudReady) {
-      const res = await apiPost({ action: "admin_add_orders", orders: newOrders });
-      if (res?.ok) cloudState.orders = res.orders;
+      const res = await apiPost({ action: "admin_add_orders", orders: normalized });
+      if (!res?.ok) throw new Error(res?.error || "云端发布失败");
+      cloudState.orders = res.orders;
       return cloudState.orders;
     }
-    const merged = [...newOrders, ...this.getOrders()];
+    const merged = [...normalized, ...this.getOrders()];
     writeJSON(KEYS.orders, merged);
     return merged;
   },
   async updateOrder(id, patch) {
     if (cloudReady) {
       const res = await apiPost({ action: "admin_update_order", id, patch });
-      if (res?.ok) cloudState.orders = res.orders;
+      if (!res?.ok) throw new Error(res?.error || "云端更新失败");
+      cloudState.orders = res.orders;
       return cloudState.orders;
     }
     const updated = this.getOrders().map((o) => (o.id === id ? { ...o, ...patch } : o));
@@ -195,7 +201,8 @@ export const Store = {
   async deleteOrder(id) {
     if (cloudReady) {
       const res = await apiPost({ action: "admin_delete_order", id });
-      if (res?.ok) cloudState.orders = res.orders;
+      if (!res?.ok) throw new Error(res?.error || "云端删除失败");
+      cloudState.orders = res.orders;
       return cloudState.orders;
     }
     const filtered = this.getOrders().filter((o) => o.id !== id);
