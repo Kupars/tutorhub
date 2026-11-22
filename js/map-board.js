@@ -11,6 +11,8 @@ let geocodeStarted = false;
 let onToggleOrder = null;
 let isOrderSelected = () => false;
 let markerSignature = "";
+let activeGroupKey = "";
+let activeGroupOrderIds = [];
 try { geocodeCache = JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || "{}"); } catch { /* private mode */ }
 
 function publicAddress(order) {
@@ -103,82 +105,103 @@ function syncPopupSelections() {
   });
 }
 
+function closeMapPanel() {
+  const panel = document.getElementById("mapHoverPanel");
+  if (panel) panel.hidden = true;
+  activeGroupKey = "";
+  activeGroupOrderIds = [];
+}
+
+function showMapGroup(group) {
+  const panel = document.getElementById("mapHoverPanel");
+  if (!panel) return;
+  const key = `${group.lat}/${group.lng}/${group.orders.map((o) => o.id).join(",")}`;
+  if (!panel.hidden && key === activeGroupKey) { syncPopupSelections(); return; }
+  activeGroupKey = key;
+  activeGroupOrderIds = group.orders.map((order) => order.id);
+  document.getElementById("mapHoverHeading").textContent = `${group.district || "家教位置"} · ${group.orders.length} 条家教单`;
+  document.getElementById("mapHoverCaption").textContent = group.geocoded
+    ? "📍 按公开地址定位（大致位置）" : "📍 行政区示意点（不是学生住址）";
+  const list = document.getElementById("mapHoverOrders");
+  list.replaceChildren();
+  for (const order of group.orders) {
+    const card = document.createElement("article");
+    card.className = "map-compact-order";
+    const summary = document.createElement("button");
+    summary.type = "button";
+    summary.className = "map-order-expand";
+    summary.setAttribute("aria-expanded", "false");
+    const top = document.createElement("div");
+    top.className = "map-order-top";
+    const name = document.createElement("strong");
+    name.className = "map-order-title";
+    name.textContent = `${order.orderNumber} · ${order.grade || ""}${order.subject || ""}`;
+    const rate = document.createElement("span");
+    rate.className = "map-order-salary";
+    rate.textContent = (order.salaryText || "老师报价").replace("（可报价）", "");
+    top.append(name, rate);
+    const address = document.createElement("span");
+    address.className = "map-order-brief";
+    address.textContent = `📍 ${order.address || "公开地址待补充"}`;
+    const bottom = document.createElement("span");
+    bottom.className = "map-order-brief map-order-schedule";
+    bottom.textContent = `🕒 ${order.weeklyFrequency || "时间待协商"}`;
+    const hint = document.createElement("span");
+    hint.className = "map-order-expand-hint";
+    hint.textContent = "展开详情 ▼";
+    summary.append(top, address, bottom, hint);
+    const details = document.createElement("div");
+    details.className = "map-order-expanded-card";
+    details.hidden = true;
+    for (const [name, value] of [["学生", [order.grade, order.studentGender].filter(Boolean).join("、")],
+      ["补习科目", order.subject], ["需要老师", order.teacherCount ? `${order.teacherCount}位` : ""],
+      ["公开地点", order.address], ["上课时间", order.weeklyFrequency],
+      ["每次时长", order.hoursPerSession ? `${order.hoursPerSession}小时` : ""],
+      ["当前成绩", order.currentScores], ["老师要求", order.requirements], ["试课", order.trialTime]]) {
+      const detail = popupDetail(name, value);
+      if (detail) details.append(detail);
+    }
+    summary.onclick = () => {
+      details.hidden = !details.hidden;
+      const opened = !details.hidden;
+      summary.setAttribute("aria-expanded", String(opened));
+      hint.textContent = opened ? "收起详情 ▲" : "展开详情 ▼";
+      card.classList.toggle("expanded", opened);
+    };
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "map-order-toggle";
+    add.dataset.mapOrderId = order.id;
+    add.onclick = () => {
+      onToggleOrder?.(order.id);
+      syncPopupSelections();
+    };
+    card.append(summary, details, add);
+    list.append(card);
+  }
+  panel.hidden = false;
+  list.scrollTop = 0;
+  syncPopupSelections();
+}
+
 function renderOrderMarkers() {
   if (!map) return;
   const groups = groupPublicMapOrders(pendingOrders);
   const nextSignature = groups.map((g) => `${g.district}/${g.lat}/${g.lng}/${g.orders.map((o) => o.id).join(",")}`).join("|");
   if (nextSignature === markerSignature) { syncPopupSelections(); return; }
   markerSignature = nextSignature;
+  // 地理编码完成时可能持续刷新标记；仅在筛选条件排除了当前单子时关闭面板。
+  const visibleIds = new Set(pendingOrders.map((order) => order.id));
+  if (activeGroupOrderIds.some((id) => !visibleIds.has(id))) closeMapPanel();
   orderLayer.clearLayers();
   for (const group of groups) {
     const n = group.orders.length;
     const marker = globalThis.L.circleMarker([group.lat, group.lng], {
       radius: Math.min(24, 9 + Math.sqrt(n) * 2.3),
-      color: "#4338ca", fillColor: "#818cf8", fillOpacity: 0.7, weight: 2
+      color: "#4338ca", fillColor: "#818cf8", fillOpacity: 0.7, weight: 2, bubblingMouseEvents: false
     }).addTo(orderLayer);
-    const label = document.createElement("div");
-    label.className = "map-popup-panel";
-    const header = document.createElement("strong");
-    header.className = "map-popup-heading";
-    header.textContent = `${group.district || "家教位置"} · ${n} 条家教单`;
-    const caption = document.createElement("p");
-    caption.textContent = group.geocoded ? "📍 按公开地址定位（大致位置）" : "📍 暂按行政区中心示意（不是学生住址）";
-    caption.className = "map-popup-caption";
-    const list = document.createElement("div");
-    list.className = "map-order-list";
-    for (const order of group.orders) {
-      const card = document.createElement("article");
-      card.className = "map-order-card";
-      const cardTitle = document.createElement("strong");
-      cardTitle.className = "map-order-title";
-      cardTitle.textContent = `${order.orderNumber} · ${order.grade || ""}${order.subject || ""}家教`;
-      const rate = document.createElement("span");
-      rate.className = "map-order-salary";
-      rate.textContent = order.salaryText || "老师报价";
-      const top = document.createElement("div");
-      top.className = "map-order-top";
-      top.append(cardTitle, rate);
-      card.append(top);
-      for (const [name, value] of [["学生", [order.grade, order.studentGender].filter(Boolean).join("、")],
-        ["补习科目", order.subject], ["需要老师", order.teacherCount ? `${order.teacherCount}位` : ""],
-        ["公开地点", order.address], ["上课时间", order.weeklyFrequency],
-        ["每次时长", order.hoursPerSession ? `${order.hoursPerSession}小时` : ""],
-        ["当前成绩", order.currentScores], ["老师要求", order.requirements], ["试课", order.trialTime]]) {
-        const detail = popupDetail(name, value);
-        if (detail) card.append(detail);
-      }
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "map-order-toggle";
-      button.dataset.mapOrderId = order.id;
-      button.onclick = (event) => {
-        event.stopPropagation();
-        onToggleOrder?.(order.id);
-        syncPopupSelections();
-      };
-      card.append(button);
-      list.append(card);
-    }
-    label.append(header, caption, list);
-    // 悬停时不自动挪动地图：否则标记会在鼠标下移走，导致详情卡片立刻关闭。
-    marker.bindPopup(label, { minWidth: 280, maxWidth: 375, className: "tutor-map-popup", autoPan: false });
-    let closeTimer;
-    const cancelClose = () => clearTimeout(closeTimer);
-    const scheduleClose = () => { cancelClose(); closeTimer = setTimeout(() => marker.closePopup(), 450); };
-    label.addEventListener("mouseenter", cancelClose);
-    label.addEventListener("mouseleave", scheduleClose);
-    marker.on("mouseover", () => { cancelClose(); marker.openPopup(); syncPopupSelections(); });
-    marker.on("mouseout", scheduleClose);
-    marker.on("click", () => { cancelClose(); marker.openPopup(); syncPopupSelections(); });
-    marker.on("popupopen", () => {
-      const popupElement = marker.getPopup()?.getElement();
-      if (popupElement) {
-        popupElement.addEventListener("mouseenter", cancelClose, { once: true });
-        popupElement.addEventListener("mouseleave", scheduleClose, { once: true });
-      }
-      syncPopupSelections();
-    });
-    marker.on("popupclose", cancelClose);
+    marker.on("mouseover", () => showMapGroup(group));
+    marker.on("click", () => showMapGroup(group));
   }
 }
 
@@ -244,6 +267,9 @@ export async function openMapBoard(origin) {
     }).addTo(map);
     orderLayer = L.layerGroup().addTo(map);
     originLayer = L.layerGroup().addTo(map);
+    map.on("click", closeMapPanel);
+    const closeButton = document.getElementById("btnMapHoverClose");
+    if (closeButton) closeButton.onclick = closeMapPanel;
     renderOrderMarkers();
     void geocodePublicAddresses();
   }
