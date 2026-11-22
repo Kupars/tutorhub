@@ -115,9 +115,14 @@ async function geocodePublicAddresses() {
       const address = addresses[nextIndex++];
       try {
         const res = await fetch("/api/commute", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "geocode", address }) });
+          body: JSON.stringify({ action: "geocode", address }), signal: AbortSignal.timeout(7000) });
         const body = await res.json();
-        if (body?.error?.includes("AMAP_KEY")) { missingKey = true; break; }
+        if (body?.error?.includes("AMAP_KEY")) {
+          missingKey = true;
+          const info = document.getElementById("mapLocationNote");
+          if (info) info.textContent = "当前未配置高德地理编码 Key，地图根据公开地标或区域示意定位；配置 Cloudflare AMAP_KEY 后可按公开地址更精确定位。";
+          break;
+        }
         if (body?.ok && Number.isFinite(body.lat) && Number.isFinite(body.lng)) {
           geocodeCache[address] = gcj02ToWgs84(body.lat, body.lng);
           renderOrderMarkers();

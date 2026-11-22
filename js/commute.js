@@ -54,7 +54,8 @@ export async function resolveUserAddress(addressText) {
     const res = await fetch(`${APP_CONFIG.apiBase}/commute`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "geocode", address: clean })
+      body: JSON.stringify({ action: "geocode", address: clean }),
+      signal: AbortSignal.timeout(6000)
     });
     if (res.ok) {
       const data = await res.json();

@@ -780,11 +780,14 @@ function initControls() {
   $("btnMapSearch").onclick = async () => {
     const text = $("mapSearchInput").value.trim();
     if (!text) return showToast("请输入地点名称");
+    $("btnMapSearch").disabled = true;
+    $("btnMapSearch").textContent = "正在搜索…";
     try {
       const resolved = await resolveUserAddress(text);
       moveMapTo(resolved.lat, resolved.lng);
       $("mapLocationNote").textContent = `地图已移动到「${text}」附近；点击「设地图中心为出发地」后更新路线估算。`;
     } catch (err) { showToast(err.message); }
+    finally { $("btnMapSearch").disabled = false; $("btnMapSearch").textContent = "搜索定位"; }
   };
   $("mapSearchInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnMapSearch").click(); });
   $("btnMapUseCenter").onclick = async () => {
