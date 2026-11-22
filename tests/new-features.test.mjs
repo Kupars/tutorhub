@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { onRequest } from "../functions/api/store.js";
 import { teacherGenderRequirement } from "../js/board-utils.js";
-import { getPublicMapLocation, groupPublicMapOrders } from "../js/map-board.js";
+import { getPublicMapLocation, groupPublicMapOrders, markerStyleForGroup, popupTitleForGroup } from "../js/map-board.js";
 import { canonicalDistrict, normalizeOrder } from "../js/order-format.js";
 import { SAMPLE_ORDERS } from "../js/data.js";
 
@@ -43,6 +43,14 @@ test("地图仅使用公开地址，忽略后台精确经纬度和私人住址",
   const loc = getPublicMapLocation(order);
   assert(loc && loc.lat > 30 && loc.lng > 110);
   assert.equal(groupPublicMapOrders([order]).length, 1);
+});
+
+test("地图仅将包含已勾选单的标记变绿，详情标题不误报区域总数", () => {
+  const group = { district: "津南区", orders: [{ id: "#100" }, { id: "#101" }] };
+  assert.equal(markerStyleForGroup(group, () => false).fillColor, "#818cf8");
+  assert.equal(markerStyleForGroup(group, (id) => id === "#101").fillColor, "#4ade80");
+  assert.equal(popupTitleForGroup(group), "这个标记对应 2 条家教单");
+  assert(!popupTitleForGroup(group).includes("津南区"));
 });
 
 test("津南区在筛选和地图里不应分成‘天津市津南区’与‘津南区’", () => {

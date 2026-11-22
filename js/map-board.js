@@ -11,8 +11,7 @@ let geocodeStarted = false;
 let onToggleOrder = null;
 let isOrderSelected = () => false;
 let markerSignature = "";
-let activeGroupKey = "";
-let activeGroupOrderIds = [];
+let markerGroups = [];
 try { geocodeCache = JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || "{}"); } catch { /* private mode */ }
 
 function publicAddress(order) {
@@ -105,25 +104,33 @@ function syncPopupSelections() {
   });
 }
 
-function closeMapPanel() {
-  const panel = document.getElementById("mapHoverPanel");
-  if (panel) panel.hidden = true;
-  activeGroupKey = "";
-  activeGroupOrderIds = [];
+export function markerStyleForGroup(group, selected = () => false) {
+  const hasSelected = group.orders.some((order) => selected(order.id));
+  return { color: hasSelected ? "#15803d" : "#4338ca",
+    fillColor: hasSelected ? "#4ade80" : "#818cf8", fillOpacity: hasSelected ? 0.87 : 0.7 };
 }
 
-function showMapGroup(group) {
-  const panel = document.getElementById("mapHoverPanel");
-  if (!panel) return;
-  const key = `${group.lat}/${group.lng}/${group.orders.map((o) => o.id).join(",")}`;
-  if (!panel.hidden && key === activeGroupKey) { syncPopupSelections(); return; }
-  activeGroupKey = key;
-  activeGroupOrderIds = group.orders.map((order) => order.id);
-  document.getElementById("mapHoverHeading").textContent = `${group.district || "家教位置"} · ${group.orders.length} 条家教单`;
-  document.getElementById("mapHoverCaption").textContent = group.geocoded
-    ? "📍 按公开地址定位（大致位置）" : "📍 行政区示意点（不是学生住址）";
-  const list = document.getElementById("mapHoverOrders");
-  list.replaceChildren();
+function syncMarkerColors() {
+  for (const { marker, group } of markerGroups) {
+    marker.setStyle(markerStyleForGroup(group, isOrderSelected));
+  }
+}
+
+export function popupTitleForGroup(group) {
+  return `这个标记对应 ${group.orders.length} 条家教单`;
+}
+
+function buildMapPopup(group) {
+  const panel = document.createElement("div");
+  panel.className = "map-popup-compact";
+  const heading = document.createElement("strong");
+  heading.className = "map-popup-count";
+  heading.textContent = popupTitleForGroup(group);
+  const caption = document.createElement("p");
+  caption.className = "map-popup-caption";
+  caption.textContent = group.geocoded ? "按公开地址定位（大致位置）" : "区域示意点（不是学生具体住址）";
+  const list = document.createElement("div");
+  list.className = "map-popup-orders";
   for (const order of group.orders) {
     const card = document.createElement("article");
     card.className = "map-compact-order";
@@ -172,37 +179,42 @@ function showMapGroup(group) {
     add.type = "button";
     add.className = "map-order-toggle";
     add.dataset.mapOrderId = order.id;
+    const selected = isOrderSelected(order.id);
+    add.textContent = selected ? "✓ 已添加" : "+ 添加";
+    add.classList.toggle("is-added", selected);
+    add.setAttribute("aria-pressed", String(selected));
     add.onclick = () => {
       onToggleOrder?.(order.id);
       syncPopupSelections();
     };
-    card.append(summary, details, add);
+    card.append(summary, add, details);
     list.append(card);
   }
-  panel.hidden = false;
-  list.scrollTop = 0;
-  syncPopupSelections();
+  panel.append(heading, caption, list);
+  return panel;
 }
 
 function renderOrderMarkers() {
   if (!map) return;
   const groups = groupPublicMapOrders(pendingOrders);
   const nextSignature = groups.map((g) => `${g.district}/${g.lat}/${g.lng}/${g.orders.map((o) => o.id).join(",")}`).join("|");
-  if (nextSignature === markerSignature) { syncPopupSelections(); return; }
+  if (nextSignature === markerSignature) { syncPopupSelections(); syncMarkerColors(); return; }
   markerSignature = nextSignature;
-  // 地理编码完成时可能持续刷新标记；仅在筛选条件排除了当前单子时关闭面板。
-  const visibleIds = new Set(pendingOrders.map((order) => order.id));
-  if (activeGroupOrderIds.some((id) => !visibleIds.has(id))) closeMapPanel();
   orderLayer.clearLayers();
+  markerGroups = [];
   for (const group of groups) {
     const n = group.orders.length;
     const marker = globalThis.L.circleMarker([group.lat, group.lng], {
       radius: Math.min(24, 9 + Math.sqrt(n) * 2.3),
       color: "#4338ca", fillColor: "#818cf8", fillOpacity: 0.7, weight: 2, bubblingMouseEvents: false
     }).addTo(orderLayer);
-    marker.on("mouseover", () => showMapGroup(group));
-    marker.on("click", () => showMapGroup(group));
+    markerGroups.push({ marker, group });
+    marker.bindTooltip("点击查看详情", { sticky: true, direction: "top", className: "tutor-map-hint", offset: [0, -8] });
+    marker.bindPopup(buildMapPopup(group), { className: "tutor-map-popup", minWidth: 290, maxWidth: 360,
+      autoPan: true, autoPanPadding: [24, 24] });
+    marker.on("popupopen", syncPopupSelections);
   }
+  syncMarkerColors();
 }
 
 export function updateMapOrders(orders) {
@@ -267,9 +279,6 @@ export async function openMapBoard(origin) {
     }).addTo(map);
     orderLayer = L.layerGroup().addTo(map);
     originLayer = L.layerGroup().addTo(map);
-    map.on("click", closeMapPanel);
-    const closeButton = document.getElementById("btnMapHoverClose");
-    if (closeButton) closeButton.onclick = closeMapPanel;
     renderOrderMarkers();
     void geocodePublicAddresses();
   }
