@@ -13,7 +13,7 @@
 <body>
   <header class="topbar">
     <div class="container topbar-inner">
-      <nav class="main-nav" aria-label="浏览栏目"><button class="nav-link active" id="btnViewTutoring">家教</button><button class="nav-link" id="btnViewPartTime">更多</button></nav>
+      <nav class="main-nav" aria-label="浏览栏目"><button class="nav-link active" id="btnViewTutoring">家教</button><button class="nav-link" id="btnViewPartTime">更多兼职</button></nav>
       <div class="header-actions">
         <button class="btn btn-sm admin-entry" id="btnAdminEntry">管理</button>
         <button class="btn btn-sm" id="btnBackToHall" hidden>返回看板</button>
@@ -25,7 +25,7 @@
   <main class="container">
     <section id="view-hall" class="view active">
       <section class="usage-card" aria-label="家教选单使用方法">
-        <div class="usage-card-copy"><span class="usage-kicker">使用方法 · 选好家教，微信联系</span><h1>找到心仪家教，勾选后一键复制</h1><p>筛选或在地图上挑选家教单，添加到选单清单，再把复制的内容发给「小木同学」微信。也可以让智能推荐帮你先挑选。</p></div>
+        <div class="usage-card-copy"><span class="usage-kicker">使用方法 · 选好家教，微信联系</span><h1>筛选心仪家教，勾选后一键复制，发给南开小木同学</h1><p>筛选或在地图上挑选家教单，添加到选单清单，再把复制的内容发给「南开小木同学」微信。也可以让智能推荐帮你先挑选。</p></div>
         <button class="btn btn-primary btn-smart-main" id="btnSmartSelect">✨ 智能帮我选</button>
       </section>
       <div class="announcement-inline" id="siteAnnouncement"></div>
@@ -90,7 +90,7 @@
         <p class="map-note" id="mapLocationNote">选择搜索候选地点后，红色位置标记、地图视角和通勤估算会同步更新；也可点击上方「定位我」。家教定位为公开地址的近似位置。</p>
       </section>
 
-      <div class="stats-bar"><span id="resultStats">正在加载家教单...</span><div class="stats-actions"><span id="modeBadge"></span><div class="layout-switch" role="group" aria-label="家教单展示方式"><button class="layout-button active" id="btnListMode" type="button" aria-pressed="true">☰ 列表</button><button class="layout-button" id="btnCardMode" type="button" aria-pressed="false">▦ 卡片</button></div></div></div>
+      <div class="stats-bar"><span id="resultStats">正在加载家教单...</span><div class="stats-actions"><span id="modeBadge"></span><div class="layout-switch" role="group" aria-label="家教单展示方式"><button class="layout-button" id="btnListMode" type="button" aria-pressed="false">☰ 列表</button><button class="layout-button active" id="btnCardMode" type="button" aria-pressed="true">▦ 卡片</button></div></div></div>
       <div class="orders-grid" id="ordersGrid"></div>
     </section>
 
@@ -104,7 +104,7 @@
     <section id="view-admin" class="view"><button class="btn mobile-admin-back" id="btnMobileAdminBack">← 返回家教</button><div id="adminContainer"></div></section>
   </main>
 
-  <nav class="mobile-bottom-nav" aria-label="手机栏目导航"><button class="mobile-bottom-link active" id="btnMobileTutoring" aria-current="page"><span aria-hidden="true">🏠</span><strong>家教</strong></button><button class="mobile-bottom-link" id="btnMobileMore"><span aria-hidden="true">▦</span><strong>更多</strong></button></nav>
+  <nav class="mobile-bottom-nav" aria-label="手机栏目导航"><button class="mobile-bottom-link active" id="btnMobileTutoring" aria-current="page"><span aria-hidden="true">🏠</span><strong>家教</strong></button><button class="mobile-bottom-link" id="btnMobileMore"><span aria-hidden="true">▦</span><strong>更多兼职</strong></button></nav>
 
   <div class="cart-dock" id="cartDock" hidden>
     <strong>已勾选 <span id="cartCount">0</span> 个</strong>
@@ -137,6 +137,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=11"></script>
+  <script type="module" src="./js/app.js?v=12"></script>
 </body>
 </html>

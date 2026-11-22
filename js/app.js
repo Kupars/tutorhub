@@ -10,7 +10,7 @@ import { buildWechatSelectionText, sortBoardOrders, teacherGenderRequirement } f
 
 const state = {
   view: "hall",
-  layout: "list",
+  layout: "cards",
   onlyOpen: false,
   onlySelected: false,
   parsedDraftOrders: [],
@@ -19,7 +19,8 @@ const state = {
 };
 let visibleBoardOrders = [];
 let expandedOrderId = null;
-const BOARD_LAYOUT_KEY = "tutorhub_board_layout_v1";
+// 升级展示偏好版本：之前的默认列表偏好不影响新版默认卡片。
+const BOARD_LAYOUT_KEY = "tutorhub_board_layout_v2";
 let mapCandidates = [];
 let mapSearchVersion = 0;
 let mapSearchTimer = null;
@@ -846,7 +847,7 @@ function setBoardLayout(layout) {
 }
 
 function initControls() {
-  try { if (localStorage.getItem(BOARD_LAYOUT_KEY) === "cards") state.layout = "cards"; } catch { /* private mode */ }
+  try { if (localStorage.getItem(BOARD_LAYOUT_KEY) === "list") state.layout = "list"; } catch { /* private mode */ }
   setMapOrderSelectionHandlers((id) => {
     Store.toggleSelectedOrder(id);
     renderHall();
