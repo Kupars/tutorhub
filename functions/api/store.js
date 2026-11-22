@@ -185,6 +185,32 @@ function toPublicOrder(order) {
   safe.address = order.publicAddress || (order.addressVisibility === "private"
     ? (order.district || "地址请咨询小木同学") : (order.address || "地址待补充"));
   safe.publicAddress = safe.address;
+  // 旧版数据将标准九字段误塞入 studentInfo，且将“要求】”和薪资拼到 requirements。
+  // 在服务端从原本公开的标准单中恢复展示字段，但不把 studentInfo 或内部地址传回前端。
+  const legacyText = String(order.studentInfo || "");
+  if (legacyText.includes("【年级性别】") && legacyText.includes("【补习科目】") &&
+      (/^】/.test(String(order.address || "")) || /要求】/.test(String(order.requirements || "")))) {
+    const fields = Object.fromEntries([...legacyText.matchAll(/【([^】]+)】([^\n\r]*)/g)]
+      .map((match) => [match[1], match[2].trim()]));
+    safe.subject = fields["补习科目"] || safe.subject;
+    safe.currentScores = fields["现阶段成绩"] || safe.currentScores;
+    safe.weeklyFrequency = fields["一周几次"] || safe.weeklyFrequency;
+    const gender = fields["年级性别"]?.match(/(男孩|男生|女孩|女生)/)?.[1];
+    if (gender) safe.studentGender = gender.startsWith("男") ? "男生" : "女生";
+    const grades = ["高三", "高二", "高一", "初三", "初二", "初一", "小学", "六年级", "五年级", "四年级", "三年级"];
+    const grade = grades.find((g) => (fields["年级性别"] || "").includes(g));
+    if (grade) safe.grade = grade;
+    safe.requirements = fields["对老师要求"] || String(order.requirements || "").replace(/^.*?要求】/, "").replace(/【薪资】[\s\S]*$/, "").trim() || safe.requirements;
+    safe.salaryText = fields["薪资"] || String(order.requirements || "").match(/【薪资】\s*([^\n]*)/)?.[1] || safe.salaryText;
+    const h = fields["每次几小时"]?.match(/\d+(?:\.\d+)?/);
+    if (h) safe.hoursPerSession = Number(h[0]);
+    const n = fields["需要几个老师"]?.match(/\d+/);
+    if (n) safe.teacherCount = Number(n[0]);
+    if (fields["补课地址"]) {
+      safe.address = fields["补课地址"];
+      safe.publicAddress = safe.address;
+    }
+  }
   return safe;
 }
 

@@ -64,7 +64,7 @@ function applySiteConfig() {
   document.title = "小木学长 · 天津家教看板";
   const notice = (cfg.announcement || "").trim();
   // 旧站公告可能提到账号与自动投递，不再展示过时的使用指引。
-  $("siteAnnouncement").textContent = /自动投递|简历|登录|注册|账号/.test(notice) ? "" : notice;
+  $("siteAnnouncement").textContent = /自动投递|简历|登录|注册|账号|选中感兴趣的家教单|复制后微信联系/.test(notice) ? "" : notice;
   $("siteAnnouncement").hidden = !$("siteAnnouncement").textContent;
   $("modeBadge").textContent = Store.isCloudMode() ? "🟢 云端已同步" : "";
 }
@@ -106,7 +106,7 @@ function renderHall() {
   syncOriginInput();
   const subjectSelect = $("qSubject");
   const selectedSubject = subjectSelect.value;
-  const subjects = [...new Set([...SUBJECTS, ...Store.getOrders().flatMap((o) => getSubjectList(o.subject))])].filter(Boolean);
+  const subjects = [...SUBJECTS, "作业辅导", "陪读", "道法"];
   subjectSelect.innerHTML = '<option value="">全部科目</option>' +
     subjects.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
   subjectSelect.value = subjects.includes(selectedSubject) ? selectedSubject : "";
@@ -138,7 +138,7 @@ function renderHall() {
   items = items.filter((o) => {
     if (state.onlyOpen && o.status !== "招募中") return false;
     if (state.onlySelected && !o.selected) return false;
-    if (subject && o.subject !== subject && !getSubjectList(o.subject).includes(subject)) return false;
+    if (subject && o.subject !== subject && !getSubjectList(o.subject).includes(subject) && !o.subject.includes(subject)) return false;
     if (grade && o.grade !== grade && !o.grade.includes(grade) && !(grade === "小学" && /[一二三四五六1-6]年级/.test(o.grade))) return false;
     if (mode && o.mode !== mode) return false;
     if (studentGender && o.studentGender !== studentGender) return false;

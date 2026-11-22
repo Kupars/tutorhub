@@ -50,6 +50,10 @@ export function normalizeSalary(value, grade, hourlyRate) {
   let salary = str(value);
   if (!salary && Number(hourlyRate) > 0) salary = `${Number(hourlyRate)}元/小时`;
   if (!salary) salary = DEFAULT_SALARY[grade] || "老师报价";
+  salary = salary.replace(/[（(]\s*$/, "");
+  if (/\/?(?:天|次)|\d+\s*小时.*\d+\s*元|一共|总共/.test(salary) && !/元\/小时/.test(salary)) {
+    return salary.includes("可报价") ? salary : `${salary}（可报价）`;
+  }
   salary = salary.replace(/\s+/g, "").replace(/块/g, "元").replace(/[-—~～]/g, "～")
     .replace(/(?:元)?(?:一小时|每小时|\/小时|\/时|元时|元)$/, "元/小时");
   if (!/老师报价|可报价/.test(salary) && !/元\/小时/.test(salary)) salary += "元/小时";
@@ -58,7 +62,9 @@ export function normalizeSalary(value, grade, hourlyRate) {
 }
 
 export function getSalaryValue(salaryText) {
-  const match = str(salaryText).match(/\d+(?:\.\d+)?/);
+  const value = str(salaryText);
+  if (!/元\/小时/.test(value)) return 0;
+  const match = value.match(/\d+(?:\.\d+)?/);
   return match ? Number(match[0]) : 0;
 }
 

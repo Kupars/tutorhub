@@ -41,7 +41,7 @@ def main(path):
         if not order_number.startswith("#"):
             order_number = "#" + order_number
         headline = source.splitlines()[0].strip()
-        headline = re.sub(r"^#\S+\s*/\s*", "", headline)
+        headline = re.sub(r"^#\d+(?:-\d+)?(?:[^\w\u4e00-\u9fa5]*)/?\s*", "", headline)
         grade_sex = fields.get("年级性别", "")
         grade = next((term for term in GRADE_TERMS if term in grade_sex), cell(row.iloc[3]) or "年级待补充")
         address = fields.get("补课地址", "")
