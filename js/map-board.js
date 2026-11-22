@@ -85,6 +85,48 @@ export function groupPublicMapOrders(orders) {
   return [...groups.values()];
 }
 
+// 使用当前缩放级别下的屏幕像素距离合并标记：点开合并标记仍能查看全部原始公开家教单。
+// 放大时像素间距增大，便会自动拆分；绝不修改实际家教单地址或后台坐标。
+export function clusterNearbyMapGroups(groups, project, radiusPx = 54) {
+  if (groups.length < 2) return groups;
+  const points = groups.map((group) => project(group.lat, group.lng));
+  const roots = groups.map((_, index) => index);
+  const find = (index) => {
+    while (roots[index] !== index) {
+      roots[index] = roots[roots[index]];
+      index = roots[index];
+    }
+    return index;
+  };
+  const limit = radiusPx * radiusPx;
+  for (let i = 0; i < groups.length; i++) {
+    for (let j = i + 1; j < groups.length; j++) {
+      const dx = points[i].x - points[j].x;
+      const dy = points[i].y - points[j].y;
+      if (dx * dx + dy * dy <= limit) roots[find(j)] = find(i);
+    }
+  }
+  const clusters = new Map();
+  for (let i = 0; i < groups.length; i++) {
+    const root = find(i);
+    if (!clusters.has(root)) clusters.set(root, []);
+    clusters.get(root).push(groups[i]);
+  }
+  return [...clusters.values()].map((members) => {
+    if (members.length === 1) return members[0];
+    return {
+      lat: members.reduce((total, member) => total + member.lat, 0) / members.length,
+      lng: members.reduce((total, member) => total + member.lng, 0) / members.length,
+      district: members.every((member) => member.district === members[0].district)
+        ? members[0].district : "多个区域",
+      geocoded: members.every((member) => member.geocoded),
+      landmark: members.every((member) => member.landmark),
+      locationsCount: members.length,
+      orders: members.flatMap((member) => member.orders)
+    };
+  });
+}
+
 export function setMapOrderSelectionHandlers(toggle, selected) {
   onToggleOrder = toggle;
   isOrderSelected = selected;
@@ -133,7 +175,9 @@ function buildMapPopup(group) {
   heading.textContent = popupTitleForGroup(group);
   const caption = document.createElement("p");
   caption.className = "map-popup-caption";
-  caption.textContent = group.landmark ? "按公开地标定位（非学生精确住址）" :
+  caption.textContent = group.locationsCount > 1
+    ? `${group.locationsCount} 个公开位置靠得很近，已合并标记；放大地图可分别查看。` :
+    group.landmark ? "按公开地标定位（非学生精确住址）" :
     group.geocoded ? "按公开地址定位（大致位置）" : "区域示意点（不是学生具体住址）";
   const list = document.createElement("div");
   list.className = "map-popup-orders";
@@ -202,8 +246,10 @@ function buildMapPopup(group) {
 
 function renderOrderMarkers() {
   if (!map) return;
-  const groups = groupPublicMapOrders(pendingOrders);
-  const nextSignature = groups.map((g) => `${g.district}/${g.lat}/${g.lng}/${g.orders.map((o) => o.id).join(",")}`).join("|");
+  const groups = clusterNearbyMapGroups(groupPublicMapOrders(pendingOrders),
+    (lat, lng) => map.project([lat, lng], map.getZoom()));
+  const nextSignature = `${map.getZoom()}|` + groups.map((g) =>
+    `${g.district}/${g.lat}/${g.lng}/${g.orders.map((o) => o.id).join(",")}`).join("|");
   if (nextSignature === markerSignature) { syncPopupSelections(); syncMarkerColors(); return; }
   markerSignature = nextSignature;
   orderLayer.clearLayers();
@@ -215,7 +261,8 @@ function renderOrderMarkers() {
       color: "#4338ca", fillColor: "#818cf8", fillOpacity: 0.7, weight: 2, bubblingMouseEvents: false
     }).addTo(orderLayer);
     markerGroups.push({ marker, group });
-    marker.bindTooltip("点击查看详情", { sticky: true, direction: "top", className: "tutor-map-hint", offset: [0, -8] });
+    marker.bindTooltip(n > 1 ? `${n} 条家教单 · 点击查看详情` : "点击查看详情",
+      { sticky: true, direction: "top", className: "tutor-map-hint", offset: [0, -8] });
     marker.bindPopup(buildMapPopup(group), { className: "tutor-map-popup", minWidth: 290, maxWidth: 360,
       autoPan: true, autoPanPadding: [24, 24] });
     marker.on("popupopen", syncPopupSelections);
@@ -305,6 +352,7 @@ export async function openMapBoard(origin) {
     tiles.addTo(map);
     orderLayer = L.layerGroup().addTo(map);
     originLayer = L.layerGroup().addTo(map);
+    map.on("zoomend", renderOrderMarkers);
     renderOrderMarkers();
     void geocodePublicAddresses();
   }

@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { onRequest } from "../functions/api/store.js";
 import { teacherGenderRequirement } from "../js/board-utils.js";
-import { getPublicMapLocation, groupPublicMapOrders, markerStyleForGroup, popupTitleForGroup } from "../js/map-board.js";
+import { clusterNearbyMapGroups, getPublicMapLocation, groupPublicMapOrders, markerStyleForGroup, popupTitleForGroup } from "../js/map-board.js";
 import { canonicalDistrict, normalizeOrder } from "../js/order-format.js";
 import { SAMPLE_ORDERS } from "../js/data.js";
 import { normalizePublicAddress, safeOptimizedPublicAddress } from "../js/address-normalizer.js";
@@ -93,6 +93,24 @@ test("地图仅将包含已勾选单的标记变绿，详情标题不误报区�
   assert.equal(markerStyleForGroup(group, (id) => id === "#101").fillColor, "#4ade80");
   assert.equal(popupTitleForGroup(group), "这个标记对应 2 条家教单");
   assert(!popupTitleForGroup(group).includes("津南区"));
+});
+
+test("地图像素距离接近的家教点合并；放大后拆分，并保留每单与勾选状态", () => {
+  const groups = [
+    { lat: 39.1, lng: 117.1, district: "南开区", orders: [{ id: "a" }, { id: "b" }] },
+    { lat: 39.1, lng: 117.101, district: "南开区", orders: [{ id: "c" }] },
+    { lat: 39.1, lng: 117.102, district: "南开区", orders: [{ id: "d" }] },
+    { lat: 39.2, lng: 117.3, district: "河西区", orders: [{ id: "e" }] }
+  ];
+  const close = clusterNearbyMapGroups(groups, (lat, lng) => ({ x: lng * 40000, y: lat * 40000 }));
+  assert.equal(close.length, 2);
+  assert.equal(close[0].locationsCount, 3);
+  assert.deepEqual(close[0].orders.map((o) => o.id), ["a", "b", "c", "d"]);
+  assert.equal(markerStyleForGroup(close[0], (id) => id === "c").fillColor, "#4ade80");
+  assert.equal(popupTitleForGroup(close[0]), "这个标记对应 4 条家教单");
+  const zoomed = clusterNearbyMapGroups(groups, (lat, lng) => ({ x: lng * 100000, y: lat * 100000 }));
+  assert.equal(zoomed.length, 4);
+  assert.equal(zoomed[0].orders.length, 2);
 });
 
 test("津南区在筛选和地图里不应分成‘天津市津南区’与‘津南区’", () => {
