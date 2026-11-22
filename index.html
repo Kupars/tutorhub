@@ -8,7 +8,7 @@
   <meta http-equiv="Expires" content="0" />
   <title>小木学长 · 天津家教看板</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="./css/styles.css?v=11" />
+  <link rel="stylesheet" href="./css/styles.css?v=12" />
 </head>
 <body>
   <header class="topbar">
@@ -71,23 +71,13 @@
           </div>
         </section>
 
-        <div class="origin-bar">
-          <div class="origin-select-group" style="flex:1;min-width:260px;">
-            <label for="originAddressInput" style="white-space:nowrap;">📍 我的出发地</label>
-            <input id="originAddressInput" list="originPresets" placeholder="输入天津的校区 / 小区 / 地址" style="max-width:300px;padding:6px 10px;font-size:13px;" />
-            <datalist id="originPresets"></datalist>
-            <button class="btn btn-sm" id="btnSaveOrigin">计算路程</button>
-            <button class="btn btn-sm" id="btnLocateMe">◎ 定位我</button>
-          </div>
-          <span class="origin-help">默认尝试定位，可搜索更改位置；通勤时间为估算值</span>
-        </div>
       </div>
 
       <section class="map-panel" id="mapBoard">
         <div class="map-heading"><div><h2>🗺 家教位置看板</h2><p>与筛选条件实时同步 · 红色为你的出发地 · 悬停或点击紫色标记查看家教单并添加。只显示公开地址，不展示后台精确地址。</p></div></div>
         <div class="map-toolbar"><div class="map-search-wrap"><input id="mapSearchInput" type="search" placeholder="搜索新位置，例如天津大学、河西区" aria-label="搜索地图地点并更新我的位置" role="combobox" aria-expanded="false" aria-controls="mapSearchSuggestions" autocomplete="off" /><div id="mapSearchSuggestions" class="map-suggestions" role="listbox" hidden></div></div><button class="btn btn-primary" id="btnMapSearch">📍 搜索位置</button></div>
         <div class="map-stage"><div id="tutorMap" role="application" aria-label="公开家教单分布与我所在的位置地图"></div><aside id="mapHoverPanel" class="map-hover-panel" aria-label="当前地图地点的家教需求列表" hidden><div class="map-hover-heading"><div><strong id="mapHoverHeading">附近家教单</strong><p id="mapHoverCaption"></p></div><button class="map-hover-close" id="btnMapHoverClose" type="button" aria-label="关闭地点列表">✕</button></div><div class="map-hover-orders" id="mapHoverOrders"></div><p class="map-hover-hint">点击需求行查看详情，点「添加」放入选单</p></aside></div>
-        <p class="map-note" id="mapLocationNote">选择搜索候选地点后，红色位置标记、地图视角和通勤估算会同步更新；也可点击上方「定位我」。家教定位为公开地址的近似位置。</p>
+        <p class="map-note" id="mapLocationNote">默认尝试获取当前位置；选择地图搜索候选地点后，红色位置标记、地图视角和通勤估算会同步更新。家教定位为公开地址的近似位置。</p>
       </section>
 
       <div class="stats-bar"><span id="resultStats">正在加载家教单...</span><div class="stats-actions"><span id="modeBadge"></span><div class="layout-switch" role="group" aria-label="家教单展示方式"><button class="layout-button" id="btnListMode" type="button" aria-pressed="false">☰ 列表</button><button class="layout-button active" id="btnCardMode" type="button" aria-pressed="true">▦ 卡片</button></div></div></div>
@@ -137,6 +127,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=12"></script>
+  <script type="module" src="./js/app.js?v=13"></script>
 </body>
 </html>

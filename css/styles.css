@@ -144,16 +144,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 .filter-switches { display:flex; flex-wrap:wrap; gap:20px; padding-top:12px; font-size:13px; color:#334155; }
 .filter-switches label { display:inline-flex; align-items:center; gap:7px; cursor:pointer; }
 .filter-switches input { width:auto; accent-color:var(--primary); }
-.origin-help { color:var(--muted); font-size:12px; }
-.origin-bar {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border);
-  flex-wrap: wrap; font-size: 13px;
-}
-.origin-select-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.origin-select-group select { width: auto; min-width: 190px; padding: 6px 10px; font-size: 13px; }
-.board-action-row { margin-top:12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-.btn-ai { color:#6d28d9; border-color:#ddd6fe; background:#faf5ff; }
 .map-panel { margin:0 0 18px; padding:16px; border:1px solid var(--border); border-radius:14px; background:white; }
 .map-heading { display:flex; justify-content:space-between; align-items:start; gap:12px; margin-bottom:12px; }
 .map-heading h2 { font-size:17px; }
@@ -403,8 +393,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   .orders-grid { grid-template-columns:1fr; }
   .order-card { padding:15px; }
   .card-head { flex-wrap:wrap; }
-  .origin-select-group { width:100%; }
-  #originAddressInput { flex:1; min-width:0; }
   .cart-dock { bottom:79px; width:calc(100% - 20px); padding:10px 12px; gap:8px; }
   .cart-dock strong { font-size:13px; }
   .cart-dock .btn { font-size:12px; padding:9px 10px; text-align:center; }

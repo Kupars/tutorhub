@@ -76,12 +76,6 @@ function applySiteConfig() {
   $("modeBadge").textContent = Store.isCloudMode() ? "🟢 云端已同步" : "";
 }
 
-function syncOriginInput() {
-  const origin = Store.getOrigin();
-  const input = $("originAddressInput");
-  if (input && origin?.name && origin.name !== "未设置") input.value = origin.name;
-}
-
 function renderUserActions() {
   const user = Store.getCurrentUser();
   const wrap = $("userActions");
@@ -115,7 +109,6 @@ function switchView(viewName) {
 
 // ---------------- 视图 1：招募大厅 ----------------
 function renderHall() {
-  syncOriginInput();
   const subjectSelect = $("qSubject");
   const selectedSubject = subjectSelect.value;
   const subjects = [...SUBJECTS, "作业辅导", "陪读", "道法"];
@@ -194,8 +187,6 @@ function renderHall() {
   }
 
   const renderDetailCard = (o) => {
-    const monthlyEst = o.hourlyRate && o.sessionsPerWeek
-      ? Math.round(o.hourlyRate * o.hoursPerSession * o.sessionsPerWeek * 4) : null;
     const commuteHtml = o.commute
       ? o.commute.isOnline
         ? `<span class="chip commute">💻 线上免通勤</span>`
@@ -221,7 +212,7 @@ function renderHall() {
 
         <div class="card-desc">
           <div><strong>地点：</strong>${escapeHtml(o.address)}</div>
-          <div><strong>时间：</strong>${escapeHtml(o.weeklyFrequency)} · 每次 ${o.hoursPerSession}小时${monthlyEst ? ` · 按最低时薪约 ¥${monthlyEst}/月` : ""}</div>
+          <div><strong>时间：</strong>${escapeHtml(o.weeklyFrequency)} · 每次 ${o.hoursPerSession}小时</div>
           <div><strong>成绩：</strong>${escapeHtml(o.currentScores)}</div>
           <div><strong>学生：</strong>${escapeHtml(o.studentGender)} · <strong>老师人数：</strong>${o.teacherCount}位</div>
           ${teacherGenderRequirement(o) === "不限" ? "" : `<div><strong>老师性别：</strong>${teacherGenderRequirement(o) === "男生" ? "男老师" : "女老师"}</div>`}
@@ -728,23 +719,12 @@ function openAuthModal() {
   $("authModal").classList.add("open");
 }
 
-async function handleSaveOriginAddress() {
-  const raw = $("originAddressInput").value.trim();
-  if (!raw) return showToast("请输入你的默认出发地址");
-  try {
-    const resolved = await resolveUserAddress(raw);
-    await setMapOrigin(resolved);
-    showToast(`出发地已设为「${resolved.name}」，路程估算已更新`);
-  } catch (error) { showToast(error.message); }
-}
-
 async function setMapOrigin(place) {
   // 高德地图服务返回 GCJ-02，Leaflet/OSM 使用 WGS84。GPS 和本地地标无需转换。
   const coords = place.gcj02 ? gcj02ToWgs84(place.lat, place.lng) : { lat: place.lat, lng: place.lng };
   if (!Number.isFinite(Number(coords.lat)) || !Number.isFinite(Number(coords.lng))) throw new Error("此地点没有可用坐标");
   const origin = { name: place.name, lat: Number(coords.lat), lng: Number(coords.lng), manuallyChosen: true };
   await Store.setOrigin(origin);
-  $("originAddressInput").value = origin.name;
   $("mapSearchInput").value = origin.name;
   updateMapOrigin(origin);
   moveMapTo(origin.lat, origin.lng, 13);
@@ -823,7 +803,6 @@ function locateMe(silent = false) {
     const { latitude: lat, longitude: lng } = position.coords;
     // GPS 只在当前浏览器本地保存。计算基于公开区级坐标，不上报服务器。
     await Store.setOrigin({ name: "我的当前位置", lat, lng, isGps: true });
-    $("originAddressInput").value = "我的当前位置";
     updateMapOrigin(Store.getOrigin());
     moveMapTo(lat, lng, 13);
     renderHall();
@@ -858,16 +837,6 @@ function initControls() {
   });
   SUBJECTS.forEach((s) => $("qSubject").insertAdjacentHTML("beforeend", `<option value="${s}">${s}</option>`));
   GRADES.forEach((g) => $("qGrade").insertAdjacentHTML("beforeend", `<option value="${g}">${g}</option>`));
-
-  APP_CONFIG.presetLocations.forEach((loc) => {
-    $("originPresets").insertAdjacentHTML("beforeend", `<option value="${escapeHtml(loc.name)}"></option>`);
-  });
-
-  $("btnSaveOrigin").onclick = handleSaveOriginAddress;
-  $("btnLocateMe").onclick = () => locateMe(false);
-  $("originAddressInput").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") handleSaveOriginAddress();
-  });
 
   ["qSearch", "qSubject", "qGrade", "qMode", "qSort", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate"].forEach((id) => {
     $(id).addEventListener("input", renderHall);
@@ -984,7 +953,6 @@ function initControls() {
 function renderAll() {
   applySiteConfig();
   renderUserActions();
-  syncOriginInput();
   switchView(state.view);
 }
 
