@@ -1,4 +1,4 @@
-import { inferCoordsFromText, isPlausiblePublicGeocode } from "./commute.js";
+import { inferCoordsFromText, isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "./commute.js";
 
 let map = null;
 let orderLayer = null;
@@ -57,6 +57,8 @@ export function getPublicMapLocation(order) {
   if (order.mode === "线上") return null;
   const district = order.district || "";
   const address = publicAddress(order);
+  const landmark = verifiedPublicLandmarkCoords(address);
+  if (landmark) return { ...landmark, district, geocoded: true, landmark: true };
   const geocoded = geocodeCache[address];
   if (isPlausiblePublicGeocode({ district, publicAddress: address }, geocoded)) {
     return { lat: geocoded.lat, lng: geocoded.lng, district, geocoded: true };
@@ -130,7 +132,8 @@ function buildMapPopup(group) {
   heading.textContent = popupTitleForGroup(group);
   const caption = document.createElement("p");
   caption.className = "map-popup-caption";
-  caption.textContent = group.geocoded ? "按公开地址定位（大致位置）" : "区域示意点（不是学生具体住址）";
+  caption.textContent = group.landmark ? "按公开地标定位（非学生精确住址）" :
+    group.geocoded ? "按公开地址定位（大致位置）" : "区域示意点（不是学生具体住址）";
   const list = document.createElement("div");
   list.className = "map-popup-orders";
   for (const order of group.orders) {
@@ -230,7 +233,8 @@ async function geocodePublicAddresses() {
   geocodeStarted = true;
   // 控制并发；仅在地图被打开时请求公开地址，不发送任何内部后台字段。
   const addresses = [...new Set(pendingOrders.map(publicAddress))]
-    .filter((address) => address.length > 5 && !geocodeCache[address] && !/待补充|待协商|线上|网课|某小区/.test(address));
+    .filter((address) => address.length > 5 && !verifiedPublicLandmarkCoords(address) &&
+      !geocodeCache[address] && !/待补充|待协商|线上|网课|某小区/.test(address));
   let nextIndex = 0;
   let missingKey = false;
   const worker = async () => {

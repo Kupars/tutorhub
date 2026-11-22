@@ -31,6 +31,18 @@ const PLACE_COORDS = {
   "徐汇区": { lat: 31.1883, lng: 121.4368, district: "徐汇区" }
 };
 
+// 已公开且经过地图核对的地标锚点（WGS84，非学生家庭经纬度）。
+// 诚基中心：amap.com/place/B0FFFSO92Y；天津市第四十五中学：ditu.amap.com/place/B001605214。
+const PUBLIC_LANDMARK_ANCHORS = {
+  "天津市和平区诚基中心": { lat: 39.115649, lng: 117.195483 },
+  "天津市河东区第四十五中学附近": { lat: 39.102760, lng: 117.264776 }
+};
+
+export function verifiedPublicLandmarkCoords(address) {
+  const anchor = PUBLIC_LANDMARK_ANCHORS[String(address || "").trim()];
+  return anchor ? { ...anchor } : null;
+}
+
 export function inferCoordsFromText(text) {
   if (!text) return null;
   for (const [key, coords] of Object.entries(PLACE_COORDS)) {
@@ -134,7 +146,7 @@ export function estimateCommuteLocal(origin, order) {
     return null;
   }
   // 公共看板仅用行政区示意坐标估算；不读取后台私有精确坐标。
-  const inferred = publicGeocodedPoint(order) ||
+  const inferred = verifiedPublicLandmarkCoords(order.publicAddress || order.address) || publicGeocodedPoint(order) ||
     inferCoordsFromText(String(order.publicAddress || order.address || "")) || inferCoordsFromText(order.district || "");
   if (!inferred) return null;
   const targetLat = inferred.lat;

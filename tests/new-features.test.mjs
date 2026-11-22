@@ -7,7 +7,7 @@ import { getPublicMapLocation, groupPublicMapOrders, markerStyleForGroup, popupT
 import { canonicalDistrict, normalizeOrder } from "../js/order-format.js";
 import { SAMPLE_ORDERS } from "../js/data.js";
 import { normalizePublicAddress, safeOptimizedPublicAddress } from "../js/address-normalizer.js";
-import { isPlausiblePublicGeocode } from "../js/commute.js";
+import { isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "../js/commute.js";
 
 test("220条公开家教单均有独立内部ID，原始重复编号不被篡改", async () => {
   const items = JSON.parse(await readFile(new URL("../data/imported-orders.json", import.meta.url), "utf8"));
@@ -54,6 +54,11 @@ test("2684与2621的公开地址规范为准确地标，拒绝异区误定位", 
     address: "天津市和平区诚基经贸中心" });
   assert.equal(a.publicAddress, "天津市和平区诚基中心");
   assert.equal(a.address, "天津市和平区诚基中心");
+  assert.deepEqual(getPublicMapLocation(a), { ...verifiedPublicLandmarkCoords(a.publicAddress),
+    district: "和平区", geocoded: true, landmark: true });
+  const b = normalizeOrder({ id: "fs-0198", district: "河东区", address: "天津市河东区45中附近" });
+  assert.deepEqual(getPublicMapLocation(b), { ...verifiedPublicLandmarkCoords(b.publicAddress),
+    district: "河东区", geocoded: true, landmark: true });
   assert.equal(isPlausiblePublicGeocode(a, { lat: 39.1171, lng: 117.2146, district: "和平区", province: "天津市" }), true);
   assert.equal(isPlausiblePublicGeocode(a, { lat: 39.20, lng: 116.90, district: "和平区", province: "天津市" }), false);
   assert.equal(isPlausiblePublicGeocode(a, { lat: 39.1171, lng: 117.2146, district: "河东区", province: "天津市" }), false);
