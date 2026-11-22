@@ -30,6 +30,11 @@ test("按天或包次薪资不能按小时计算或错误参与时薪排序", ()
   }
 });
 
+test("原单不完整的可报价括号不会污染售价文案", () => {
+  const order = normalizeOrder({ id: "#3000", grade: "高三", subject: "英语", salaryText: "130～150元/小时（可报价" });
+  assert.equal(order.salaryText, "130～150元/小时（可报价）");
+});
+
 test("地图仅使用公开地址，忽略后台精确经纬度和私人住址", () => {
   const order = { id: "fs-0001", orderNumber: "#2583", mode: "上门", district: "南开区",
     publicAddress: "天津市南开区天津大学附近", address: "天津市南开区天津大学附近",

@@ -57,7 +57,8 @@ export function normalizeSalary(value, grade, hourlyRate) {
   salary = salary.replace(/\s+/g, "").replace(/块/g, "元").replace(/[-—~～]/g, "～")
     .replace(/(?:元)?(?:一小时|每小时|\/小时|\/时|元时|元)$/, "元/小时");
   if (!/老师报价|可报价/.test(salary) && !/元\/小时/.test(salary)) salary += "元/小时";
-  if (!/（可报价）/.test(salary)) salary = salary.replace(/\(?可报价\)?/g, "").replace(/（\s*）/g, "") + "（可报价）";
+  if (!/（可报价）/.test(salary)) salary = salary.replace(/[（(]?\s*可报价[）)]?/g, "")
+    .replace(/[（(]\s*$/, "").replace(/（\s*）/g, "") + "（可报价）";
   return salary;
 }
 
