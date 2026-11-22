@@ -68,9 +68,9 @@ export function publicPlaceKeyword(value, district = "") {
   let name = query.replace(/^(?:天津市|北京市|上海市|重庆市)/, "")
     .replace(/^(?:滨海新区|[\u4e00-\u9fa5]{2,4}区)/, "");
   // “大学北门附近学府花园”以小区为准，“宝鸡西道景阳里”以景阳里为准。
-  const nearHousing = name.match(/附近(.{2,}(?:小区|花园|家园|公寓|里|苑|园|府|城))$/);
+  const nearHousing = name.match(/附近(.{2,}(?:小区|花园|家园|公寓|里|苑|园|府|城|公馆|郡|邸|庄))$/);
   if (nearHousing) return nearHousing[1];
-  const namedHousing = name.match(/(?:镇|街道|路|道|大街)(.{2,}(?:小区|花园|家园|公寓|里|苑|园|府|城|大厦|广场|中心))$/);
+  const namedHousing = name.match(/(?:镇|街道|街|路|道|大街)(.{2,}(?:小区|花园|家园|公寓|里|苑|园|府|城|大厦|广场|中心|公馆|郡|邸|庄))$/);
   if (namedHousing) name = namedHousing[1];
   return name;
 }
@@ -81,7 +81,8 @@ export function chooseVerifiedPublicPoi(value, district, candidates) {
   const keyword = publicPlaceKeyword(value, district);
   if (keyword.length < 2 || !Array.isArray(candidates)) return null;
   const clean = (s) => String(s || "").replace(/[（）()·\s\-]/g, "");
-  const expected = String(district || "").replace(/^天津市/, "");
+  const expected = TIANJIN_DISTRICTS.find((name) => query.startsWith(`天津市${name}`))
+    || String(district || "").replace(/^天津市/, "");
   const expectedCity = query.startsWith("北京市") ? "北京" : query.startsWith("上海市") ? "上海" : "天津";
   let best = null;
   let maxScore = -1;
@@ -93,10 +94,16 @@ export function chooseVerifiedPublicPoi(value, district, candidates) {
     const target = clean(keyword);
     const category = String(item.type || "");
     if (/公交|车站|停车|交通设施/.test(category) && !/(?:公交|地铁|车站|站口|站附近)$/.test(target)) continue;
+    if (/(?:项目部|售票处|充电站|菜鸟驿站|临街店|图书城|车辆段)/.test(name)) continue;
+    const residentialName = /(?:小区|花园|家园|公寓|苑|里|园|府|城|公馆|郡|邸|庄|北区|南区)$/.test(target);
+    const residentialPoi = /住宅区|住宅小区/.test(category);
+    const propertyOffice = /物业/.test(name) && String(item.address || "").includes(target);
+    if (residentialName && !residentialPoi && !propertyOffice) continue;
     const exact = name === target;
     const close = target.length >= 3 && (name.includes(target) || target.includes(name));
     if (!exact && !close) continue;
-    const score = (exact ? 6 : 3) + (category.includes("住宅") ? 2 : 0) + (item.district === expected ? 1 : 0);
+    const score = (exact ? 12 : 3) + (residentialPoi ? 4 : 0) + (propertyOffice ? 1 : 0)
+      + (item.district === expected ? 1 : 0);
     if (score > maxScore) { best = item; maxScore = score; }
   }
   return best;

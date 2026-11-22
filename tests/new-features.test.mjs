@@ -6,7 +6,7 @@ import { teacherGenderRequirement } from "../js/board-utils.js";
 import { clusterNearbyMapGroups, getPublicMapLocation, groupPublicMapOrders, markerStyleForGroup, popupTitleForGroup } from "../js/map-board.js";
 import { canonicalDistrict, normalizeOrder } from "../js/order-format.js";
 import { SAMPLE_ORDERS } from "../js/data.js";
-import { compactPublicAddress, isDistrictOnlyAddress, mapGeocodeQuery, normalizePublicAddress, safeOptimizedPublicAddress } from "../js/address-normalizer.js";
+import { chooseVerifiedPublicPoi, compactPublicAddress, isDistrictOnlyAddress, mapGeocodeQuery, normalizePublicAddress, safeOptimizedPublicAddress } from "../js/address-normalizer.js";
 import { isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "../js/commute.js";
 import { getSeasonForDate, termDay } from "../js/season-theme.js";
 
@@ -105,6 +105,24 @@ test("高德返回同区另一住宅区的坐标也必须拒绝", () => {
     district: "津南区", level: "住宅区", formattedAddress: "天津市津南区辛庄镇津南悦府" }), false);
   assert.equal(isPlausiblePublicGeocode(order, { lat: 39.01, lng: 117.33, province: "天津市",
     district: "津南区", level: "住宅区", formattedAddress: "天津市津南区万橡馨苑" }), true);
+});
+
+test("POI 核查优先同区真实小区，排除公交站、项目部和异区同名位置", () => {
+  const row = (name, district, type, address) => ({ name, district, type, address,
+    province: "天津市", lat: 39.04, lng: 117.33 });
+  const result = chooseVerifiedPublicPoi("天津市津南区辛庄镇万橡馨苑", "津南区", [
+    row("津南悦府", "津南区", "商务住宅;住宅区;住宅小区", "辛庄镇"),
+    row("中建八局万橡馨苑二期项目部", "津南区", "商务住宅;商务住宅相关", "辛庄镇"),
+    row("万橡馨苑物业", "津南区", "公司企业;公司", "万橡馨苑4号楼")
+  ]);
+  assert.equal(result?.name, "万橡馨苑物业");
+  assert.equal(chooseVerifiedPublicPoi("天津市红桥区天津之眼", "区域待补充", [
+    row("天津之眼", "河北区", "风景名胜", "天津之眼")
+  ]), null);
+  assert.equal(chooseVerifiedPublicPoi("天津市南开区天津大学", "南开区", [
+    row("天津大学卫津路校区六村", "南开区", "商务住宅;住宅区;住宅小区", "大学校园"),
+    row("天津大学", "南开区", "科教文化服务;学校;高等院校", "卫津路")
+  ])?.name, "天津大学");
 });
 
 test("地图仅将包含已勾选单的标记变绿，详情标题不误报区域总数", () => {

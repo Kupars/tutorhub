@@ -8,6 +8,7 @@ const PLACE_COORDS = {
   "天大": { lat: 39.1095, lng: 117.1731, district: "南开区" },
   "北洋园": { lat: 38.9998, lng: 117.3137, district: "津南区" },
   "海河教育园": { lat: 39.0122, lng: 117.3265, district: "津南区" },
+  "海教园": { lat: 39.0122, lng: 117.3265, district: "津南区" },
   "南开大学": { lat: 39.1032, lng: 117.1695, district: "南开区" },
   "八里台": { lat: 39.1032, lng: 117.1695, district: "南开区" },
   "时代奥城": { lat: 39.0762, lng: 117.1785, district: "南开区" },
@@ -132,7 +133,8 @@ export function isPlausiblePublicGeocode(order, point) {
   // 高德某些响应虽然标成“住宅区”，但规范地址实际指向同区另一个小区。
   // 只有真实地点名仍出现在规范地址中才能缓存，标点差异可忽略。
   if (!districtOnly && point.formattedAddress) {
-    const keyword = publicPlaceKeyword(source, district).replace(/[（）()·、，,\s]/g, "");
+    const keyword = publicPlaceKeyword(source, district).replace(/[（）()·、，,\s]/g, "")
+      .replace(/(?:小区|社区)$/, "");
     const matched = String(point.formattedAddress).replace(/[（）()·、，,\s]/g, "");
     if (keyword.length >= 3 && !matched.includes(keyword)) return false;
   }

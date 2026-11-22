@@ -1141,5 +1141,194 @@
     "level": "道路",
     "formattedAddress": "",
     "source": "amap-public-address"
+  },
+  "天津市南开区昆裕里": {
+    "lat": 39.127794,
+    "lng": 117.170113,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "兴趣点",
+    "formattedAddress": "昆裕里小区",
+    "source": "amap-public-poi"
+  },
+  "天津市南开区林苑北里": {
+    "lat": 39.088294,
+    "lng": 117.134443,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "兴趣点",
+    "formattedAddress": "林苑北里",
+    "source": "amap-public-poi"
+  },
+  "天津市河西区天空之镜": {
+    "lat": 39.044697,
+    "lng": 117.234202,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "兴趣点",
+    "formattedAddress": "中海天空之镜",
+    "source": "amap-public-poi"
+  },
+  "天津市河西区景兴西里": {
+    "lat": 39.099435,
+    "lng": 117.21416,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "兴趣点",
+    "formattedAddress": "景兴西里社区",
+    "source": "amap-public-poi"
+  },
+  "天津市河西区龙海公寓": {
+    "lat": 39.102059,
+    "lng": 117.225181,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "兴趣点",
+    "formattedAddress": "龙海公寓",
+    "source": "amap-public-poi"
+  },
+  "天津市津南区辛庄镇万橡馨苑": {
+    "lat": 39.038122,
+    "lng": 117.325937,
+    "province": "天津市",
+    "district": "津南区",
+    "level": "兴趣点",
+    "formattedAddress": "万橡馨苑物业",
+    "source": "amap-public-poi"
+  },
+  "天津市津南区合雅园": {
+    "lat": 38.997825,
+    "lng": 117.390634,
+    "province": "天津市",
+    "district": "津南区",
+    "level": "兴趣点",
+    "formattedAddress": "富力又一城合雅园",
+    "source": "amap-public-poi"
+  },
+  "天津市红桥区人民医院": {
+    "lat": 39.146681,
+    "lng": 117.141049,
+    "province": "天津市",
+    "district": "红桥区",
+    "level": "兴趣点",
+    "formattedAddress": "天津市人民医院",
+    "source": "amap-public-poi"
+  },
+  "天津市河北区仁恒河滨花园": {
+    "lat": 39.157242,
+    "lng": 117.180414,
+    "province": "天津市",
+    "district": "河北区",
+    "level": "兴趣点",
+    "formattedAddress": "仁恒河滨花园(七马路)",
+    "source": "amap-public-poi"
+  },
+  "天津市西青区水西云庐": {
+    "lat": 39.113299,
+    "lng": 117.104133,
+    "province": "天津市",
+    "district": "西青区",
+    "level": "兴趣点",
+    "formattedAddress": "水西云庐",
+    "source": "amap-public-poi"
+  },
+  "天津市津南区金地格林": {
+    "lat": 39.045883,
+    "lng": 117.309305,
+    "province": "天津市",
+    "district": "津南区",
+    "level": "兴趣点",
+    "formattedAddress": "金地·格林世界棕榈苑",
+    "source": "amap-public-poi"
+  },
+  "天津市南开区融侨观邸": {
+    "lat": 39.127043,
+    "lng": 117.159399,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "兴趣点",
+    "formattedAddress": "融侨观邸",
+    "source": "amap-public-poi"
+  },
+  "天津市津南区双港镇富力桃园小区": {
+    "lat": 39.032313,
+    "lng": 117.265859,
+    "province": "天津市",
+    "district": "津南区",
+    "level": "兴趣点",
+    "formattedAddress": "富力桃园",
+    "source": "amap-public-poi"
+  },
+  "天津市红桥区和苑康和园": {
+    "lat": 39.157094,
+    "lng": 117.104236,
+    "province": "天津市",
+    "district": "红桥区",
+    "level": "兴趣点",
+    "formattedAddress": "和苑·康和园",
+    "source": "amap-public-poi"
+  },
+  "天津市南开区天津大学": {
+    "lat": 39.109606,
+    "lng": 117.156563,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "兴趣点",
+    "formattedAddress": "天津大学",
+    "source": "amap-public-poi"
+  },
+  "天津市津南区双林街福松源庄": {
+    "lat": 39.054078,
+    "lng": 117.280863,
+    "province": "天津市",
+    "district": "津南区",
+    "level": "兴趣点",
+    "formattedAddress": "福松源庄",
+    "source": "amap-public-poi"
+  },
+  "天津市南开区鹏飞学校": {
+    "lat": 39.137398,
+    "lng": 117.123504,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "兴趣点",
+    "formattedAddress": "天津南开学校鹏飞学校",
+    "source": "amap-public-poi"
+  },
+  "天津市东丽区军粮城和顺家园": {
+    "lat": 39.078675,
+    "lng": 117.476759,
+    "province": "天津市",
+    "district": "东丽区",
+    "level": "兴趣点",
+    "formattedAddress": "军粮城和顺家园",
+    "source": "amap-public-poi"
+  },
+  "天津市武清区黄庄街道亚泰澜公馆": {
+    "lat": 39.360205,
+    "lng": 117.025029,
+    "province": "天津市",
+    "district": "武清区",
+    "level": "兴趣点",
+    "formattedAddress": "亚泰·澜公馆",
+    "source": "amap-public-poi"
+  },
+  "天津市红桥区龙禧园": {
+    "lat": 39.159587,
+    "lng": 117.135979,
+    "province": "天津市",
+    "district": "红桥区",
+    "level": "兴趣点",
+    "formattedAddress": "龙禧园南区",
+    "source": "amap-public-poi"
+  },
+  "天津市和平区民园广场": {
+    "lat": 39.111206,
+    "lng": 117.198662,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "兴趣点",
+    "formattedAddress": "民园广场",
+    "source": "amap-public-poi"
   }
 }

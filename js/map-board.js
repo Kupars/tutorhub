@@ -1,4 +1,4 @@
-import { adoptVerifiedPublicLocations, inferCoordsFromText, inferNamedLandmarkCoords, isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "./commute.js?v=3";
+import { adoptVerifiedPublicLocations, inferCoordsFromText, inferNamedLandmarkCoords, isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "./commute.js?v=4";
 import { isDistrictOnlyAddress, mapGeocodeQuery } from "./address-normalizer.js";
 
 let map = null;
@@ -21,7 +21,7 @@ function loadVerifiedPublicLocations() {
   if (verifiedIndexLoading) return verifiedIndexLoading;
   verifiedIndexLoading = (async () => {
     try {
-      const res = await fetch("./data/public-geocodes.json?v=1", { cache: "no-cache", signal: AbortSignal.timeout(5000) });
+      const res = await fetch("./data/public-geocodes.json?v=2", { cache: "no-cache", signal: AbortSignal.timeout(5000) });
       if (!res.ok) return;
       const data = await res.json();
       if (data && typeof data === "object" && !Array.isArray(data)) {
