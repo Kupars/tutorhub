@@ -135,7 +135,7 @@ body {
 }
 [hidden] { display: none !important; }
 
-/* 首次打开时同时等待家教单与地图首屏，避免空白看板闪现。 */
+/* 首次打开只等家教数据，地图有自己的加载状态，不能遮挡全部内容。 */
 .startup-loading {
   position:fixed; inset:0; z-index:1200; display:grid; place-items:center;
   padding:24px; background:var(--bg); color:var(--text);
@@ -324,6 +324,13 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 .map-suggestion strong { font-size:13px; color:var(--text); }
 .map-suggestion span { font-size:11px; color:var(--muted); }
 .map-stage { position:relative; }
+.map-loading-note {
+  position:absolute; inset:0; z-index:3; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:15px; padding:20px;
+  text-align:center; font-size:13px; font-weight:700;
+  color:var(--text-subtle); background:var(--surface-alt);
+}
+.map-loading-note .btn { min-height:40px; }
 #tutorMap { width:100%; height:430px; border-radius:12px; border:1px solid var(--border); z-index:0; }
 .map-note { margin-top:8px; }
 .user-location-icon { background:none; border:0; }
@@ -380,6 +387,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px;
 }
 .orders-grid.is-list-mode { display:block; }
+.load-more-orders { grid-column:1/-1; display:flex; justify-content:center; padding:18px 0 6px; }
+.load-more-orders .btn { min-height:42px; width:min(100%,310px); }
 .orders-list { border:1px solid var(--border); border-radius:14px; background:var(--surface); box-shadow:var(--shadow); }
 .orders-list-header,.orders-list-row { display:grid;
   grid-template-columns: minmax(100px,1.05fr) 78px 76px 65px minmax(104px,1fr) minmax(145px,1.12fr) minmax(190px,1.6fr) 84px;
@@ -442,8 +451,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 .chip.status-closed { background: var(--surface-muted); color: var(--muted); }
 .chip.day-chip { background:var(--primary-soft); color:var(--primary); font-weight:750; white-space:normal; }
 .chip.duration-chip { background:var(--primary-soft); color:var(--primary); font-weight:750; }
-.chip.teacher-gender-chip { background:var(--surface-muted); border:1px solid var(--border);
-  color:var(--text); font-weight:750; }
+.chip.student-gender-chip { background:var(--surface-muted); border:1px solid var(--border);
+  color:var(--text); font-weight:700; }
 
 .schedule-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
 .schedule-metric { display:flex; flex-direction:column; gap:3px; min-width:0;
@@ -455,15 +464,22 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 .card-desc { font-size: 13px; line-height:1.65; color: var(--text-subtle); }
 .card-desc strong { color: var(--text); }
 .card-foot {
-  margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border);
+  padding-top: 3px;
   display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
 }
-.order-check { display:inline-flex; align-items:center; gap:7px; cursor:pointer; font-size:13px; font-weight:650; }
-.order-check input { width:19px; height:19px; accent-color:var(--primary); cursor:pointer; }
+.card-foot > .btn { min-height:42px; }
+.order-check { display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  min-height:42px; padding:8px 14px; border:1px solid var(--primary);
+  background:var(--primary-soft); color:var(--primary); border-radius:10px;
+  cursor:pointer; font-size:13px; font-weight:800; }
+.order-check.is-selected { background:#e3f8ee; border-color:#49a47b; color:#146b46; }
+.order-check:focus-within { outline:3px solid var(--accent); outline-offset:2px; }
+.order-check input { width:19px; height:19px; margin:0; accent-color:var(--primary); cursor:pointer; }
+.order-check.is-selected input { accent-color:#168453; }
 .card-actions { display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin-left:auto; }
 .btn-copy-address { background:var(--primary-soft); border-color:var(--border); color:var(--primary); font-weight:750; }
 .card-location-row { display:flex; align-items:center; gap:10px; min-width:0;
-  border-top:1px dashed var(--border); padding-top:11px; }
+  margin-top:auto; border-top:1px dashed var(--border); padding-top:11px; }
 .card-location { display:flex; align-items:flex-start; gap:5px; flex:1; min-width:0;
   color:var(--text-subtle); font-size:13px; font-weight:650; line-height:1.55; }
 .card-location-icon { flex:0 0 auto; }
@@ -582,6 +598,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   .search-row-extra { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .orders-grid { grid-template-columns:1fr; }
   .order-card { padding:15px; }
+  .card-foot > .btn,.card-foot .order-check { flex:1; }
   .card-head { flex-wrap:wrap; }
   .cart-dock { bottom:79px; width:calc(100% - 20px); padding:10px 12px; gap:8px; }
   .cart-dock strong { font-size:13px; }
@@ -654,6 +671,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 [data-color-mode="dark"] .chip.urgent { background:#502d3d; color:#ffc3cf; }
 [data-color-mode="dark"] .chip.commute { background:#193f49; color:#9be8ed; }
 [data-color-mode="dark"] .chip.status-open { background:#174337; color:#93e4bd; }
+[data-color-mode="dark"] .order-check.is-selected { background:#183f33; border-color:#4aae82; color:#9cecc7; }
 [data-color-mode="dark"] .map-order-toggle.is-added { background:#173f35; color:#a5f2c8; border-color:#4aae82; }
 [data-color-mode="dark"] .btn-danger { color:#ffb3bf; border-color:#854553; background:#472332; }
 [data-color-mode="dark"] .toast { background:#d5eaff; color:#102238; }

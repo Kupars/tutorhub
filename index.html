@@ -27,8 +27,7 @@
         : md < 1100 + termDay(7.438) ? "autumn" : "winter";
     })();
   </script>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="./css/styles.css?v=23" />
+  <link rel="stylesheet" href="./css/styles.css?v=24" />
 </head>
 <body>
   <div class="startup-loading" id="startupLoading" role="status" aria-live="polite" aria-atomic="true">
@@ -63,7 +62,7 @@
             <small>扫码添加或微信搜索，咨询家教单</small>
           </div>
           <button class="wechat-qr-trigger" id="btnOpenWechatQr" type="button" aria-label="查看小木同学的微信二维码">
-            <span class="wechat-qr-crop"><img src="./assets/wechat-qr-cheerpup012.png" alt="小木同学微信二维码" width="1202" height="1754" /></span>
+            <span class="wechat-qr-crop"><img src="./assets/wechat-qr-cheerpup012.png" alt="小木同学微信二维码" width="1202" height="1754" decoding="async" fetchpriority="low" /></span>
             <span>扫码添加</span>
           </button>
         </div>
@@ -117,7 +116,7 @@
       <section class="map-panel" id="mapBoard">
         <div class="map-heading"><div><h2>🗺 家教位置看板</h2><p>与筛选条件实时同步 · 红色是你的出发地，绿色是已勾选家教，橙色是尚未确认具体地址的区/镇中心示意点。悬停看提示，点击查看家教单详情；仅显示公开地址。</p></div></div>
         <div class="map-toolbar"><div class="map-search-wrap"><input id="mapSearchInput" type="search" placeholder="搜索新位置，例如天津大学、河西区" aria-label="搜索地图地点并更新我的位置" role="combobox" aria-expanded="false" aria-controls="mapSearchSuggestions" autocomplete="off" /><div id="mapSearchSuggestions" class="map-suggestions" role="listbox" hidden></div></div><button class="btn btn-primary" id="btnMapSearch">📍 搜索位置</button><button class="btn btn-relocate" id="btnMapRelocate" type="button">◎ 重新定位当前位置</button></div>
-        <div class="map-stage"><div id="tutorMap" role="application" aria-label="公开家教单分布与我所在的位置地图"></div></div>
+        <div class="map-stage"><div id="tutorMap" role="application" aria-label="公开家教单分布与我所在的位置地图"></div><div class="map-loading-note" id="mapLoadingNote" role="status">🗺 地图正在单独加载，家教单已经可以浏览…<button class="btn btn-sm" id="btnRetryMap" type="button" hidden>重试地图</button></div></div>
         <p class="map-note" id="mapLocationNote">默认尝试获取当前位置；选择地图搜索候选地点后，红色位置标记、地图视角和通勤估算会同步更新。家教定位为公开地址的近似位置。</p>
         <p class="map-note" id="mapVerificationNote" hidden></p>
       </section>
@@ -160,7 +159,7 @@
 
   <dialog class="wechat-qr-dialog" id="wechatQrDialog" aria-labelledby="wechatQrTitle">
     <div class="wechat-qr-heading"><h2 id="wechatQrTitle">扫码添加南开小木同学</h2><button class="btn btn-sm" id="btnCloseWechatQr" type="button" aria-label="关闭微信二维码">关闭</button></div>
-    <div class="wechat-qr-large wechat-qr-crop"><img src="./assets/wechat-qr-cheerpup012.png" alt="微信扫一扫添加小木同学，微信号 cheerpup012" width="1202" height="1754" /></div>
+    <div class="wechat-qr-large wechat-qr-crop"><img src="./assets/wechat-qr-cheerpup012.png" alt="微信扫一扫添加小木同学，微信号 cheerpup012" width="1202" height="1754" loading="lazy" decoding="async" /></div>
     <p class="wechat-qr-id">微信号：<strong>cheerpup012</strong></p>
     <p class="wechat-qr-help">电脑端用微信扫一扫；手机端可长按保存图片，再用微信识别。</p>
     <div class="wechat-qr-actions"><button class="btn btn-primary" type="button" data-copy-wechat>📋 复制微信号</button><a class="btn btn-sm" href="./assets/wechat-qr-cheerpup012.png" download="小木同学微信二维码.png">保存二维码图片</a></div>
@@ -177,6 +176,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=28"></script>
+  <script type="module" src="./js/app.js?v=29"></script>
 </body>
 </html>

@@ -88,33 +88,40 @@ export const Store = {
 
   // 启动时自动探测 Cloudflare KV 云端存储；绑定后自动进入多人云端模式
   async init() {
-    try {
-      const imported = await fetch("./data/imported-orders.json", { cache: "no-cache" });
-      if (imported.ok) {
-        const rows = await imported.json();
-        importedOrders = Array.isArray(rows) ? rows : [];
-      }
-    } catch { importedOrders = []; }
-    try {
-      const res = await fetch(`${APP_CONFIG.apiBase}/store`, { cache: "no-store" });
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.ok && data.cloud) {
-          cloudReady = true;
-          cloudState.siteConfig = { ...DEFAULT_SITE_CONFIG, ...(data.siteConfig || {}) };
-          // [] 是有效的云端状态：已清空家教单时绝不能恢复演示数据。
-          cloudState.orders = Array.isArray(data.orders) ? data.orders : [];
-          cloudState.hiddenImported = Array.isArray(data.hiddenImported) ? data.hiddenImported : [];
-          cloudState.partTimePosts = Array.isArray(data.partTimePosts) ? data.partTimePosts : [];
-
-          if (localStorage.getItem(KEYS.token)) {
-            await this.syncSessionFromCloud();
-          }
-          return true;
+    // 公开导入单与云端更新互不依赖，并行获取，避免手机上串行等待两次网络请求。
+    const importedTask = (async () => {
+      try {
+        const imported = await fetch("./data/imported-orders.json", { cache: "default" });
+        if (imported.ok) {
+          const rows = await imported.json();
+          importedOrders = Array.isArray(rows) ? rows : [];
         }
+      } catch { importedOrders = []; }
+    })();
+    const cloudTask = (async () => {
+      try {
+        const res = await fetch(`${APP_CONFIG.apiBase}/store`, {
+          cache: "no-store", signal: AbortSignal.timeout(12000)
+        });
+        return res.ok ? await res.json() : null;
+      } catch {
+        // 未绑定 KV 或本地 file:// 打开时平滑回退本地存储。
+        return null;
       }
-    } catch {
-      // 未绑定 KV 或本地 file:// 打开时平滑回退本地存储
+    })();
+    const [, data] = await Promise.all([importedTask, cloudTask]);
+    if (data?.ok && data.cloud) {
+      cloudReady = true;
+      cloudState.siteConfig = { ...DEFAULT_SITE_CONFIG, ...(data.siteConfig || {}) };
+      // [] 是有效的云端状态：已清空家教单时绝不能恢复演示数据。
+      cloudState.orders = Array.isArray(data.orders) ? data.orders : [];
+      cloudState.hiddenImported = Array.isArray(data.hiddenImported) ? data.hiddenImported : [];
+      cloudState.partTimePosts = Array.isArray(data.partTimePosts) ? data.partTimePosts : [];
+
+      if (localStorage.getItem(KEYS.token)) {
+        await this.syncSessionFromCloud();
+      }
+      return true;
     }
     cloudReady = false;
     return false;

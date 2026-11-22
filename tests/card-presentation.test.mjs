@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cardCopyableAddress, cardDisplayTitle, cardSchedule, cardTeacherGenderTag, cardTitleSegments } from "../js/card-presentation.js";
+import { readFile } from "node:fs/promises";
+import { cardCopyableAddress, cardDisplayTitle, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "../js/card-presentation.js";
 
 test("卡片标题去掉重复的家教二字，但不改紧急标识", () => {
   assert.equal(cardDisplayTitle("高二地理家教"), "高二地理");
@@ -39,6 +40,23 @@ test("老师性别小标签准确区分要求、优先和不限", () => {
   assert.equal(cardTeacherGenderTag({ requirements: "最好男老师，有耐心" }), "♂ 男老师优先");
   assert.equal(cardTeacherGenderTag({ studentGender: "女生", requirements: "认真负责" }), "");
   assert.equal(cardTeacherGenderTag({ requirements: "男女老师均可" }), "");
+});
+
+test("学生性别标签明确标识学生，未提供性别时不编造", () => {
+  assert.equal(cardStudentGenderTag({ studentGender: "男生", requirements: "女老师优先" }), "学生 · 男生");
+  assert.equal(cardStudentGenderTag({ studentGender: "女孩" }), "学生 · 女生");
+  assert.equal(cardStudentGenderTag({ studentGender: "性别待补充" }), "");
+  assert.equal(cardStudentGenderTag({ requirements: "男老师优先" }), "");
+});
+
+test("启动完成不再等待地图，地图样式和卡片采用分阶段加载", async () => {
+  const app = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(app, /renderAll\(\);\s*completeStartupLoading\(\);\s*startupFinished = true;\s*scheduleMapOpen\(\)/);
+  assert.match(app, /const CARD_BATCH_SIZE = 24/);
+  assert.match(app, /items\.slice\(0, shownCardCount\)/);
+  assert(!html.includes('<link rel="stylesheet" href="https://unpkg.com/leaflet'), "地图外链 CSS 不应阻塞首屏");
+  assert(html.includes('id="mapLoadingNote"'), "地图需要独立加载提示");
 });
 
 test("复制地址只能采用公开地址，线上单不复制私人地址", () => {

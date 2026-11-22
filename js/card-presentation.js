@@ -56,6 +56,14 @@ export function cardTeacherGenderTag(order) {
   return `${gender === "男生" ? "♂" : "♀"} ${gender === "男生" ? "男老师" : "女老师"}${prefers ? "优先" : ""}`;
 }
 
+// 学生性别是固定信息；标签必须写明“学生”，避免与老师性别要求混淆。
+export function cardStudentGenderTag(order) {
+  const gender = String(order.studentGender || "").trim();
+  if (gender === "男生" || gender === "男孩") return "学生 · 男生";
+  if (gender === "女生" || gender === "女孩") return "学生 · 女生";
+  return "";
+}
+
 // 只能复制公开地址；不触碰后台 privateAddress、后台精确坐标或门牌。
 export function cardCopyableAddress(order) {
   const original = String(order.publicAddress || order.address || "").trim();

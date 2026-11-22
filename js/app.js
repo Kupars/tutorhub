@@ -7,7 +7,7 @@ import { Store } from "./store.js";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=2";
-import { cardCopyableAddress, cardSchedule, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=3";
+import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTitleSegments } from "./card-presentation.js?v=4";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 
 const state = {
@@ -27,6 +27,13 @@ const COLOR_MODE_KEY = "tutorhub_color_mode_v1";
 let mapCandidates = [];
 let mapSearchVersion = 0;
 let mapSearchTimer = null;
+let startupFinished = false;
+let mapOpenScheduled = false;
+let mapOpenPromise = null;
+let cardResultsKey = "";
+let shownCardCount = 24;
+let cardLoadObserver = null;
+const CARD_BATCH_SIZE = 24;
 
 const $ = (id) => document.getElementById(id);
 
@@ -154,7 +161,10 @@ function switchView(viewName) {
   $("btnMobileTutoring").setAttribute("aria-current", viewName === "hall" ? "page" : "false");
   $("btnMobileMore").setAttribute("aria-current", viewName === "parttime" ? "page" : "false");
   document.querySelector(".mobile-bottom-nav").classList.toggle("is-admin", viewName === "admin");
-  if (viewName === "hall") { renderHall(); setTimeout(() => { void openMap(); }, 0); }
+  if (viewName === "hall") {
+    renderHall();
+    if (startupFinished) scheduleMapOpen();
+  }
   if (viewName === "parttime") renderPartTime();
   if (viewName === "admin") renderAdminView();
 }
@@ -246,6 +256,8 @@ function renderHall() {
   renderCart();
 
   const grid = $("ordersGrid");
+  cardLoadObserver?.disconnect();
+  cardLoadObserver = null;
   grid.classList.toggle("is-list-mode", state.layout === "list");
   if (items.length === 0) {
     grid.innerHTML = `<div class="panel" style="grid-column:1/-1;text-align:center;color:var(--muted);">${Store.getOrders().length ? "没有符合条件的家教单，试试放宽筛选条件吧。" : "暂无家教单，管理员可在「安全后台」新增或批量导入。"} </div>`;
@@ -254,7 +266,7 @@ function renderHall() {
 
   const renderDetailCard = (o) => {
     const schedule = cardSchedule(o);
-    const teacherTag = cardTeacherGenderTag(o);
+    const studentTag = cardStudentGenderTag(o);
     const addressToCopy = cardCopyableAddress(o);
     const title = cardTitleSegments(o.title, o.subject);
     const titleHtml = `${escapeHtml(title.before)}${title.subject ? `<span class="card-subject">${escapeHtml(title.subject)}</span>` : ""}${escapeHtml(title.after)}`;
@@ -280,7 +292,7 @@ function renderHall() {
           ${o.urgent ? `<span class="chip urgent">🔥 急招</span>` : ""}
           ${o.onlineAllowed ? '<span class="chip">💻 可网课</span>' : ""}
           <span class="chip duration-chip">⏱ 每次${escapeHtml(schedule.duration)}</span>
-          ${teacherTag ? `<span class="chip teacher-gender-chip">${escapeHtml(teacherTag)}</span>` : ""}
+          ${studentTag ? `<span class="chip student-gender-chip">${escapeHtml(studentTag)}</span>` : ""}
           ${commuteHtml}
         </div>
 
@@ -291,29 +303,57 @@ function renderHall() {
 
         <div class="card-desc">
           <div><strong>成绩：</strong>${escapeHtml(o.currentScores)}</div>
-          <div><strong>学生：</strong>${escapeHtml(o.studentGender)}</div>
           ${Number(o.teacherCount) > 1 ? `<div class="teacher-count-row"><strong>需要老师：</strong>${Number(o.teacherCount)}位</div>` : ""}
           ${o.trialTime ? `<div><strong>试课：</strong>${escapeHtml(o.trialTime)}</div>` : ""}
           ${o.studentInfo ? `<div><strong>补充：</strong>${escapeHtml(o.studentInfo)}</div>` : ""}
           <div><strong>要求：</strong>${escapeHtml(o.requirements)}</div>
         </div>
 
-        <div class="card-foot">
-          <label class="order-check"><input type="checkbox" data-select="${escapeHtml(o.id)}" ${o.selected ? "checked" : ""} /> 勾选此单</label>
-          <div class="card-actions">
-            <button type="button" class="btn btn-sm" data-copy="${escapeHtml(o.id)}">📋 复制整单</button>
-          </div>
-        </div>
         <div class="card-location-row">
           <div class="card-location"><span class="card-location-icon" aria-hidden="true">📍</span><span class="card-location-text">${escapeHtml(o.publicAddress || o.address || "公开地址待补充")}</span></div>
           ${addressToCopy ? `<button type="button" class="btn btn-sm btn-copy-address" data-copy-address="${escapeHtml(o.id)}">复制地址</button>` : ""}
+        </div>
+        <div class="card-foot">
+          <button type="button" class="btn btn-sm" data-copy="${escapeHtml(o.id)}">📋 复制整单</button>
+          <label class="order-check ${o.selected ? "is-selected" : ""}"><input type="checkbox" data-select="${escapeHtml(o.id)}" ${o.selected ? "checked" : ""} /><span>${o.selected ? "✓ 已加入选单" : "＋ 加入选单"}</span></label>
         </div>
       </article>
     `;
   };
 
+  const nextResultsKey = `${state.layout}|${items.map((o) => o.id).join("|")}`;
+  if (cardResultsKey !== nextResultsKey) {
+    cardResultsKey = nextResultsKey;
+    shownCardCount = CARD_BATCH_SIZE;
+  }
   if (state.layout === "cards") {
-    grid.innerHTML = items.map(renderDetailCard).join("");
+    grid.innerHTML = items.slice(0, shownCardCount).map(renderDetailCard).join("");
+    if (shownCardCount < items.length) {
+      grid.insertAdjacentHTML("beforeend", `<div class="load-more-orders" id="loadMoreOrders"><button class="btn btn-sm" type="button" id="btnLoadMoreOrders">加载更多家教单 · 还剩 ${items.length - shownCardCount} 条</button></div>`);
+      const loadMore = $("loadMoreOrders");
+      const appendNextBatch = () => {
+        if (!loadMore.isConnected) return;
+        cardLoadObserver?.disconnect();
+        cardLoadObserver = null;
+        const nextCount = Math.min(items.length, shownCardCount + CARD_BATCH_SIZE);
+        loadMore.insertAdjacentHTML("beforebegin", items.slice(shownCardCount, nextCount).map(renderDetailCard).join(""));
+        shownCardCount = nextCount;
+        if (nextCount >= items.length) loadMore.remove();
+        else {
+          $("btnLoadMoreOrders").textContent = `加载更多家教单 · 还剩 ${items.length - nextCount} 条`;
+          observeLoadMore();
+        }
+      };
+      const observeLoadMore = () => {
+        if (!window.IntersectionObserver) return;
+        cardLoadObserver = new IntersectionObserver((entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) appendNextBatch();
+        }, { rootMargin: "400px 0px" });
+        cardLoadObserver.observe(loadMore);
+      };
+      $("btnLoadMoreOrders").onclick = appendNextBatch;
+      observeLoadMore();
+    }
   } else {
     const header = ["单号", "区域", "年级", "性别", "科目", "时薪", "频率", "详情"]
       .map((label) => `<span>${label}</span>`).join("");
@@ -338,35 +378,35 @@ function renderHall() {
     }).join("")}</div>`;
   }
 
-  grid.querySelectorAll("[data-expand-order]").forEach((button) => {
-    button.onclick = () => {
+  // 事件委托：滚动新增的卡片无需重复绑定监听器。
+  grid.onclick = (event) => {
+    const button = event.target.closest("[data-expand-order]");
+    if (button) {
       expandedOrderId = expandedOrderId === button.dataset.expandOrder ? null : button.dataset.expandOrder;
       renderHall();
-    };
-  });
-
-  grid.querySelectorAll("[data-select]").forEach((input) => {
-    input.onchange = () => {
-      Store.toggleSelectedOrder(input.dataset.select);
-      renderHall();
-      showToast(Store.getSelectedOrderIds().includes(input.dataset.select) ? "已勾选" : "已取消勾选");
-    };
-  });
-  grid.querySelectorAll("[data-copy]").forEach((btn) => {
-    btn.onclick = () => {
-      const o = Store.getOrders().find((x) => x.id === btn.dataset.copy);
-      if (!o) return;
-      copyText(formatOrderText(o), "已复制标准九字段家教单");
-    };
-  });
-  grid.querySelectorAll("[data-copy-address]").forEach((btn) => {
-    btn.onclick = () => {
-      const order = Store.getOrders().find((item) => item.id === btn.dataset.copyAddress);
+      return;
+    }
+    const copyButton = event.target.closest("[data-copy]");
+    if (copyButton) {
+      const order = Store.getOrders().find((item) => item.id === copyButton.dataset.copy);
+      if (order) copyText(formatOrderText(order), "已复制标准九字段家教单");
+      return;
+    }
+    const addressButton = event.target.closest("[data-copy-address]");
+    if (addressButton) {
+      const order = Store.getOrders().find((item) => item.id === addressButton.dataset.copyAddress);
       const address = order && cardCopyableAddress(order);
       if (address) copyText(address, "已复制公开地址，可粘贴到地图导航软件");
       else showToast("这条家教单暂无可导航的线下地址");
-    };
-  });
+    }
+  };
+  grid.onchange = (event) => {
+    const input = event.target;
+    if (!input.matches("[data-select]")) return;
+    Store.toggleSelectedOrder(input.dataset.select);
+    renderHall();
+    showToast(Store.getSelectedOrderIds().includes(input.dataset.select) ? "已加入选单" : "已移出选单");
+  };
 }
 
 function getSelectedOrders() {
@@ -920,15 +960,40 @@ function locateMe(silent = false) {
   { enableHighAccuracy: false, timeout: 9000, maximumAge: 180000 });
 }
 
-async function openMap() {
-  try {
-    await openMapBoard(Store.getOrigin());
-    updateMapOrders(visibleBoardOrders);
-    return true;
-  } catch (error) {
-    $("mapLocationNote").textContent = `${error.message}；仍可在上方输入地址计算估算路程。`;
-    return false;
+function scheduleMapOpen() {
+  if (mapOpenScheduled) return;
+  mapOpenScheduled = true;
+  // 给数据和首批卡片至少一帧绘制时间，再启动地图脚本、定位文件与底图请求。
+  requestAnimationFrame(() => setTimeout(() => {
+    mapOpenScheduled = false;
+    if (state.view === "hall") void openMap();
+  }, 0));
+}
+
+function openMap() {
+  if (mapOpenPromise) return mapOpenPromise;
+  const loadingNote = $("mapLoadingNote");
+  const retryButton = $("btnRetryMap");
+  if (!loadingNote.hidden) {
+    loadingNote.firstChild.textContent = "🗺 地图正在单独加载，家教单已经可以浏览…";
+    retryButton.hidden = true;
   }
+  mapOpenPromise = (async () => {
+    try {
+      await openMapBoard(Store.getOrigin());
+      updateMapOrders(visibleBoardOrders);
+      loadingNote.hidden = true;
+      return true;
+    } catch (error) {
+      $("mapLocationNote").textContent = `${error.message}；家教单和筛选仍可正常使用。`;
+      loadingNote.firstChild.textContent = "地图暂时未能加载，家教卡片不受影响。";
+      retryButton.hidden = false;
+      return false;
+    } finally {
+      mapOpenPromise = null;
+    }
+  })();
+  return mapOpenPromise;
 }
 
 function updateStartupLoading(message) {
@@ -939,19 +1004,6 @@ function completeStartupLoading() {
   $("startupLoading").hidden = true;
 }
 
-async function waitForMapStartup() {
-  let timeoutId;
-  const mapTask = openMap();
-  const timeout = new Promise((resolve) => {
-    timeoutId = setTimeout(() => resolve(false), 9500);
-  });
-  const loaded = await Promise.race([mapTask, timeout]);
-  clearTimeout(timeoutId);
-  if (!loaded && $("mapLocationNote").textContent.startsWith("默认尝试")) {
-    $("mapLocationNote").textContent = "地图加载较慢，家教单已可查看；地图会在网络恢复后继续显示。";
-  }
-}
-
 function setBoardLayout(layout) {
   if (layout !== "list" && layout !== "cards") return;
   state.layout = layout;
@@ -960,6 +1012,7 @@ function setBoardLayout(layout) {
 }
 
 function initControls() {
+  $("btnRetryMap").onclick = () => { void openMap(); };
   document.querySelectorAll("[data-copy-wechat]").forEach((button) => {
     button.onclick = () => copyText("cheerpup012", "微信号已复制，在微信搜索添加小木同学");
   });
@@ -1111,10 +1164,10 @@ function renderAll() {
     initControls();
     await Store.init();
     renderAll();
-    updateStartupLoading("正在准备地图和家教地点…");
-    await waitForMapStartup();
-    if (!Store.getOrigin()?.manuallyChosen) locateMe(true);
     completeStartupLoading();
+    startupFinished = true;
+    scheduleMapOpen();
+    if (!Store.getOrigin()?.manuallyChosen) locateMe(true);
   } catch (error) {
     console.error("看板初始化失败", error);
     updateStartupLoading("加载失败，请检查网络后重试。");

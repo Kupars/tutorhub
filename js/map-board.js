@@ -86,6 +86,14 @@ function loadLeaflet() {
   if (globalThis.L) return Promise.resolve(globalThis.L);
   if (mapLoading) return mapLoading;
   mapLoading = new Promise((resolve, reject) => {
+    // 地图 CSS 与脚本一起按需加载，不阻塞家教单首屏的样式和展示。
+    if (!document.getElementById("leaflet-map-styles")) {
+      const stylesheet = document.createElement("link");
+      stylesheet.id = "leaflet-map-styles";
+      stylesheet.rel = "stylesheet";
+      stylesheet.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.append(stylesheet);
+    }
     const script = document.createElement("script");
     script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
     script.onload = () => globalThis.L ? resolve(globalThis.L) : reject(new Error("地图脚本不可用"));
@@ -395,8 +403,7 @@ export async function openMapBoard(origin) {
       maxZoom: 18,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
     });
-    // Leaflet 容器创建完成不代表底图已显示；首批瓦片加载后再结束启动动画。
-    // 地图第三方服务异常时兜底返回，不能无限挡住家教单。
+    // 地图区域单独等待首批底图瓦片；不会遮挡已经可用的家教列表。
     firstTilesReady = new Promise((resolve) => {
       let settled = false;
       const done = (loaded) => {
