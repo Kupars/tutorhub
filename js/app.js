@@ -1207,7 +1207,7 @@ function initControls() {
   $("btnRetryMap").onclick = () => { void openMap(); };
   $("btnExpandMap").onclick = () => {
     const expanded = $("mapBoard").classList.toggle("map-expanded");
-    $("btnExpandMap").textContent = expanded ? "↙ 收起地图" : "⛶ 放大地图";
+    $("btnExpandMap").textContent = expanded ? "↙ 收起地图" : "⛶ 展开地图";
     $("btnExpandMap").setAttribute("aria-expanded", String(expanded));
     requestAnimationFrame(() => refreshMapSize());
     setTimeout(refreshMapSize, 220);

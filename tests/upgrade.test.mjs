@@ -96,13 +96,15 @@ test("可能重复单提醒但不武断删除历史重号与同小区不同学�
   assert.equal(findPotentialDuplicates([{ ...near, grade: "高三" }], [old]).length, 0);
 });
 
-test("界面使用emoji选单、紧凑手机地图、可放大地图并记忆筛选", () => {
+test("界面使用emoji选单、紧凑手机地图、可展开地图并记忆筛选", () => {
   const app = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   const css = readFileSync(new URL("../css/styles.css", import.meta.url), "utf8");
   assert.match(app, /order-check-emoji.*✅.*🛒/);
   assert.match(app, /FILTERS_KEY.*tutorhub_filters_v1/);
   assert.match(html, /id="btnExpandMap"/);
+  assert.match(html, /⛶ 展开地图/);
+  assert.match(app, /expanded \? "↙ 收起地图" : "⛶ 展开地图"/);
   assert.match(html, /id="aiPreference"/);
   assert.match(css, /#tutorMap \{ height:240px;/);
   assert.match(app, /btnAdminBatchClose/);
