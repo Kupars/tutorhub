@@ -4,6 +4,7 @@ import { formatOrderText } from "./order-format.js";
 export function teacherGenderRequirement(order) {
   const raw = String(order.requirements || "");
   const explicit = String(order.genderPref || "");
+  if (/男女(?:老师|教师|大学生|教员)?(?:都可|均可|不限)|(?:男|女)(?:女|男)(?:性别)?不限/.test(raw)) return "不限";
   if (/^(男|男生|男老师)$/.test(explicit)) return "男生";
   if (/^(女|女生|女老师)$/.test(explicit)) return "女生";
   // 老师性别与学生性别是不同字段；只读招聘要求中的明确性别条件。

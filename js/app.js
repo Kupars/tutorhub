@@ -6,7 +6,8 @@ import { parseMessyOrders, interpretSiteCommand, optimizeOrderAddressesWithAI } 
 import { Store } from "./store.js";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
-import { buildWechatSelectionText, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js";
+import { buildWechatSelectionText, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=2";
+import { cardCopyableAddress, cardDisplayTitle, cardSchedule, cardTeacherGenderTag } from "./card-presentation.js";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 
 const state = {
@@ -247,6 +248,9 @@ function renderHall() {
   }
 
   const renderDetailCard = (o) => {
+    const schedule = cardSchedule(o);
+    const teacherTag = cardTeacherGenderTag(o);
+    const addressToCopy = cardCopyableAddress(o);
     const commuteHtml = o.commute
       ? o.commute.isOnline
         ? `<span class="chip commute">💻 线上免通勤</span>`
@@ -257,8 +261,8 @@ function renderHall() {
       <article class="order-card ${o.selected ? "order-selected" : ""}">
         <div class="card-head">
           <div>
-            <div style="font-size:12px;color:var(--muted);margin-bottom:2px;">${escapeHtml(o.orderNumber || o.id)}</div>
-            <div class="card-title">${escapeHtml(o.district === "线上" ? "线上" : canonicalDistrict(o.district) || "地点待补充")} · ${escapeHtml(o.title)}</div>
+            <div class="order-number">${escapeHtml(o.orderNumber || o.id)}</div>
+            <div class="card-title">${escapeHtml(o.district === "线上" ? "线上" : canonicalDistrict(o.district) || "地点待补充")} · ${escapeHtml(cardDisplayTitle(o.title) || o.title)}</div>
           </div>
           <div class="price-badge">${escapeHtml((o.salaryText || "老师报价").replace("（可报价）", ""))}</div>
         </div>
@@ -267,16 +271,21 @@ function renderHall() {
           ${o.status && o.status !== "待确认" ? `<span class="chip ${statusClass}">${escapeHtml(o.status)}</span>` : ""}
           ${o.urgent ? `<span class="chip urgent">🔥 急招</span>` : ""}
           ${o.onlineAllowed ? '<span class="chip">💻 可网课</span>' : ""}
+          ${schedule.dayLabel ? `<span class="chip day-chip" title="${escapeHtml(schedule.original)}">🗓 ${escapeHtml(schedule.dayLabel)}</span>` : ""}
+          ${teacherTag ? `<span class="chip teacher-gender-chip">${escapeHtml(teacherTag)}</span>` : ""}
           ${commuteHtml}
+        </div>
+
+        <div class="schedule-summary" aria-label="家教上课频率和每次时长">
+          <div class="schedule-metric"><span class="schedule-metric-label">↻ 上课频率</span><strong>${escapeHtml(schedule.frequency)}</strong></div>
+          <div class="schedule-metric"><span class="schedule-metric-label">◷ 每次时长</span><strong>${escapeHtml(schedule.duration)}</strong></div>
         </div>
 
         <div class="card-desc">
           <div><strong>地点：</strong>${escapeHtml(o.address)}</div>
-          <div><strong>时间：</strong>${escapeHtml(o.weeklyFrequency)} · 每次 ${o.hoursPerSession}小时</div>
           <div><strong>成绩：</strong>${escapeHtml(o.currentScores)}</div>
           <div><strong>学生：</strong>${escapeHtml(o.studentGender)}</div>
           ${Number(o.teacherCount) > 1 ? `<div class="teacher-count-row"><strong>需要老师：</strong>${Number(o.teacherCount)}位</div>` : ""}
-          ${teacherGenderRequirement(o) === "不限" ? "" : `<div><strong>老师性别：</strong>${teacherGenderRequirement(o) === "男生" ? "男老师" : "女老师"}</div>`}
           ${o.trialTime ? `<div><strong>试课：</strong>${escapeHtml(o.trialTime)}</div>` : ""}
           ${o.studentInfo ? `<div><strong>补充：</strong>${escapeHtml(o.studentInfo)}</div>` : ""}
           <div><strong>要求：</strong>${escapeHtml(o.requirements)}</div>
@@ -284,7 +293,10 @@ function renderHall() {
 
         <div class="card-foot">
           <label class="order-check"><input type="checkbox" data-select="${escapeHtml(o.id)}" ${o.selected ? "checked" : ""} /> 勾选此单</label>
-          <button class="btn btn-sm" data-copy="${escapeHtml(o.id)}">📋 单独复制</button>
+          <div class="card-actions">
+            <button type="button" class="btn btn-sm btn-copy-address" data-copy-address="${escapeHtml(o.id)}" ${addressToCopy ? "" : "disabled"}>📍 复制地址</button>
+            <button type="button" class="btn btn-sm" data-copy="${escapeHtml(o.id)}">📋 复制整单</button>
+          </div>
         </div>
       </article>
     `;
@@ -335,6 +347,14 @@ function renderHall() {
       const o = Store.getOrders().find((x) => x.id === btn.dataset.copy);
       if (!o) return;
       copyText(formatOrderText(o), "已复制标准九字段家教单");
+    };
+  });
+  grid.querySelectorAll("[data-copy-address]").forEach((btn) => {
+    btn.onclick = () => {
+      const order = Store.getOrders().find((item) => item.id === btn.dataset.copyAddress);
+      const address = order && cardCopyableAddress(order);
+      if (address) copyText(address, "已复制公开地址，可粘贴到地图导航软件");
+      else showToast("这条家教单暂无可导航的线下地址");
     };
   });
 }
