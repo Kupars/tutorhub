@@ -7,6 +7,7 @@ import { Store } from "./store.js";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js";
+import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 
 const state = {
   view: "hall",
@@ -38,19 +39,28 @@ function savedColorMode() {
 function applyColorMode(mode) {
   document.documentElement.dataset.colorMode = mode;
   const isDark = mode === "dark";
+  const season = SEASON_DETAILS[document.documentElement.dataset.season] || SEASON_DETAILS.winter;
   for (const id of ["btnColorMode", "btnMobileColorMode"]) {
     const button = $(id);
     if (!button) continue;
     button.textContent = isDark ? "☀️ 浅色" : "🌙 深色";
     button.setAttribute("aria-label", isDark ? "切换浅色模式" : "切换深色模式");
     button.setAttribute("aria-pressed", String(isDark));
-    button.title = isDark ? "切换冬日浅色主题" : "切换冬日深色主题";
+    button.title = `切换${season.label}${isDark ? "浅色" : "深色"}主题`;
   }
   const browserTheme = document.querySelector('meta[name="theme-color"]');
-  if (browserTheme) browserTheme.content = isDark ? "#0b1728" : "#f0f8ff";
+  if (browserTheme) browserTheme.content = isDark ? "#0b1728" : season.lightThemeColor;
+}
+
+function syncSeasonTheme() {
+  const season = getSeasonForDate();
+  if (document.documentElement.dataset.season === season) return;
+  document.documentElement.dataset.season = season;
+  applyColorMode(document.documentElement.dataset.colorMode === "dark" ? "dark" : "light");
 }
 
 function initColorMode() {
+  document.documentElement.dataset.season = getSeasonForDate();
   const media = window.matchMedia?.("(prefers-color-scheme: dark)");
   applyColorMode(savedColorMode() || (media?.matches ? "dark" : "light"));
   for (const id of ["btnColorMode", "btnMobileColorMode"]) {
@@ -63,6 +73,9 @@ function initColorMode() {
   media?.addEventListener?.("change", (event) => {
     if (!savedColorMode()) applyColorMode(event.matches ? "dark" : "light");
   });
+  // 页面长时间不关闭时也会在节气更替后自动切换；重新切回标签页立即校对。
+  window.setInterval(syncSeasonTheme, 15 * 60 * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) syncSeasonTheme(); });
 }
 
 function showToast(msg) {
@@ -848,15 +861,23 @@ async function suggestMapCandidates(text) {
 function locateMe(silent = false) {
   if (!navigator.geolocation) return silent ? null : showToast("当前浏览器不支持定位，请手动输入地址");
   if (!silent) showToast("正在请求定位权限…");
+  const button = $("btnMapRelocate");
+  if (!silent && button) { button.disabled = true; button.textContent = "◎ 定位中…"; }
+  const finish = () => {
+    if (!silent && button) { button.disabled = false; button.textContent = "◎ 重新定位当前位置"; }
+  };
   navigator.geolocation.getCurrentPosition(async (position) => {
-    const { latitude: lat, longitude: lng } = position.coords;
-    // GPS 只在当前浏览器本地保存。计算基于公开区级坐标，不上报服务器。
-    await Store.setOrigin({ name: "我的当前位置", lat, lng, isGps: true });
-    updateMapOrigin(Store.getOrigin());
-    moveMapTo(lat, lng, 13);
-    renderHall();
-    if (!silent) showToast("定位成功，已重新计算大致路程");
-  }, () => { if (!silent) showToast("定位未授权或不可用，可以手动输入地点"); },
+    try {
+      const { latitude: lat, longitude: lng } = position.coords;
+      // GPS 只在当前浏览器本地保存，不上传后台；地图订单仍只使用公开地址。
+      await Store.setOrigin({ name: "我的当前位置", lat, lng, isGps: true });
+      updateMapOrigin(Store.getOrigin());
+      moveMapTo(lat, lng, 13);
+      renderHall();
+      if (!silent) showToast("定位成功，已重新计算大致路程");
+    } catch { if (!silent) showToast("更新当前位置失败，请稍后重试"); }
+    finally { finish(); }
+  }, () => { finish(); if (!silent) showToast("定位未授权或不可用，可以手动输入地点"); },
   { enableHighAccuracy: false, timeout: 9000, maximumAge: 180000 });
 }
 
@@ -929,6 +950,7 @@ function initControls() {
     renderHall();
     showToast(`已按筛选条件、时薪和估算路程智能勾选 ${candidates.length} 条，请核对后复制`);
   };
+  $("btnMapRelocate").onclick = () => locateMe(false);
   $("btnMapSearch").onclick = async () => {
     const text = $("mapSearchInput").value.trim();
     if (!text) return showToast("请输入地点名称");

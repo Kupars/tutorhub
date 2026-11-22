@@ -8,6 +8,20 @@ import { canonicalDistrict, normalizeOrder } from "../js/order-format.js";
 import { SAMPLE_ORDERS } from "../js/data.js";
 import { normalizePublicAddress, safeOptimizedPublicAddress } from "../js/address-normalizer.js";
 import { isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "../js/commute.js";
+import { getSeasonForDate, termDay } from "../js/season-theme.js";
+
+test("四季主题按北京时间节气日切换，跨年仍自动识别冬季", () => {
+  assert.deepEqual(["spring", "summer", "autumn", "winter"].map((season) => termDay(2026, season)), [4, 5, 7, 7]);
+  assert.deepEqual(["spring", "summer", "autumn", "winter"].map((season) => termDay(2027, season)), [4, 6, 8, 7]);
+  assert.equal(getSeasonForDate(new Date("2026-02-03T15:00:00Z")), "winter");
+  assert.equal(getSeasonForDate(new Date("2026-02-03T16:00:00Z")), "spring");
+  assert.equal(getSeasonForDate(new Date("2026-05-04T16:00:00Z")), "summer");
+  assert.equal(getSeasonForDate(new Date("2026-08-06T16:00:00Z")), "autumn");
+  assert.equal(getSeasonForDate(new Date("2026-11-06T16:00:00Z")), "winter");
+  assert.equal(getSeasonForDate(new Date("2026-11-22T10:00:00Z")), "winter");
+  assert.equal(getSeasonForDate(new Date("2027-05-05T15:00:00Z")), "spring");
+  assert.equal(getSeasonForDate(new Date("2027-05-05T16:00:00Z")), "summer");
+});
 
 test("220条公开家教单均有独立内部ID，原始重复编号不被篡改", async () => {
   const items = JSON.parse(await readFile(new URL("../data/imported-orders.json", import.meta.url), "utf8"));
