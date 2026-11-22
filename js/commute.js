@@ -71,8 +71,8 @@ export async function resolveUserAddress(addressText) {
     return { name: clean, lat: inferred.lat, lng: inferred.lng };
   }
 
-  // 即使未命中内置地标也保留用户填写的地址文本，按默认城区中心给参考耗时
-  return { name: clean, lat: 39.1095, lng: 117.1731, approximate: true };
+  // 未命中的地点不能冒充“天津大学”来估算，否则排序和时长会误导用户。
+  throw new Error("暂时无法定位该地点，请输入区名、天津大学等地标，或在地图上拖动选点");
 }
 
 // Haversine 球面距离（公里）
@@ -85,6 +85,19 @@ export function calcDistanceKm(lat1, lng1, lat2, lng2) {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+let publicGeoCache = {};
+let lastGeoLoad = 0;
+function publicGeocodedPoint(order) {
+  try {
+    if (Date.now() - lastGeoLoad > 2500) {
+      publicGeoCache = JSON.parse(localStorage.getItem("tutorhub_public_address_geocodes_v1") || "{}");
+      lastGeoLoad = Date.now();
+    }
+  } catch { return null; }
+  const location = publicGeoCache[String(order.publicAddress || order.address || "").trim()];
+  return Number.isFinite(location?.lat) && Number.isFinite(location?.lng) ? location : null;
 }
 
 // 计算骑行与公交双耗时（同时返回骑行、公交与距离）
@@ -102,14 +115,12 @@ export function estimateCommuteLocal(origin, order) {
   if (!origin || origin.lat == null || origin.lng == null) {
     return null;
   }
-  let targetLat = order.lat;
-  let targetLng = order.lng;
-  if (targetLat == null || targetLng == null) {
-    const inferred = inferCoordsFromText(`${order.district || ""} ${order.address || ""}`);
-    if (!inferred) return null;
-    targetLat = inferred.lat;
-    targetLng = inferred.lng;
-  }
+  // 公共看板仅用行政区示意坐标估算；不读取后台私有精确坐标。
+  const inferred = publicGeocodedPoint(order) ||
+    inferCoordsFromText(String(order.publicAddress || order.address || "")) || inferCoordsFromText(order.district || "");
+  if (!inferred) return null;
+  const targetLat = inferred.lat;
+  const targetLng = inferred.lng;
 
   const straightKm = calcDistanceKm(origin.lat, origin.lng, targetLat, targetLng);
   const roadKm = Math.max(0.5, Number((straightKm * 1.28).toFixed(1)));

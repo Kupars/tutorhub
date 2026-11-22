@@ -1,19 +1,22 @@
 import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { estimateCommuteLocal, resolveUserAddress } from "./commute.js";
+import { getMapCenter, moveMapTo, openMapBoard, updateMapOrders, updateMapOrigin } from "./map-board.js";
 import { parseMessyOrders, interpretSiteCommand } from "./ai-engine.js";
 import { Store } from "./store.js";
 import { formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
-import { buildWechatSelectionText, sortBoardOrders } from "./board-utils.js";
+import { buildWechatSelectionText, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js";
 
 const state = {
   view: "hall",
-  onlyOpen: true,
+  onlyOpen: false,
   onlySelected: false,
   parsedDraftOrders: [],
-  editingOrderId: null
+  editingOrderId: null,
+  editingPartTimeId: null
 };
+let visibleBoardOrders = [];
 
 const $ = (id) => document.getElementById(id);
 
@@ -91,13 +94,22 @@ function switchView(viewName) {
   $("btnAdminEntry").hidden = viewName === "admin";
   $("btnBackToHall").hidden = viewName !== "admin";
   $("cartDock").hidden = viewName !== "hall";
+  $("btnViewTutoring").classList.toggle("active", viewName === "hall");
+  $("btnViewPartTime").classList.toggle("active", viewName === "parttime");
   if (viewName === "hall") renderHall();
+  if (viewName === "parttime") renderPartTime();
   if (viewName === "admin") renderAdminView();
 }
 
 // ---------------- 视图 1：招募大厅 ----------------
 function renderHall() {
   syncOriginInput();
+  const subjectSelect = $("qSubject");
+  const selectedSubject = subjectSelect.value;
+  const subjects = [...new Set([...SUBJECTS, ...Store.getOrders().flatMap((o) => getSubjectList(o.subject))])].filter(Boolean);
+  subjectSelect.innerHTML = '<option value="">全部科目</option>' +
+    subjects.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
+  subjectSelect.value = subjects.includes(selectedSubject) ? selectedSubject : "";
   const districtSelect = $("qDistrict");
   const selectedDistrict = districtSelect.value;
   const districts = [...new Set(Store.getOrders().map((o) => o.district).filter((d) => d && d !== "区域待补充"))].sort();
@@ -110,6 +122,7 @@ function renderHall() {
   const mode = $("qMode").value;
   const sort = $("qSort").value;
   const studentGender = $("qStudentGender").value;
+  const teacherGender = $("qTeacherGender").value;
   const district = $("qDistrict").value;
   const time = $("qTime").value;
   const minRate = Number($("qMinRate").value) || 0;
@@ -126,15 +139,18 @@ function renderHall() {
     if (state.onlyOpen && o.status !== "招募中") return false;
     if (state.onlySelected && !o.selected) return false;
     if (subject && o.subject !== subject && !getSubjectList(o.subject).includes(subject)) return false;
-    if (grade && o.grade !== grade && !(grade === "小学" && /[一二三四五六1-6]年级/.test(o.grade))) return false;
+    if (grade && o.grade !== grade && !o.grade.includes(grade) && !(grade === "小学" && /[一二三四五六1-6]年级/.test(o.grade))) return false;
     if (mode && o.mode !== mode) return false;
     if (studentGender && o.studentGender !== studentGender) return false;
+    const teacherPref = teacherGenderRequirement(o);
+    if (teacherGender === "不限" && teacherPref !== "不限") return false;
+    if (["男生", "女生"].includes(teacherGender) && teacherPref !== "不限" && teacherPref !== teacherGender) return false;
     if (district && o.district !== district) return false;
     if (minRate && o.hourlyRate < minRate) return false;
     if (time === "weekend" && !/周末|周六|周日|周天/.test(o.weeklyFrequency || o.schedule || "")) return false;
     if (time === "weekday" && !/周中|周一|周二|周三|周四|周五/.test(o.weeklyFrequency || o.schedule || "")) return false;
     if (q) {
-      const hay = [o.id, o.title, o.subject, o.grade, o.studentGender, o.teacherCount,
+      const hay = [o.id, o.orderNumber, o.title, o.subject, o.grade, o.studentGender, o.teacherCount,
         o.currentScores, o.weeklyFrequency, o.trialTime, o.salaryText, o.district, o.address,
         o.studentInfo, o.requirements, ...(o.tags || [])]
         .join(" ")
@@ -145,9 +161,11 @@ function renderHall() {
   });
 
   items = sortBoardOrders(items, sort);
+  visibleBoardOrders = items;
+  updateMapOrders(items);
 
   $("resultStats").textContent = `共匹配 ${items.length} 条家教单（当前出发地址：${origin.name}）`;
-  const advancedIds = ["qSubject", "qGrade", "qMode", "qStudentGender", "qDistrict", "qTime", "qMinRate"];
+  const advancedIds = ["qSubject", "qGrade", "qMode", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate"];
   const activeCount = advancedIds.filter((id) => $(id).value).length + Number(!state.onlyOpen) + Number(state.onlySelected);
   $("activeFilterCount").textContent = activeCount ? ` · 已选 ${activeCount} 项` : "";
   renderCart();
@@ -164,15 +182,15 @@ function renderHall() {
     const commuteHtml = o.commute
       ? o.commute.isOnline
         ? `<span class="chip commute">💻 线上免通勤</span>`
-        : `<span class="chip commute">🚲 骑行约 ${o.commute.bikeMin} 分钟</span><span class="chip commute">🚌 公交约 ${o.commute.transitMin} 分钟 · ${o.commute.distanceKm}km</span>`
+        : `<span class="chip commute">路程约：骑行 ${o.commute.bikeMin} 分 / 公交 ${o.commute.transitMin} 分</span>`
       : "";
     const statusClass = o.status === "招募中" ? "status-open" : "status-closed";
     return `
       <article class="order-card ${o.selected ? "order-selected" : ""}">
         <div class="card-head">
           <div>
-            <div style="font-size:12px;color:var(--muted);margin-bottom:2px;">${escapeHtml(o.id)} · ${escapeHtml(o.district || o.mode)}</div>
-            <div class="card-title">${escapeHtml(o.title)}</div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:2px;">${escapeHtml(o.orderNumber || o.id)}</div>
+            <div class="card-title">${escapeHtml(o.district === "线上" ? "线上" : o.district || "地点待补充")} · ${escapeHtml(o.title)}</div>
           </div>
           <div class="price-badge">${escapeHtml((o.salaryText || "老师报价").replace("（可报价）", ""))}</div>
         </div>
@@ -180,10 +198,6 @@ function renderHall() {
         <div class="meta-row">
           <span class="chip ${statusClass}">${escapeHtml(o.status)}</span>
           ${o.urgent ? `<span class="chip urgent">🔥 急招</span>` : ""}
-          <span class="chip">${escapeHtml(o.grade)} · ${escapeHtml(o.subject)}</span>
-          <span class="chip">${escapeHtml(o.mode)}</span>
-          <span class="chip">👤 学生：${escapeHtml(o.studentGender)}</span>
-          <span class="chip">招 ${o.teacherCount} 位老师</span>
           ${o.onlineAllowed ? '<span class="chip">💻 可网课</span>' : ""}
           ${commuteHtml}
         </div>
@@ -192,24 +206,26 @@ function renderHall() {
           <div><strong>地点：</strong>${escapeHtml(o.address)}</div>
           <div><strong>时间：</strong>${escapeHtml(o.weeklyFrequency)} · 每次 ${o.hoursPerSession}小时${monthlyEst ? ` · 按最低时薪约 ¥${monthlyEst}/月` : ""}</div>
           <div><strong>成绩：</strong>${escapeHtml(o.currentScores)}</div>
+          <div><strong>学生：</strong>${escapeHtml(o.studentGender)} · <strong>老师人数：</strong>${o.teacherCount}位</div>
+          ${teacherGenderRequirement(o) === "不限" ? "" : `<div><strong>老师性别：</strong>${teacherGenderRequirement(o) === "男生" ? "男老师" : "女老师"}</div>`}
           ${o.trialTime ? `<div><strong>试课：</strong>${escapeHtml(o.trialTime)}</div>` : ""}
           ${o.studentInfo ? `<div><strong>补充：</strong>${escapeHtml(o.studentInfo)}</div>` : ""}
           <div><strong>要求：</strong>${escapeHtml(o.requirements)}</div>
         </div>
 
         <div class="card-foot">
-          <button class="btn ${o.selected ? "btn-in-cart" : "btn-primary"} btn-sm" data-select="${escapeHtml(o.id)}" aria-pressed="${o.selected}">${o.selected ? "✓ 已加入 · 移出选单" : "+ 加入选单"}</button>
+          <label class="order-check"><input type="checkbox" data-select="${escapeHtml(o.id)}" ${o.selected ? "checked" : ""} /> 勾选此单</label>
           <button class="btn btn-sm" data-copy="${escapeHtml(o.id)}">📋 单独复制</button>
         </div>
       </article>
     `;
   }).join("");
 
-  grid.querySelectorAll("[data-select]").forEach((btn) => {
-    btn.onclick = () => {
-      Store.toggleSelectedOrder(btn.dataset.select);
+  grid.querySelectorAll("[data-select]").forEach((input) => {
+    input.onchange = () => {
+      Store.toggleSelectedOrder(input.dataset.select);
       renderHall();
-      showToast(Store.getSelectedOrderIds().includes(btn.dataset.select) ? "已加入选单清单" : "已从选单清单移除");
+      showToast(Store.getSelectedOrderIds().includes(input.dataset.select) ? "已勾选" : "已取消勾选");
     };
   });
   grid.querySelectorAll("[data-copy]").forEach((btn) => {
@@ -229,18 +245,36 @@ function getSelectedOrders() {
 function renderCart() {
   const orders = getSelectedOrders();
   $("cartCount").textContent = String(orders.length);
-  $("btnOpenCart").textContent = orders.length ? `查看 ${orders.length} 条选单 · 一键复制` : "查看选单 · 一键复制";
+  $("cartDock").hidden = state.view !== "hall" || !orders.length;
   $("btnCopyCart").disabled = !orders.length;
   $("btnClearCart").disabled = !orders.length;
   const box = $("cartItems");
   box.innerHTML = orders.length ? orders.map((o) => `
     <div class="cart-item">
-      <div><strong>${escapeHtml(o.id)} · ${escapeHtml(o.title)}</strong><p>${escapeHtml(o.address)} · ${escapeHtml(o.salaryText)}</p></div>
+      <div><strong>${escapeHtml(o.orderNumber || o.id)} · ${escapeHtml(o.title)}</strong><p>${escapeHtml(o.address)} · ${escapeHtml(o.salaryText)}</p></div>
       <button class="btn btn-sm" data-remove-selection="${escapeHtml(o.id)}" aria-label="从选单清单移除 ${escapeHtml(o.id)}">移除</button>
     </div>
   `).join("") : `<div class="cart-empty">清单还是空的。回到看板，点击家教卡片上的「+ 加入选单」就可以开始挑选。</div>`;
   box.querySelectorAll("[data-remove-selection]").forEach((btn) => {
     btn.onclick = () => { Store.toggleSelectedOrder(btn.dataset.removeSelection); renderHall(); };
+  });
+}
+
+function renderPartTime() {
+  const posts = Store.getPartTimePosts();
+  $("partTimeGrid").innerHTML = posts.length ? posts.map((post) => `
+    <article class="parttime-card">
+      <h2>${escapeHtml(post.title)}</h2>
+      <div class="parttime-meta"><span>🕒 ${escapeHtml(post.time)}</span><span>📍 ${escapeHtml(post.location)}</span></div>
+      <p class="parttime-content">${escapeHtml(post.content)}</p>
+      <button class="btn btn-sm" data-copy-parttime="${escapeHtml(post.id)}">📋 复制兼职信息</button>
+    </article>
+  `).join("") : `<div class="panel" style="text-align:center;color:var(--muted);">暂无其他兼职信息，管理员发布后会在这里显示。</div>`;
+  $("partTimeGrid").querySelectorAll("[data-copy-parttime]").forEach((button) => {
+    button.onclick = () => {
+      const post = posts.find((item) => item.id === button.dataset.copyParttime);
+      if (post) copyText(`【兼职】${post.title}\n【时间】${post.time}\n【地点】${post.location}\n【详细内容】${post.content}`, "已复制兼职信息");
+    };
   });
 }
 
@@ -285,6 +319,7 @@ function collectManualOrder(original = {}) {
     currentScores: $("manualScores").value.trim(),
     hoursPerSession: Number($("manualHours").value),
     address: $("manualAddress").value.trim(),
+    publicAddress: $("manualAddress").value.trim(),
     mode: $("manualMode").value,
     weeklyFrequency: $("manualWeekly").value.trim(),
     salaryText: $("manualSalary").value.trim(),
@@ -325,6 +360,22 @@ function renderAdminView() {
         </p>
       </div>
     ` : ""}
+
+    <div class="panel">
+      <h2>💼 其他兼职 · ${state.editingPartTimeId ? "修改信息" : "发布信息"}</h2>
+      <p class="admin-helper">兼职单独显示在“其他兼职”页面，不会混入家教需求或选单清单。</p>
+      <form id="partTimeForm" class="parttime-admin-form">
+        <div class="field"><label for="partTimeTitle">兼职标题</label><input id="partTimeTitle" required maxlength="120" placeholder="例：天津高校活动志愿者" /></div>
+        <div class="field"><label for="partTimeTime">时间</label><input id="partTimeTime" required maxlength="150" placeholder="例：周六 9:00～17:00" /></div>
+        <div class="field"><label for="partTimeLocation">地点（公开信息）</label><input id="partTimeLocation" required maxlength="200" placeholder="例：天津市南开区某活动场馆" /></div>
+        <div class="field full"><label for="partTimeContent">详细内容</label><textarea id="partTimeContent" required rows="4" maxlength="4000" placeholder="兼职工作内容、薪酬、要求及报名方式"></textarea></div>
+        <div class="full admin-editor-actions"><button type="submit" class="btn btn-primary">${state.editingPartTimeId ? "保存兼职" : "发布兼职"}</button><button type="button" class="btn btn-sm" id="btnResetPartTime">清空</button></div>
+      </form>
+      <div class="parttime-admin-list">${Store.getPartTimePosts().map((post) => `
+        <div class="parttime-admin-item"><span>${escapeHtml(post.title)} · ${escapeHtml(post.time)} · ${escapeHtml(post.location)}</span>
+        <div><button class="btn btn-sm" data-edit-parttime="${escapeHtml(post.id)}">编辑</button><button class="btn btn-sm btn-danger" data-del-parttime="${escapeHtml(post.id)}">删除</button></div></div>
+      `).join("")}</div>
+    </div>
 
     <div class="panel">
       <h2>✍️ ${state.editingOrderId ? "编辑已有家教单" : "新增家教单"} <span class="chip">九字段标准模板</span></h2>
@@ -411,6 +462,38 @@ function renderAdminView() {
 
     </div>
   `;
+
+  if (state.editingPartTimeId) {
+    const oldPartTime = Store.getPartTimePosts().find((post) => post.id === state.editingPartTimeId);
+    if (oldPartTime) {
+      $("partTimeTitle").value = oldPartTime.title;
+      $("partTimeTime").value = oldPartTime.time;
+      $("partTimeLocation").value = oldPartTime.location;
+      $("partTimeContent").value = oldPartTime.content;
+    }
+  }
+  $("partTimeForm").onsubmit = async (event) => {
+    event.preventDefault();
+    try {
+      await Store.savePartTime({ id: state.editingPartTimeId, title: $("partTimeTitle").value.trim(),
+        time: $("partTimeTime").value.trim(), location: $("partTimeLocation").value.trim(),
+        content: $("partTimeContent").value.trim() });
+      state.editingPartTimeId = null;
+      renderAll();
+      showToast("兼职信息已保存");
+    } catch (err) { showToast(`保存失败：${err.message}`); }
+  };
+  $("btnResetPartTime").onclick = () => { state.editingPartTimeId = null; renderAdminView(); };
+  box.querySelectorAll("[data-edit-parttime]").forEach((button) => {
+    button.onclick = () => { state.editingPartTimeId = button.dataset.editParttime; renderAdminView(); $("partTimeForm").scrollIntoView({ behavior: "smooth" }); };
+  });
+  box.querySelectorAll("[data-del-parttime]").forEach((button) => {
+    button.onclick = async () => {
+      if (!confirm("确定删除这条兼职信息吗？")) return;
+      try { await Store.deletePartTime(button.dataset.delParttime); state.editingPartTimeId = null; renderAdminView(); showToast("兼职已删除"); }
+      catch (err) { showToast(`删除失败：${err.message}`); }
+    };
+  });
 
   if (state.editingOrderId) {
     const editing = orders.find((o) => o.id === state.editingOrderId);
@@ -598,13 +681,43 @@ function openAuthModal() {
 async function handleSaveOriginAddress() {
   const raw = $("originAddressInput").value.trim();
   if (!raw) return showToast("请输入你的默认出发地址");
-  const resolved = await resolveUserAddress(raw);
-  await Store.setOrigin(resolved);
-  renderHall();
-  showToast(`默认地址已更新为「${resolved.name}」，骑行与公交耗时已刷新`);
+  try {
+    const resolved = await resolveUserAddress(raw);
+    await Store.setOrigin({ ...resolved, manuallyChosen: true });
+    updateMapOrigin(Store.getOrigin());
+    renderHall();
+    showToast(`出发地已设为「${resolved.name}」，路程估算已更新`);
+  } catch (error) { showToast(error.message); }
+}
+
+function locateMe(silent = false) {
+  if (!navigator.geolocation) return silent ? null : showToast("当前浏览器不支持定位，请手动输入地址");
+  if (!silent) showToast("正在请求定位权限…");
+  navigator.geolocation.getCurrentPosition(async (position) => {
+    const { latitude: lat, longitude: lng } = position.coords;
+    // GPS 只在当前浏览器本地保存。计算基于公开区级坐标，不上报服务器。
+    await Store.setOrigin({ name: "我的当前位置", lat, lng, isGps: true });
+    $("originAddressInput").value = "我的当前位置";
+    updateMapOrigin(Store.getOrigin());
+    renderHall();
+    if (!silent) showToast("定位成功，已重新计算大致路程");
+  }, () => { if (!silent) showToast("定位未授权或不可用，可以手动输入地点"); },
+  { enableHighAccuracy: false, timeout: 9000, maximumAge: 180000 });
+}
+
+async function openMap() {
+  $("mapBoard").hidden = false;
+  $("btnToggleMap").setAttribute("aria-expanded", "true");
+  try {
+    await openMapBoard(Store.getOrigin());
+    updateMapOrders(visibleBoardOrders);
+  } catch (error) { $("mapLocationNote").textContent = `${error.message}；仍可在上方输入地址计算估算路程。`; }
 }
 
 function initControls() {
+  document.addEventListener("tutorhub-geocodes-updated", () => {
+    if (state.view === "hall") renderHall();
+  });
   SUBJECTS.forEach((s) => $("qSubject").insertAdjacentHTML("beforeend", `<option value="${s}">${s}</option>`));
   GRADES.forEach((g) => $("qGrade").insertAdjacentHTML("beforeend", `<option value="${g}">${g}</option>`));
 
@@ -613,20 +726,21 @@ function initControls() {
   });
 
   $("btnSaveOrigin").onclick = handleSaveOriginAddress;
+  $("btnLocateMe").onclick = () => locateMe(false);
   $("originAddressInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter") handleSaveOriginAddress();
   });
 
-  ["qSearch", "qSubject", "qGrade", "qMode", "qSort", "qStudentGender", "qDistrict", "qTime", "qMinRate"].forEach((id) => {
+  ["qSearch", "qSubject", "qGrade", "qMode", "qSort", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate"].forEach((id) => {
     $(id).addEventListener("input", renderHall);
     $(id).addEventListener("change", renderHall);
   });
   $("btnClearFilters").onclick = () => {
-    ["qSearch", "qSubject", "qGrade", "qMode", "qStudentGender", "qDistrict", "qTime", "qMinRate"].forEach((id) => { $(id).value = ""; });
+    ["qSearch", "qSubject", "qGrade", "qMode", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate"].forEach((id) => { $(id).value = ""; });
     $("qSort").value = "recommend";
-    state.onlyOpen = true;
+    state.onlyOpen = false;
     state.onlySelected = false;
-    $("onlyOpen").checked = true;
+    $("onlyOpen").checked = false;
     $("onlySelected").checked = false;
     renderHall();
   };
@@ -642,6 +756,46 @@ function initControls() {
 
   $("btnAdminEntry").onclick = () => switchView("admin");
   $("btnBackToHall").onclick = () => switchView("hall");
+  $("btnViewTutoring").onclick = () => switchView("hall");
+  $("btnViewPartTime").onclick = () => switchView("parttime");
+
+  $("btnSmartSelect").onclick = () => {
+    const candidates = sortBoardOrders(visibleBoardOrders.filter((order) => order.status !== "已匹配"), "recommend").slice(0, 5);
+    if (!candidates.length) return showToast("当前筛选条件下没有可推荐的家教单");
+    const previous = Store.getSelectedOrderIds();
+    Store.setSelectedOrderIds([...previous, ...candidates.map((order) => order.id)]);
+    renderHall();
+    showToast(`已按筛选条件、时薪和估算路程智能勾选 ${candidates.length} 条，请核对后复制`);
+  };
+  $("btnToggleMap").onclick = async () => {
+    if (!$("mapBoard").hidden) {
+      $("mapBoard").hidden = true;
+      $("btnToggleMap").setAttribute("aria-expanded", "false");
+    } else await openMap();
+  };
+  $("btnCloseMap").onclick = () => {
+    $("mapBoard").hidden = true;
+    $("btnToggleMap").setAttribute("aria-expanded", "false");
+  };
+  $("btnMapSearch").onclick = async () => {
+    const text = $("mapSearchInput").value.trim();
+    if (!text) return showToast("请输入地点名称");
+    try {
+      const resolved = await resolveUserAddress(text);
+      moveMapTo(resolved.lat, resolved.lng);
+      $("mapLocationNote").textContent = `地图已移动到「${text}」附近；点击「设地图中心为出发地」后更新路线估算。`;
+    } catch (err) { showToast(err.message); }
+  };
+  $("mapSearchInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnMapSearch").click(); });
+  $("btnMapUseCenter").onclick = async () => {
+    const center = getMapCenter();
+    if (!center) return showToast("地图还没加载成功");
+    await Store.setOrigin({ name: `地图选点（${center.lat.toFixed(3)}, ${center.lng.toFixed(3)}）`, ...center, manuallyChosen: true });
+    $("originAddressInput").value = Store.getOrigin().name;
+    updateMapOrigin(Store.getOrigin());
+    renderHall();
+    showToast("已将地图中心设为出发地，通勤估算已更新");
+  };
 
   $("btnOpenCart").onclick = () => { renderCart(); $("cartModal").classList.add("open"); };
   $("btnCloseCart").onclick = () => $("cartModal").classList.remove("open");
@@ -653,6 +807,7 @@ function initControls() {
     if (!orders.length) return showToast("请先挑选家教单");
     await copyText(buildWechatSelectionText(orders), `已复制 ${orders.length} 条家教单，请打开微信发送给小木同学`);
   };
+  $("btnQuickCopy").onclick = () => $("btnCopyCart").click();
   $("btnClearCart").onclick = () => {
     Store.clearSelectedOrders();
     renderHall();
@@ -688,4 +843,5 @@ function renderAll() {
   initControls();
   await Store.init();
   renderAll();
+  if (!Store.getOrigin()?.manuallyChosen) locateMe(true);
 })();

@@ -12,13 +12,18 @@ const KEYS = {
   apps: "tutorhub_apps_v3",
   bookmarks: "tutorhub_bookmarks_v3",
   selectedOrders: "tutorhub_selected_orders_v1",
+  hiddenImported: "tutorhub_hidden_imported_v1",
+  partTime: "tutorhub_parttime_v1",
   origin: "tutorhub_origin_v3"
 };
 
 let cloudReady = false;
+let importedOrders = [];
 let cloudState = {
   siteConfig: DEFAULT_SITE_CONFIG,
   orders: SAMPLE_ORDERS,
+  hiddenImported: [],
+  partTimePosts: [],
   teachers: [],
   applications: [],
   myResume: null
@@ -78,6 +83,13 @@ export const Store = {
   // 启动时自动探测 Cloudflare KV 云端存储；绑定后自动进入多人云端模式
   async init() {
     try {
+      const imported = await fetch("./data/imported-orders.json", { cache: "no-cache" });
+      if (imported.ok) {
+        const rows = await imported.json();
+        importedOrders = Array.isArray(rows) ? rows : [];
+      }
+    } catch { importedOrders = []; }
+    try {
       const res = await fetch(`${APP_CONFIG.apiBase}/store`, { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
@@ -86,6 +98,8 @@ export const Store = {
           cloudState.siteConfig = { ...DEFAULT_SITE_CONFIG, ...(data.siteConfig || {}) };
           // [] 是有效的云端状态：已清空家教单时绝不能恢复演示数据。
           cloudState.orders = Array.isArray(data.orders) ? data.orders : [];
+          cloudState.hiddenImported = Array.isArray(data.hiddenImported) ? data.hiddenImported : [];
+          cloudState.partTimePosts = Array.isArray(data.partTimePosts) ? data.partTimePosts : [];
 
           if (localStorage.getItem(KEYS.token)) {
             await this.syncSessionFromCloud();
@@ -114,6 +128,8 @@ export const Store = {
             cloudState.teachers = adm.teachers || [];
             cloudState.applications = adm.applications || [];
             if (Array.isArray(adm.orders)) cloudState.orders = adm.orders;
+            if (Array.isArray(adm.hiddenImported)) cloudState.hiddenImported = adm.hiddenImported;
+            if (Array.isArray(adm.partTimePosts)) cloudState.partTimePosts = adm.partTimePosts;
             if (adm.siteConfig) cloudState.siteConfig = { ...DEFAULT_SITE_CONFIG, ...adm.siteConfig };
           }
         }
@@ -128,6 +144,34 @@ export const Store = {
 
   getSiteConfig() {
     return cloudReady ? cloudState.siteConfig : readJSON(KEYS.site, DEFAULT_SITE_CONFIG);
+  },
+  getPartTimePosts() {
+    return cloudReady ? cloudState.partTimePosts : readJSON(KEYS.partTime, []);
+  },
+  async savePartTime(post) {
+    if (cloudReady) {
+      const res = await apiPost({ action: "admin_save_parttime", post });
+      if (!res?.ok) throw new Error(res?.error || "发布失败");
+      cloudState.partTimePosts = res.partTimePosts;
+      return res.partTimePosts;
+    }
+    const id = post.id || `pt-${Date.now()}`;
+    const current = this.getPartTimePosts();
+    const updated = [{ ...post, id, createdAt: current.find((p) => p.id === id)?.createdAt || new Date().toISOString() },
+      ...current.filter((p) => p.id !== id)];
+    writeJSON(KEYS.partTime, updated);
+    return updated;
+  },
+  async deletePartTime(id) {
+    if (cloudReady) {
+      const res = await apiPost({ action: "admin_delete_parttime", id });
+      if (!res?.ok) throw new Error(res?.error || "删除失败");
+      cloudState.partTimePosts = res.partTimePosts;
+      return res.partTimePosts;
+    }
+    const updated = this.getPartTimePosts().filter((p) => p.id !== id);
+    writeJSON(KEYS.partTime, updated);
+    return updated;
   },
   async updateSiteConfig(patch) {
     if (cloudReady) {
@@ -151,7 +195,15 @@ export const Store = {
 
   getOrders() {
     const orders = cloudReady ? cloudState.orders : readJSON(KEYS.orders, SAMPLE_ORDERS);
-    return Array.isArray(orders) ? orders.map((o) => normalizeOrder(o)) : [];
+    const hidden = cloudReady ? cloudState.hiddenImported : readJSON(KEYS.hiddenImported, []);
+    const byId = new Map(importedOrders.filter((o) => !hidden.includes(o.id)).map((o) => [o.id, o]));
+    for (const order of Array.isArray(orders) ? orders : []) byId.set(order.id, order);
+    return [...byId.values()].filter((o) => !hidden.includes(o.id)).map((raw) => {
+      const { privateAddress, internalAddress, exactAddress, fullAddress, privateNotes,
+        lat, lng, exactLat, exactLng, ...order } = raw;
+      const publicAddress = raw.publicAddress || (raw.addressVisibility === "private" ? (raw.district || "地址请咨询") : raw.address);
+      return normalizeOrder({ ...order, address: publicAddress, publicAddress });
+    });
   },
   async addOrders(newOrders) {
     const normalized = newOrders.map((o) => normalizeOrder(o));
@@ -159,6 +211,7 @@ export const Store = {
       const res = await apiPost({ action: "admin_add_orders", orders: normalized });
       if (!res?.ok) throw new Error(res?.error || "云端发布失败");
       cloudState.orders = res.orders;
+      cloudState.hiddenImported = res.hiddenImported || cloudState.hiddenImported;
       return cloudState.orders;
     }
     const merged = [...normalized, ...this.getOrders()];
@@ -167,12 +220,15 @@ export const Store = {
   },
   async updateOrder(id, patch) {
     if (cloudReady) {
-      const res = await apiPost({ action: "admin_update_order", id, patch });
+      const isImported = importedOrders.some((o) => o.id === id);
+      const original = isImported ? importedOrders.find((o) => o.id === id) : {};
+      const res = await apiPost({ action: "admin_update_order", id, patch: { ...original, ...patch } });
       if (!res?.ok) throw new Error(res?.error || "云端更新失败");
       cloudState.orders = res.orders;
       return cloudState.orders;
     }
-    const updated = this.getOrders().map((o) => (o.id === id ? { ...o, ...patch } : o));
+    const updated = readJSON(KEYS.orders, SAMPLE_ORDERS).filter((o) => o.id !== id);
+    updated.unshift({ ...this.getOrders().find((o) => o.id === id), ...patch, id });
     writeJSON(KEYS.orders, updated);
     return updated;
   },
@@ -181,9 +237,15 @@ export const Store = {
       const res = await apiPost({ action: "admin_delete_order", id });
       if (!res?.ok) throw new Error(res?.error || "云端删除失败");
       cloudState.orders = res.orders;
+      cloudState.hiddenImported = res.hiddenImported || cloudState.hiddenImported;
       return cloudState.orders;
     }
-    const filtered = this.getOrders().filter((o) => o.id !== id);
+    if (importedOrders.some((o) => o.id === id)) {
+      const hidden = new Set(readJSON(KEYS.hiddenImported, []));
+      hidden.add(id);
+      writeJSON(KEYS.hiddenImported, [...hidden]);
+    }
+    const filtered = readJSON(KEYS.orders, SAMPLE_ORDERS).filter((o) => o.id !== id);
     writeJSON(KEYS.orders, filtered);
     return filtered;
   },
@@ -358,6 +420,12 @@ export const Store = {
     const next = selected.includes(orderId) ? selected.filter((id) => id !== orderId) : [...selected, orderId];
     writeJSON(KEYS.selectedOrders, next);
     return next;
+  },
+  setSelectedOrderIds(ids) {
+    const available = new Set(this.getOrders().map((o) => o.id));
+    const selected = [...new Set(ids)].filter((id) => available.has(id));
+    writeJSON(KEYS.selectedOrders, selected);
+    return selected;
   },
   clearSelectedOrders() {
     writeJSON(KEYS.selectedOrders, []);

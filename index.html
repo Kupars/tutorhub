@@ -7,7 +7,8 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>小木学长 · 天津家教看板</title>
-  <link rel="stylesheet" href="./css/styles.css?v=7" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="./css/styles.css?v=8" />
 </head>
 <body>
   <header class="topbar">
@@ -17,6 +18,7 @@
         <div><div class="brand-title">小木学长 · 家教看板</div><div class="brand-sub">天津家教需求 · 随时筛选 · 自由选单</div></div>
       </div>
       <div class="header-actions">
+        <nav class="main-nav" aria-label="浏览栏目"><button class="nav-link active" id="btnViewTutoring">家教看板</button><button class="nav-link" id="btnViewPartTime">其他兼职</button></nav>
         <button class="btn btn-sm admin-entry" id="btnAdminEntry">管理</button>
         <button class="btn btn-sm" id="btnBackToHall" hidden>返回看板</button>
         <div class="user-actions" id="userActions"></div>
@@ -26,16 +28,7 @@
 
   <main class="container">
     <section id="view-hall" class="view active">
-      <div class="how-to-panel" aria-label="家教选单使用方法">
-        <div class="how-to-eyebrow">简单三步，联系小木同学</div>
-        <h1>看好家教单，加入选单清单，一键复制发微信</h1>
-        <div class="how-to-steps">
-          <span><b>①</b> 浏览、搜索合适的家教</span>
-          <span><b>②</b> 点「加入选单」集中挑选</span>
-          <span><b>③</b> 复制清单，微信发送给<strong>小木同学</strong></span>
-        </div>
-        <p>无需登录，无需填写简历。发送选单只表示咨询意向，具体是否接单请在微信中确认。</p>
-      </div>
+      <div class="usage-tip">提示：勾选家教单，一键复制，发给小木同学微信</div>
       <div class="announcement-inline" id="siteAnnouncement"></div>
 
       <div class="search-panel">
@@ -49,8 +42,8 @@
           </select>
         </div>
 
-        <details class="advanced-filters" id="advancedFilters">
-          <summary>⚙ 筛选条件 <span id="activeFilterCount"></span><span class="filter-summary-hint">点击展开 / 收起</span></summary>
+        <section class="advanced-filters" id="advancedFilters">
+          <h2>筛选条件 <span id="activeFilterCount"></span></h2>
           <div class="search-row search-row-extra">
             <select id="qSubject" aria-label="科目"><option value="">全部科目</option></select>
             <select id="qGrade" aria-label="年级"><option value="">全部年级</option></select>
@@ -62,6 +55,10 @@
               <option value="">学生性别（全部）</option><option value="男生">男生</option>
               <option value="女生">女生</option><option value="待补充">性别待补充</option>
             </select>
+            <select id="qTeacherGender" aria-label="老师性别要求">
+              <option value="">老师性别（全部）</option><option value="男生">男老师可接</option>
+              <option value="女生">女老师可接</option><option value="不限">仅看不限性别</option>
+            </select>
             <select id="qDistrict" aria-label="补课区域"><option value="">全部区域</option></select>
             <select id="qTime" aria-label="补课时间">
               <option value="">上课时间（全部）</option><option value="weekend">周末</option><option value="weekday">周中</option>
@@ -70,10 +67,10 @@
             <button class="btn btn-sm" id="btnClearFilters">清空筛选</button>
           </div>
           <div class="filter-switches">
-            <label><input id="onlyOpen" type="checkbox" checked /> 仅看招募中</label>
+            <label><input id="onlyOpen" type="checkbox" /> 仅看招募中</label>
             <label><input id="onlySelected" type="checkbox" /> 仅看已选单</label>
           </div>
-        </details>
+        </section>
 
         <div class="origin-bar">
           <div class="origin-select-group" style="flex:1;min-width:260px;">
@@ -81,21 +78,40 @@
             <input id="originAddressInput" list="originPresets" placeholder="输入天津的校区 / 小区 / 地址" style="max-width:300px;padding:6px 10px;font-size:13px;" />
             <datalist id="originPresets"></datalist>
             <button class="btn btn-sm" id="btnSaveOrigin">计算路程</button>
+            <button class="btn btn-sm" id="btnLocateMe">◎ 定位我</button>
           </div>
-          <span class="origin-help">填写出发地后才会按距离推荐；路程为估算值</span>
+          <span class="origin-help">默认尝试定位，可手动搜索或在地图上选点；时间为估算值</span>
+        </div>
+        <div class="board-action-row">
+          <button class="btn btn-sm btn-ai" id="btnSmartSelect">✨ AI 智能自动勾选</button>
+          <span class="origin-help">本地规则智能推荐：按筛选条件、时薪与预计路程选最多 5 条</span>
+          <button class="btn btn-sm" id="btnToggleMap" aria-expanded="false" aria-controls="mapBoard">🗺 地图看板</button>
         </div>
       </div>
+
+      <section class="map-panel" id="mapBoard" hidden>
+        <div class="map-heading"><div><h2>🗺 家教位置看板</h2><p>与上方筛选同步。优先按公开地址定位；无法解析时显示区域示意点，不展示后台精确地址。</p></div><button class="btn btn-sm" id="btnCloseMap">收起地图</button></div>
+        <div class="map-toolbar"><input id="mapSearchInput" type="search" placeholder="搜索地址 / 地标，例：天津大学、河西区" aria-label="地图搜索地址" /><button class="btn btn-primary btn-sm" id="btnMapSearch">搜索定位</button><button class="btn btn-sm" id="btnMapUseCenter">设地图中心为出发地</button></div>
+        <div class="map-stage"><div id="tutorMap" role="application" aria-label="天津家教单分布和我的出发地地图"></div><span class="map-crosshair" aria-hidden="true">＋</span></div>
+        <p class="map-note" id="mapLocationNote">移动地图中心点后，可点「设地图中心为出发地」。家教定位为区级示意，通勤时间仅供参考。</p>
+      </section>
 
       <div class="stats-bar"><span id="resultStats">正在加载家教单...</span><span id="modeBadge"></span></div>
       <div class="orders-grid" id="ordersGrid"></div>
     </section>
 
+    <section id="view-parttime" class="view">
+      <div class="page-heading"><h1>其他兼职</h1><p>兼职信息展示 · 请联系小木同学确认具体安排</p></div>
+      <div class="usage-tip">兼职时间、地点及详情以发布内容为准，接单前请再次核实。</div>
+      <div id="partTimeGrid" class="parttime-grid"></div>
+    </section>
+
     <section id="view-admin" class="view"><div id="adminContainer"></div></section>
   </main>
 
-  <div class="cart-dock" id="cartDock">
-    <div><strong>🛒 我的选单清单 <span id="cartCount">0</span></strong><small>加入感兴趣的家教，集中复制发微信</small></div>
-    <button class="btn btn-primary" id="btnOpenCart">查看清单 · 一键复制</button>
+  <div class="cart-dock" id="cartDock" hidden>
+    <strong>已勾选 <span id="cartCount">0</span> 个</strong>
+    <div class="cart-dock-actions"><button class="btn btn-sm" id="btnOpenCart">查看/调整</button><button class="btn btn-primary" id="btnQuickCopy">📋 一键复制</button></div>
   </div>
 
   <div class="modal-backdrop" id="cartModal" role="dialog" aria-modal="true" aria-labelledby="cartModalTitle">
@@ -124,6 +140,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=7"></script>
+  <script type="module" src="./js/app.js?v=8"></script>
 </body>
 </html>

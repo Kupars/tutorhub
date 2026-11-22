@@ -78,17 +78,13 @@ body {
 .admin-entry:hover { background:var(--primary-soft); }
 
 /* 首屏醒目的选单操作说明 */
-.how-to-panel {
-  margin-top:22px; padding:24px 26px; border-radius:20px;
-  background:linear-gradient(118deg, #1e1b4b, #4338ca 72%, #6366f1); color:#fff;
-  box-shadow:0 14px 32px rgba(49,46,129,.15);
+.usage-tip {
+  background:#f1f5ff; color:#475569; border:1px solid #dbe4ff;
+  margin-top:14px; border-radius:10px; padding:9px 13px; font-size:12px;
 }
-.how-to-eyebrow { font-weight:700; font-size:12px; color:#c7d2fe; letter-spacing:.6px; margin-bottom:7px; }
-.how-to-panel h1 { font-size:clamp(19px,2.4vw,29px); line-height:1.35; letter-spacing:-.3px; }
-.how-to-steps { display:flex; flex-wrap:wrap; gap:10px; margin:17px 0 11px; }
-.how-to-steps span { padding:9px 12px; border-radius:12px; background:rgba(255,255,255,.13); font-size:13px; }
-.how-to-steps b { font-size:16px; margin-right:5px; color:#fef08a; }
-.how-to-panel p { color:#dbeafe; font-size:12px; }
+.main-nav { display:flex; gap:5px; align-items:center; }
+.nav-link { border:0; background:transparent; padding:9px 12px; border-radius:9px; color:var(--muted); cursor:pointer; font-weight:650; }
+.nav-link.active { background:var(--primary-soft); color:var(--primary); }
 .announcement-inline { font-size:13px; color:var(--muted); margin:12px 2px 0; }
 
 /* 公告横幅 */
@@ -128,10 +124,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 .primary-search-row { display:grid; grid-template-columns:minmax(0,2fr) minmax(220px,1fr); gap:10px; }
 .search-row { display:grid; gap:10px; }
 .search-row-extra { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 14px; }
-.advanced-filters { margin-top:12px; border:1px solid var(--border); border-radius:12px; padding:0 14px 12px; }
-.advanced-filters:not([open]) { padding-bottom:0; }
-.advanced-filters summary { padding:11px 0; font-size:13px; font-weight:700; color:var(--primary); cursor:pointer; }
-.advanced-filters summary::marker { color:var(--primary); }
+.advanced-filters { margin-top:12px; border:1px solid var(--border); border-radius:12px; padding:12px 14px; }
+.advanced-filters h2 { font-size:13px; color:var(--primary); }
 .filter-summary-hint { float:right; color:var(--muted); font-weight:400; }
 .filter-switches { display:flex; flex-wrap:wrap; gap:20px; padding-top:12px; font-size:13px; color:#334155; }
 .filter-switches label { display:inline-flex; align-items:center; gap:7px; cursor:pointer; }
@@ -144,6 +138,19 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 }
 .origin-select-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .origin-select-group select { width: auto; min-width: 190px; padding: 6px 10px; font-size: 13px; }
+.board-action-row { margin-top:12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.board-action-row #btnToggleMap { margin-left:auto; }
+.btn-ai { color:#6d28d9; border-color:#ddd6fe; background:#faf5ff; }
+.map-panel { margin:0 0 18px; padding:16px; border:1px solid var(--border); border-radius:14px; background:white; }
+.map-heading { display:flex; justify-content:space-between; align-items:start; gap:12px; margin-bottom:12px; }
+.map-heading h2 { font-size:17px; }
+.map-heading p,.map-note { color:var(--muted); font-size:12px; }
+.map-toolbar { display:flex; gap:9px; margin-bottom:12px; flex-wrap:wrap; }
+.map-toolbar input { flex:1; min-width:220px; }
+.map-stage { position:relative; }
+#tutorMap { width:100%; height:430px; border-radius:12px; border:1px solid var(--border); z-index:0; }
+.map-crosshair { position:absolute; pointer-events:none; top:50%; left:50%; transform:translate(-50%,-50%); z-index:500; color:#4338ca; font-size:28px; font-weight:700; text-shadow:0 1px 3px white; }
+.map-note { margin-top:8px; }
 
 /* 统计条 */
 .stats-bar {
@@ -187,6 +194,22 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border);
   display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
 }
+.order-check { display:inline-flex; align-items:center; gap:7px; cursor:pointer; font-size:13px; font-weight:650; }
+.order-check input { width:19px; height:19px; accent-color:var(--primary); cursor:pointer; }
+.page-heading { padding:24px 3px 4px; }
+.page-heading h1 { font-size:24px; }
+.page-heading p { color:var(--muted); font-size:13px; }
+.parttime-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(315px,1fr)); gap:14px; margin:18px 0; }
+.parttime-card { display:flex; flex-direction:column; gap:12px; border:1px solid var(--border); background:white; border-radius:14px; padding:18px; box-shadow:var(--shadow); }
+.parttime-card h2 { font-size:18px; }
+.parttime-meta { display:flex; flex-direction:column; gap:4px; color:#475569; font-size:13px; }
+.parttime-content { white-space:pre-wrap; color:#334155; font-size:14px; flex:1; }
+.parttime-card .btn { align-self:flex-start; }
+.parttime-admin-form { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.parttime-admin-form .full { grid-column:1/-1; }
+.parttime-admin-list { margin-top:16px; display:grid; gap:7px; }
+.parttime-admin-item { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px; border:1px solid var(--border); border-radius:9px; font-size:13px; }
+.parttime-admin-item div { display:flex; gap:6px; }
 
 /* 通用面板 */
 .panel {
@@ -224,13 +247,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 /* 选单清单固定操作条和弹层 */
 .cart-dock {
   position:fixed; z-index:49; bottom:16px; left:50%; transform:translateX(-50%);
-  width:min(760px,calc(100% - 32px)); min-height:70px; padding:12px 16px;
+  width:min(560px,calc(100% - 32px)); min-height:56px; padding:10px 14px;
   background:rgba(255,255,255,.98); border:1px solid #c7d2fe; border-radius:17px;
   box-shadow:0 14px 38px rgba(30,41,59,.19); display:flex; align-items:center; justify-content:space-between; gap:14px;
 }
 .cart-dock strong { display:block; font-size:15px; }
+.cart-dock-actions { display:flex; gap:8px; align-items:center; }
 .cart-dock small { display:block; font-size:12px; color:var(--muted); margin-top:3px; }
-#cartCount { background:var(--primary); color:#fff; padding:2px 8px; border-radius:99px; font-size:12px; }
+#cartCount { color:var(--primary); font-size:16px; }
 .cart-modal { max-width:680px; }
 .cart-modal h2 { font-size:21px; }
 .cart-subtitle { font-size:13px; color:var(--muted); margin-top:4px; }
@@ -270,6 +294,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   .search-row-extra { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .admin-manual-grid { grid-template-columns:1fr 1fr; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .parttime-admin-form { grid-template-columns:1fr; }
 }
 @media (max-width: 500px) {
   .container { padding:0 12px; }
@@ -277,9 +302,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   .brand-title { font-size:15px; }
   .brand-sub { font-size:10px; }
   .brand-logo { width:32px; height:32px; font-size:15px; }
-  .how-to-panel { padding:19px 16px; margin-top:14px; }
-  .how-to-steps { flex-direction:column; gap:7px; }
-  .how-to-steps span { font-size:12px; }
+  .main-nav { order:3; width:100%; }
+  .nav-link { flex:1; }
   .primary-search-row { grid-template-columns:1fr; }
   .search-row-extra { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .orders-grid { grid-template-columns:1fr; }
@@ -289,8 +313,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   #originAddressInput { flex:1; min-width:0; }
   .cart-dock { bottom:10px; width:calc(100% - 20px); padding:10px 12px; gap:8px; }
   .cart-dock strong { font-size:13px; }
-  .cart-dock small { font-size:10px; }
-  .cart-dock .btn { font-size:12px; padding:9px 10px; max-width:52%; text-align:center; }
+  .cart-dock .btn { font-size:12px; padding:9px 10px; text-align:center; }
+  .cart-dock-actions { gap:5px; }
+  .map-toolbar { display:grid; grid-template-columns:1fr 1fr; }
+  .map-toolbar input { grid-column:1/-1; }
+  #tutorMap { height:340px; }
   .search-row, .admin-manual-grid { grid-template-columns: 1fr; }
   .admin-manual-grid .wide { grid-column:auto; }
 }

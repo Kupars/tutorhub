@@ -40,7 +40,7 @@ export function getGenderFromText(text) {
 
 export function nextOrderId(orders = []) {
   const max = orders.reduce((n, order) => {
-    const match = str(order?.id).match(/^#?(\d{3,7})(?:-\d+)?$/);
+    const match = str(order?.orderNumber || order?.id).match(/^#?(\d{3,7})(?:-\d+)?$/);
     return match ? Math.max(n, Number(match[1])) : n;
   }, START_ORDER_NUMBER);
   return `#${max + 1}`;
@@ -116,6 +116,7 @@ export function normalizeOrder(raw = {}, options = {}) {
   return {
     ...raw,
     id: pick(raw.id, options.id),
+    orderNumber: pick(raw.orderNumber, raw.id, options.id),
     grade,
     subject,
     title,
@@ -145,7 +146,7 @@ export function normalizeOrder(raw = {}, options = {}) {
 
 export function formatOrderText(order) {
   const o = normalizeOrder(order);
-  const id = o.id.startsWith("#") ? o.id : `#${o.id || "待编号"}`;
+  const id = o.orderNumber.startsWith("#") ? o.orderNumber : `#${o.orderNumber || "待编号"}`;
   const sex = o.studentGender === "待补充" ? "性别待补充" : o.studentGender === "男生" ? "男孩" : "女孩";
   const title = /陪读/.test(o.title) ? `${o.grade}${o.subject}陪读家教` : `${o.grade}${o.subject}家教`;
   return [

@@ -23,11 +23,14 @@ export async function onRequest(context) {
 
   try {
     if (request.method === "GET") {
-      const [siteConfig, orders] = await Promise.all([
+      const [siteConfig, orders, hiddenImported, partTimePosts] = await Promise.all([
         kvGet(env.TUTOR_KV, "site_config", DEFAULT_SITE),
-        kvGet(env.TUTOR_KV, "orders", [])
+        kvGet(env.TUTOR_KV, "orders", []),
+        kvGet(env.TUTOR_KV, "hidden_imported_orders", []),
+        kvGet(env.TUTOR_KV, "part_time_posts", [])
       ]);
-      return jsonResp({ ok: true, cloud: true, siteConfig, orders });
+      return jsonResp({ ok: true, cloud: true, siteConfig, orders: orders.map(toPublicOrder), hiddenImported,
+        partTimePosts: partTimePosts.map(toPublicPartTime) });
     }
 
     if (request.method !== "POST") {
@@ -82,15 +85,41 @@ export async function onRequest(context) {
     }
 
     if (action === "admin_data") {
-      const [orders, siteConfig] = await Promise.all([
+      const [orders, siteConfig, hiddenImported, partTimePosts] = await Promise.all([
         kvGet(env.TUTOR_KV, "orders", []),
-        kvGet(env.TUTOR_KV, "site_config", DEFAULT_SITE)
+        kvGet(env.TUTOR_KV, "site_config", DEFAULT_SITE),
+        kvGet(env.TUTOR_KV, "hidden_imported_orders", []),
+        kvGet(env.TUTOR_KV, "part_time_posts", [])
       ]);
       return jsonResp({
         ok: true,
         orders,
-        siteConfig
+        siteConfig,
+        hiddenImported,
+        partTimePosts
       });
+    }
+
+    if (action === "admin_save_parttime") {
+      const p = body.post || {};
+      if (![p.title, p.time, p.location, p.content].every((x) => typeof x === "string" && x.trim())) {
+        return jsonResp({ ok: false, error: "请填写兼职标题、时间、地点和详细内容" }, 400);
+      }
+      const posts = await kvGet(env.TUTOR_KV, "part_time_posts", []);
+      const id = String(p.id || `pt-${crypto.randomUUID()}`);
+      const entry = { id, title: p.title.trim().slice(0, 120), time: p.time.trim().slice(0, 150),
+        location: p.location.trim().slice(0, 200), content: p.content.trim().slice(0, 4000),
+        createdAt: posts.find((post) => post.id === id)?.createdAt || new Date().toISOString() };
+      const next = [entry, ...posts.filter((post) => post.id !== id)];
+      await kvPut(env.TUTOR_KV, "part_time_posts", next);
+      return jsonResp({ ok: true, partTimePosts: next });
+    }
+
+    if (action === "admin_delete_parttime") {
+      const posts = await kvGet(env.TUTOR_KV, "part_time_posts", []);
+      const next = posts.filter((post) => post.id !== body.id);
+      await kvPut(env.TUTOR_KV, "part_time_posts", next);
+      return jsonResp({ ok: true, partTimePosts: next });
     }
 
     if (action === "admin_add_orders") {
@@ -110,18 +139,27 @@ export async function onRequest(context) {
 
     if (action === "admin_update_order") {
       const existing = await kvGet(env.TUTOR_KV, "orders", []);
-      if (!existing.some((o) => o.id === body.id)) return jsonResp({ ok: false, error: "找不到该家教单" }, 404);
-      const next = existing.map((o) => (o.id === body.id ? { ...o, ...body.patch } : o));
+      const already = existing.some((o) => o.id === body.id);
+      // 飞书静态导入单使用独立内部 ID；首次编辑时新增覆盖记录，不变更公开单号。
+      if (!already && !/^fs-\d{4,}$/.test(String(body.id))) return jsonResp({ ok: false, error: "找不到该家教单" }, 404);
+      const next = already ? existing.map((o) => (o.id === body.id ? { ...o, ...body.patch, id: body.id } : o))
+        : [{ ...body.patch, id: body.id }, ...existing];
       await kvPut(env.TUTOR_KV, "orders", next);
       return jsonResp({ ok: true, orders: next });
     }
 
     if (action === "admin_delete_order") {
       const existing = await kvGet(env.TUTOR_KV, "orders", []);
-      if (!existing.some((o) => o.id === body.id)) return jsonResp({ ok: false, error: "家教单不存在或已删除" }, 404);
+      const imported = /^fs-\d{4,}$/.test(String(body.id));
+      if (!imported && !existing.some((o) => o.id === body.id)) return jsonResp({ ok: false, error: "家教单不存在或已删除" }, 404);
       const next = existing.filter((o) => o.id !== body.id);
       await kvPut(env.TUTOR_KV, "orders", next);
-      return jsonResp({ ok: true, orders: next });
+      const hiddenImported = await kvGet(env.TUTOR_KV, "hidden_imported_orders", []);
+      if (imported && !hiddenImported.includes(body.id)) {
+        hiddenImported.push(body.id);
+        await kvPut(env.TUTOR_KV, "hidden_imported_orders", hiddenImported);
+      }
+      return jsonResp({ ok: true, orders: next, hiddenImported });
     }
 
     if (action === "admin_update_site") {
@@ -135,6 +173,24 @@ export async function onRequest(context) {
   } catch (err) {
     return jsonResp({ ok: false, error: String(err?.message || err) }, 500);
   }
+}
+
+// 无权限的 GET 只提供允许公开展示的字段；精确坐标和后台内部地址不出现在响应里。
+function toPublicOrder(order) {
+  const fields = ["id", "orderNumber", "title", "grade", "studentGender", "subject",
+    "teacherCount", "currentScores", "district", "weeklyFrequency", "sessionsPerWeek",
+    "hoursPerSession", "requirements", "salaryText", "hourlyRate", "mode", "onlineAllowed",
+    "trialTime", "urgent", "status", "createdAt", "tags", "genderPref"];
+  const safe = Object.fromEntries(fields.filter((k) => order[k] !== undefined).map((k) => [k, order[k]]));
+  safe.address = order.publicAddress || (order.addressVisibility === "private"
+    ? (order.district || "地址请咨询小木同学") : (order.address || "地址待补充"));
+  safe.publicAddress = safe.address;
+  return safe;
+}
+
+function toPublicPartTime(post) {
+  return { id: post.id, title: post.title, time: post.time, location: post.location,
+    content: post.content, createdAt: post.createdAt };
 }
 
 async function kvGet(kv, key, fallback) {

@@ -1,6 +1,19 @@
 // 看板的排序与微信选单文案：纯函数，便于测试且不会修改原始数据。
 import { formatOrderText } from "./order-format.js";
 
+export function teacherGenderRequirement(order) {
+  const raw = String(order.requirements || "");
+  const explicit = String(order.genderPref || "");
+  if (/^(男|男生|男老师)$/.test(explicit)) return "男生";
+  if (/^(女|女生|女老师)$/.test(explicit)) return "女生";
+  // 老师性别与学生性别是不同字段；只读招聘要求中的明确性别条件。
+  const female = /女(老师|教师|大学生|教员)|女性(老师|教师)|限女|女生优先|女老师优先/.test(raw);
+  const male = /男(老师|教师|大学生|教员)|男性(老师|教师)|限男|男生优先|男老师优先/.test(raw);
+  if (female && !male) return "女生";
+  if (male && !female) return "男生";
+  return "不限";
+}
+
 function commuteMinutes(order) {
   if (order.commute?.isOnline) return 0;
   const value = Number(order.commute?.bestMin);
