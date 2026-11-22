@@ -126,7 +126,7 @@ function renderHall() {
     if (state.onlyOpen && o.status !== "招募中") return false;
     if (state.onlySelected && !o.selected) return false;
     if (subject && o.subject !== subject && !getSubjectList(o.subject).includes(subject)) return false;
-    if (grade && o.grade !== grade) return false;
+    if (grade && o.grade !== grade && !(grade === "小学" && /[一二三四五六1-6]年级/.test(o.grade))) return false;
     if (mode && o.mode !== mode) return false;
     if (studentGender && o.studentGender !== studentGender) return false;
     if (district && o.district !== district) return false;

@@ -69,21 +69,50 @@ export function inferFrequency(weeklyFrequency) {
   return match ? (chars[match[1]] || Number(match[1]) || 0) : 0;
 }
 
+function recoverLegacyFields(raw) {
+  // 早期 AI 曾把完整九字段单放入 studentInfo，并把 "】" 混进地址。
+  // 只针对明显损坏的旧记录修正读取结果，绝不改写 Cloudflare KV 原数据。
+  const source = str(raw.studentInfo);
+  const broken = source.includes("【年级性别】") && source.includes("【补习科目】") &&
+    (/^】/.test(str(raw.address)) || /^(?:对老师)?要求】/.test(str(raw.requirements)));
+  if (!broken) return null;
+  const fields = Object.fromEntries([...source.matchAll(/【([^】]+)】([\s\S]*?)(?=【[^】]+】|$)/g)]
+    .map((match) => [match[1], match[2].trim()]));
+  const gradeSex = fields["年级性别"] || "";
+  const grade = gradeNames.find((name) => gradeSex.includes(name)) || "";
+  const fromHeader = source.match(/^#\S+\/([^【\s]+)/)?.[1] || "";
+  const requirements = str(raw.requirements).replace(/^(?:对老师)?要求】/, "")
+    .replace(/【薪资】[\s\S]*$/, "").trim();
+  const salary = str(raw.requirements).match(/【薪资】\s*(\d+(?:\.\d+)?\s*[～~—-]\s*\d+(?:\.\d+)?\s*元\/小时|\d+(?:\.\d+)?元\/小时)/)?.[1];
+  return {
+    grade, title: fromHeader, subject: fields["补习科目"],
+    studentGender: getGenderFromText(`【年级性别】${gradeSex}`),
+    teacherCount: Number(fields["需要几个老师"]?.match(/\d+/)?.[0]) || 1,
+    currentScores: fields["现阶段成绩"],
+    address: fields["补课地址"], weeklyFrequency: fields["一周几次"],
+    hoursPerSession: Number(fields["每次几小时"]?.match(/\d+(?:\.\d+)?/)?.[0]) || 2,
+    requirements: requirements || fields["对老师要求"], salaryText: salary
+  };
+}
+
 export function normalizeOrder(raw = {}, options = {}) {
-  const grade = pick(raw.grade, options.grade) || "年级待补充";
-  const subject = getSubjectList(pick(raw.subject, raw.subjects, options.subject)).join("、") || "科目待补充";
-  const studentGender = getStudentGender(
-    pick(raw.studentGender, raw.studentSex, raw.studentInfoGender,
-      str(raw.studentInfo).match(/^(男学员|女学员|男生|女生|男孩|女孩)/)?.[1])
+  const repaired = recoverLegacyFields(raw);
+  const grade = pick(repaired?.grade, raw.grade, options.grade) || "年级待补充";
+  const subject = getSubjectList(pick(repaired?.subject, raw.subject, raw.subjects, options.subject)).join("、") || "科目待补充";
+  const explicitGender = getStudentGender(pick(repaired?.studentGender, raw.studentGender, raw.studentSex, raw.studentInfoGender));
+  const studentGender = explicitGender !== "待补充" ? explicitGender : (
+    getStudentGender(str(raw.studentInfo).match(/^(男学员|女学员|男生|女生|男孩|女孩)/)?.[1]) !== "待补充"
+      ? getStudentGender(str(raw.studentInfo).match(/^(男学员|女学员|男生|女生|男孩|女孩)/)?.[1])
+      : getGenderFromText(str(raw.studentInfo))
   );
-  const salaryText = normalizeSalary(pick(raw.salaryText, raw.salary), grade, raw.hourlyRate);
-  const weeklyFrequency = pick(raw.weeklyFrequency, raw.frequency, raw.schedule) || "待协商";
-  const sessionsPerWeek = Number(raw.sessionsPerWeek) || inferFrequency(weeklyFrequency);
+  const salaryText = normalizeSalary(pick(repaired?.salaryText, raw.salaryText, raw.salary), grade, raw.hourlyRate);
+  const weeklyFrequency = pick(repaired?.weeklyFrequency, raw.weeklyFrequency, raw.frequency, raw.schedule) || "待协商";
+  const sessionsPerWeek = repaired ? inferFrequency(weeklyFrequency) : Number(raw.sessionsPerWeek) || inferFrequency(weeklyFrequency);
   const mode = pick(raw.mode) || (/网课|线上|远程/.test(raw.notes || "") ? "线上" : "上门");
   const onlineAllowed = raw.onlineAllowed === true || raw.canOnline === true ||
     /可网课/.test(raw.rawText || "");
   const status = pick(raw.status) || "招募中";
-  const title = pick(raw.title) || `${grade}${subject}${/陪读/.test(raw.notes || "") ? "陪读" : ""}家教`;
+  const title = pick(repaired?.title, raw.title) || `${grade}${subject}${/陪读/.test(raw.notes || "") ? "陪读" : ""}家教`;
   return {
     ...raw,
     id: pick(raw.id, options.id),
@@ -91,22 +120,22 @@ export function normalizeOrder(raw = {}, options = {}) {
     subject,
     title,
     studentGender,
-    teacherCount: Math.max(1, Math.trunc(Number(raw.teacherCount) || 1)),
-    currentScores: pick(raw.currentScores, raw.scores) || "成绩待补充",
-    address: pick(raw.address) || "地址待补充",
+    teacherCount: Math.max(1, Math.trunc(Number(repaired?.teacherCount || raw.teacherCount) || 1)),
+    currentScores: pick(repaired?.currentScores, raw.currentScores, raw.scores) || "成绩待补充",
+    address: pick(repaired?.address, str(raw.address).replace(/^】/, "")) || "地址待补充",
     weeklyFrequency,
     sessionsPerWeek,
-    hoursPerSession: Number(raw.hoursPerSession) > 0 ? Number(raw.hoursPerSession) : 2,
-    requirements: pick(raw.requirements) || "无特殊要求",
+    hoursPerSession: Number(repaired?.hoursPerSession || raw.hoursPerSession) > 0 ? Number(repaired?.hoursPerSession || raw.hoursPerSession) : 2,
+    requirements: pick(repaired?.requirements, raw.requirements) || "无特殊要求",
     salaryText,
     hourlyRate: getSalaryValue(salaryText),
     mode,
     onlineAllowed,
     trialTime: pick(raw.trialTime),
     notes: pick(raw.notes),
-    district: pick(raw.district) || (str(raw.address).match(/(?:天津市)?(和平区|河西区|南开区|河东区|河北区|红桥区|津南区|西青区|东丽区|北辰区|武清区|滨海新区|宝坻区|静海区|宁河区|蓟州区)/)?.[1] || (mode === "线上" ? "线上" : "区域待补充")),
+    district: pick(raw.district) || (pick(repaired?.address, raw.address).match(/(?:天津市)?(和平区|河西区|南开区|河东区|河北区|红桥区|津南区|西青区|东丽区|北辰区|武清区|滨海新区|宝坻区|静海区|宁河区|蓟州区)/)?.[1] || (mode === "线上" ? "线上" : "区域待补充")),
     genderPref: pick(raw.genderPref) || "不限",
-    studentInfo: pick(raw.studentInfo) || "",
+    studentInfo: repaired ? "" : pick(raw.studentInfo) || "",
     tags: Array.isArray(raw.tags) ? raw.tags : [],
     urgent: Boolean(raw.urgent),
     status,

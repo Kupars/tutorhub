@@ -90,3 +90,30 @@ test("AI 失效时的规则解析仍保留多科、学生性别和真实薪资�
   assert.equal(result.orders[0].subject, "化学、生物");
   assert.equal(result.orders[0].salaryText, "110～120元/小时（可报价）");
 });
+test("旧版误解析的整段家教单可以恢复九字段，不改原始编号及数据", () => {
+  const raw = {
+    id: "JJ-2026-4738", grade: "小学", subject: "数学", salary: 60,
+    studentInfo: "#2932/五年级语文、数学、英语家教 【年级性别】五年级，男孩 【补习科目】语文、数学、英语 【需要几个老师】1位 【现阶段成绩】80分左右 【补课地址】天津市西青区中北镇碧水家园E区 【一周几次】每周4次，周中2次、周末2次 【每次几小时】1.5小时 【对老师要求】能够同时辅",
+    address: "】天津市西青区中北镇碧水家园E区",
+    requirements: "要求】能够同时辅导语文、数学、英语三科，熟练掌握五年级英语语法知识 【薪资】60元/小时（可报价）",
+    sessionsPerWeek: 2, hoursPerSession: 2
+  };
+  const recovered = normalizeOrder(raw);
+  assert.equal(recovered.id, "JJ-2026-4738");
+  assert.equal(recovered.grade, "五年级");
+  assert.equal(recovered.subject, "语文、数学、英语");
+  assert.equal(recovered.studentGender, "男生");
+  assert.equal(recovered.currentScores, "80分左右");
+  assert.equal(recovered.address, "天津市西青区中北镇碧水家园E区");
+  assert.equal(recovered.weeklyFrequency, "每周4次，周中2次、周末2次");
+  assert.equal(recovered.hoursPerSession, 1.5);
+  assert.equal(recovered.sessionsPerWeek, 4);
+  assert.match(recovered.requirements, /同时辅导语文/);
+  assert.equal(recovered.studentInfo, "");
+  assert.equal(raw.address[0], "】", "不得修改原始云端对象");
+});
+
+test("普通旧单能从学生信息推断学生性别，不能从女老师要求误推断", () => {
+  assert.equal(normalizeOrder({ studentInfo: "高一男生" }).studentGender, "男生");
+  assert.equal(normalizeOrder({ studentInfo: "女老师优先" }).studentGender, "待补充");
+});
