@@ -70,7 +70,8 @@ export function groupPublicMapOrders(orders) {
     const key = `${pos.district}|${pos.lat}|${pos.lng}`;
     if (!groups.has(key)) groups.set(key, { ...pos, orders: [] });
     groups.get(key).orders.push({ id: order.id, orderNumber: order.orderNumber || order.id,
-      grade: order.grade, subject: order.subject, address: publicAddress(order),
+      grade: order.grade, subject: order.subject, studentGender: order.studentGender,
+      teacherCount: order.teacherCount, address: publicAddress(order),
       weeklyFrequency: order.weeklyFrequency, hoursPerSession: order.hoursPerSession,
       salaryText: order.salaryText, currentScores: order.currentScores,
       requirements: order.requirements, trialTime: order.trialTime });
@@ -138,7 +139,9 @@ function renderOrderMarkers() {
       top.className = "map-order-top";
       top.append(cardTitle, rate);
       card.append(top);
-      for (const [name, value] of [["公开地点", order.address], ["上课时间", order.weeklyFrequency],
+      for (const [name, value] of [["学生", [order.grade, order.studentGender].filter(Boolean).join("、")],
+        ["补习科目", order.subject], ["需要老师", order.teacherCount ? `${order.teacherCount}位` : ""],
+        ["公开地点", order.address], ["上课时间", order.weeklyFrequency],
         ["每次时长", order.hoursPerSession ? `${order.hoursPerSession}小时` : ""],
         ["当前成绩", order.currentScores], ["老师要求", order.requirements], ["试课", order.trialTime]]) {
         const detail = popupDetail(name, value);
