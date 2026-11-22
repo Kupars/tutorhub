@@ -7,7 +7,7 @@ import { Store } from "./store.js";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=2";
-import { cardCopyableAddress, cardDisplayTitle, cardSchedule, cardTeacherGenderTag } from "./card-presentation.js?v=2";
+import { cardCopyableAddress, cardSchedule, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=3";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 
 const state = {
@@ -256,6 +256,9 @@ function renderHall() {
     const schedule = cardSchedule(o);
     const teacherTag = cardTeacherGenderTag(o);
     const addressToCopy = cardCopyableAddress(o);
+    const title = cardTitleSegments(o.title, o.subject);
+    const titleHtml = `${escapeHtml(title.before)}${title.subject ? `<span class="card-subject">${escapeHtml(title.subject)}</span>` : ""}${escapeHtml(title.after)}`;
+    const displayDistrict = o.district === "线上" ? "线上" : canonicalDistrict(o.district) || "地点待补充";
     const commuteHtml = o.commute
       ? o.commute.isOnline
         ? `<span class="chip commute">💻 线上免通勤</span>`
@@ -267,7 +270,7 @@ function renderHall() {
         <div class="card-head">
           <div>
             <div class="order-number">${escapeHtml(o.orderNumber || o.id)}</div>
-            <div class="card-title">${escapeHtml(o.district === "线上" ? "线上" : canonicalDistrict(o.district) || "地点待补充")} · ${escapeHtml(cardDisplayTitle(o.title) || o.title)}</div>
+            <div class="card-title"><span class="card-district">${escapeHtml(displayDistrict)}</span><span class="card-title-separator">·</span><span class="card-title-text">${titleHtml}</span></div>
           </div>
           <div class="price-badge">${escapeHtml((o.salaryText || "老师报价").replace("（可报价）", ""))}</div>
         </div>
@@ -281,13 +284,12 @@ function renderHall() {
           ${commuteHtml}
         </div>
 
-        <div class="schedule-summary" aria-label="家教上课频率和每次时长">
+        <div class="schedule-summary" aria-label="家教上课频率和上课日期">
           <div class="schedule-metric"><span class="schedule-metric-label">↻ 上课频率</span><strong>${escapeHtml(schedule.frequency)}</strong></div>
           <div class="schedule-metric schedule-metric-date" title="${escapeHtml(schedule.original)}"><span class="schedule-metric-label">🗓 上课日期</span><strong>${escapeHtml(schedule.dayLabel || "日期待协商")}</strong></div>
         </div>
 
         <div class="card-desc">
-          <div><strong>地点：</strong>${escapeHtml(o.address)}</div>
           <div><strong>成绩：</strong>${escapeHtml(o.currentScores)}</div>
           <div><strong>学生：</strong>${escapeHtml(o.studentGender)}</div>
           ${Number(o.teacherCount) > 1 ? `<div class="teacher-count-row"><strong>需要老师：</strong>${Number(o.teacherCount)}位</div>` : ""}
@@ -299,9 +301,12 @@ function renderHall() {
         <div class="card-foot">
           <label class="order-check"><input type="checkbox" data-select="${escapeHtml(o.id)}" ${o.selected ? "checked" : ""} /> 勾选此单</label>
           <div class="card-actions">
-            <button type="button" class="btn btn-sm btn-copy-address" data-copy-address="${escapeHtml(o.id)}" ${addressToCopy ? "" : "disabled"}>📍 复制地址</button>
             <button type="button" class="btn btn-sm" data-copy="${escapeHtml(o.id)}">📋 复制整单</button>
           </div>
+        </div>
+        <div class="card-location-row">
+          <div class="card-location"><span class="card-location-icon" aria-hidden="true">📍</span><span class="card-location-text">${escapeHtml(o.publicAddress || o.address || "公开地址待补充")}</span></div>
+          ${addressToCopy ? `<button type="button" class="btn btn-sm btn-copy-address" data-copy-address="${escapeHtml(o.id)}">复制地址</button>` : ""}
         </div>
       </article>
     `;

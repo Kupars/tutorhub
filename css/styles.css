@@ -420,6 +420,13 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   border-radius:8px; color:var(--primary); background:var(--primary-soft);
   font-size:13px; font-weight:850; letter-spacing:.2px; line-height:1.2; }
 .card-title { font-size: 16px; font-weight: 700; line-height: 1.35; }
+.card-title { display:flex; align-items:center; flex-wrap:wrap; gap:4px 6px; }
+.card-district { color:#b45309; font-weight:850; white-space:nowrap; }
+.card-title-separator { color:var(--muted); font-weight:500; }
+.card-title-text { min-width:0; overflow-wrap:anywhere; }
+.card-subject { display:inline; padding:1px 6px; border-radius:6px;
+  color:#b42342; background:#fff1f2; font-weight:850;
+  -webkit-box-decoration-break:clone; box-decoration-break:clone; }
 .price-badge {
   white-space: nowrap; background: var(--primary-soft); color: var(--primary);
   padding: 4px 10px; border-radius: 999px; font-weight: 800; font-size: 14px;
@@ -455,6 +462,13 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 .order-check input { width:19px; height:19px; accent-color:var(--primary); cursor:pointer; }
 .card-actions { display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin-left:auto; }
 .btn-copy-address { background:var(--primary-soft); border-color:var(--border); color:var(--primary); font-weight:750; }
+.card-location-row { display:flex; align-items:center; gap:10px; min-width:0;
+  border-top:1px dashed var(--border); padding-top:11px; }
+.card-location { display:flex; align-items:flex-start; gap:5px; flex:1; min-width:0;
+  color:var(--text-subtle); font-size:13px; font-weight:650; line-height:1.55; }
+.card-location-icon { flex:0 0 auto; }
+.card-location-text { min-width:0; overflow-wrap:anywhere; }
+.card-location-row .btn-copy-address { flex:0 0 auto; white-space:nowrap; }
 .page-heading { padding:24px 3px 4px; }
 .page-heading h1 { font-size:24px; }
 .page-heading p { color:var(--muted); font-size:13px; }
@@ -635,6 +649,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 [data-color-mode="dark"] .usage-kicker::before { content:none; }
 [data-color-mode="dark"] .usage-kicker { color:#a6dbff; }
 [data-color-mode="dark"] .order-card.order-selected { border-color:#5ba4d5; box-shadow:0 4px 22px rgba(57,161,225,.12); }
+[data-color-mode="dark"] .card-district { color:#fbbf24; }
+[data-color-mode="dark"] .card-subject { color:#fda4af; background:rgba(190,24,93,.2); }
 [data-color-mode="dark"] .chip.urgent { background:#502d3d; color:#ffc3cf; }
 [data-color-mode="dark"] .chip.commute { background:#193f49; color:#9be8ed; }
 [data-color-mode="dark"] .chip.status-open { background:#174337; color:#93e4bd; }

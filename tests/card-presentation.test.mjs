@@ -1,11 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cardCopyableAddress, cardDisplayTitle, cardSchedule, cardTeacherGenderTag } from "../js/card-presentation.js";
+import { cardCopyableAddress, cardDisplayTitle, cardSchedule, cardTeacherGenderTag, cardTitleSegments } from "../js/card-presentation.js";
 
 test("卡片标题去掉重复的家教二字，但不改紧急标识", () => {
   assert.equal(cardDisplayTitle("高二地理家教"), "高二地理");
   assert.equal(cardDisplayTitle("高二化学家教‼️急急"), "高二化学‼️急急");
   assert.equal(cardDisplayTitle("初二全科陪读家教"), "初二全科陪读");
+});
+
+test("科目在标题原位置着色，不重复显示且保留多科、急招和陪读文字", () => {
+  assert.deepEqual(cardTitleSegments("高二英语家教", "英语"), { before: "高二", subject: "英语", after: "" });
+  assert.deepEqual(cardTitleSegments("高一化学、生物家教‼️急急", "化学、生物"),
+    { before: "高一", subject: "化学、生物", after: "‼️急急" });
+  assert.deepEqual(cardTitleSegments("高二、初二晚辅陪读家教", "晚辅陪读"),
+    { before: "高二、初二", subject: "晚辅陪读", after: "" });
+  assert.deepEqual(cardTitleSegments("初二全科陪读家教", "英语"),
+    { before: "初二全科陪读", subject: "", after: "" });
 });
 
 test("上课频率、单次时长高亮，星期和具体时段只在小标签展示", () => {

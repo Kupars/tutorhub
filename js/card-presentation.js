@@ -5,6 +5,15 @@ export function cardDisplayTitle(title) {
   return String(title || "").replace(/家教(?!.*家教)/, "").trim();
 }
 
+// 标题只给原有科目文字上色，不额外重复添加科目标签或丢掉紧急标识。
+export function cardTitleSegments(title, subject) {
+  const display = cardDisplayTitle(title);
+  const target = String(subject || "").trim();
+  const start = target ? display.indexOf(target) : -1;
+  if (start < 0) return { before: display, subject: "", after: "" };
+  return { before: display.slice(0, start), subject: target, after: display.slice(start + target.length) };
+}
+
 export function cardSchedule(order) {
   const original = String(order.weeklyFrequency || "").trim();
   const count = "[0-9一二两三四五六七八九十]+";
