@@ -99,7 +99,7 @@ test("地图像素距离接近的家教点合并；放大后拆分，并保留�
   const groups = [
     { lat: 39.1, lng: 117.1, district: "南开区", orders: [{ id: "a" }, { id: "b" }] },
     { lat: 39.1, lng: 117.101, district: "南开区", orders: [{ id: "c" }] },
-    { lat: 39.1, lng: 117.102, district: "南开区", orders: [{ id: "d" }] },
+    { lat: 39.1, lng: 117.1008, district: "南开区", orders: [{ id: "d" }] },
     { lat: 39.2, lng: 117.3, district: "河西区", orders: [{ id: "e" }] }
   ];
   const close = clusterNearbyMapGroups(groups, (lat, lng) => ({ x: lng * 40000, y: lat * 40000 }));
@@ -108,9 +108,17 @@ test("地图像素距离接近的家教点合并；放大后拆分，并保留�
   assert.deepEqual(close[0].orders.map((o) => o.id), ["a", "b", "c", "d"]);
   assert.equal(markerStyleForGroup(close[0], (id) => id === "c").fillColor, "#4ade80");
   assert.equal(popupTitleForGroup(close[0]), "这个标记对应 4 条家教单");
-  const zoomed = clusterNearbyMapGroups(groups, (lat, lng) => ({ x: lng * 100000, y: lat * 100000 }));
+  const zoomed = clusterNearbyMapGroups(groups, (lat, lng) => ({ x: lng * 500000, y: lat * 500000 }));
   assert.equal(zoomed.length, 4);
   assert.equal(zoomed[0].orders.length, 2);
+  // 彼此邻近不代表应无限传递，避免整片城区“串珠式”聚成一个巨型标记。
+  const chain = Array.from({ length: 12 }, (_, index) => ({
+    lat: 39.1, lng: 117.1 + index * .001,
+    district: "南开区", orders: [{ id: `chain-${index}` }]
+  }));
+  const bounded = clusterNearbyMapGroups(chain, (lat, lng) => ({ x: lng * 40000, y: lat * 40000 }));
+  assert(bounded.length >= 4, "链式靠近的点必须拆成多个可点开的标记");
+  assert(bounded.every((group) => group.orders.length <= 3), "单个合并标记不得跨越整条点链");
 });
 
 test("津南区在筛选和地图里不应分成‘天津市津南区’与‘津南区’", () => {

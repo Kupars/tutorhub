@@ -90,33 +90,36 @@ export function groupPublicMapOrders(orders) {
 export function clusterNearbyMapGroups(groups, project, radiusPx = 54) {
   if (groups.length < 2) return groups;
   const points = groups.map((group) => project(group.lat, group.lng));
-  const roots = groups.map((_, index) => index);
-  const find = (index) => {
-    while (roots[index] !== index) {
-      roots[index] = roots[roots[index]];
-      index = roots[index];
-    }
-    return index;
-  };
   const limit = radiusPx * radiusPx;
-  for (let i = 0; i < groups.length; i++) {
-    for (let j = i + 1; j < groups.length; j++) {
-      const dx = points[i].x - points[j].x;
-      const dy = points[i].y - points[j].y;
-      if (dx * dx + dy * dy <= limit) roots[find(j)] = find(i);
+  // 以大标记作为聚合中心，其他点只与“中心”比较，避免 A 靠 B、B 靠 C
+  // 造成整片城区被链式聚合成一个超大标记。
+  const priority = groups.map((_, index) => index)
+    .sort((a, b) => groups[b].orders.length - groups[a].orders.length || a - b);
+  const buckets = [];
+  for (const index of priority) {
+    let target = null;
+    let closestDistance = limit + 1;
+    for (const bucket of buckets) {
+      const anchor = points[bucket.anchor];
+      const dx = points[index].x - anchor.x;
+      const dy = points[index].y - anchor.y;
+      const distance = dx * dx + dy * dy;
+      if (distance <= limit && distance < closestDistance) {
+        closestDistance = distance;
+        target = bucket;
+      }
     }
+    if (target) target.indices.push(index);
+    else buckets.push({ anchor: index, indices: [index] });
   }
-  const clusters = new Map();
-  for (let i = 0; i < groups.length; i++) {
-    const root = find(i);
-    if (!clusters.has(root)) clusters.set(root, []);
-    clusters.get(root).push(groups[i]);
-  }
-  return [...clusters.values()].map((members) => {
+  buckets.sort((a, b) => Math.min(...a.indices) - Math.min(...b.indices));
+  return buckets.map((bucket) => {
+    const members = bucket.indices.sort((a, b) => a - b).map((index) => groups[index]);
     if (members.length === 1) return members[0];
+    const anchor = groups[bucket.anchor];
     return {
-      lat: members.reduce((total, member) => total + member.lat, 0) / members.length,
-      lng: members.reduce((total, member) => total + member.lng, 0) / members.length,
+      lat: anchor.lat,
+      lng: anchor.lng,
       district: members.every((member) => member.district === members[0].district)
         ? members[0].district : "多个区域",
       geocoded: members.every((member) => member.geocoded),
