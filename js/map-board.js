@@ -1,4 +1,4 @@
-import { inferCoordsFromText, isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "./commute.js";
+import { inferCoordsFromText, isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "./commute.js?v=2";
 
 let map = null;
 let orderLayer = null;
