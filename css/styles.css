@@ -23,8 +23,8 @@
   --mobile-glass: rgba(250, 253, 255, 0.97);
   --season-hero: linear-gradient(115deg,#ddf0ff 0%,#f3faff 69%,#fff 100%);
   --season-hero-border: #bcdcf1;
-  --season-art: "❄";
-  --season-mark: "❄ ";
+  --season-art: none;
+  --season-mark: none;
   --season-art-color: rgba(37,112,170,.11);
   --season-art-opacity: 1;
   --season-body-bg: radial-gradient(circle at 4% 0%,rgba(158,213,249,.32),transparent 32%),
