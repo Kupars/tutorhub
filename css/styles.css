@@ -490,16 +490,19 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 
 /* 冬夜模式：让正文、选单、后台以及地图弹窗都保持清晰可读。 */
 [data-color-mode="dark"] body {
-  background:radial-gradient(circle at 2% 0%,rgba(38,101,144,.25),transparent 37%),
-    radial-gradient(circle at 98% 15%,rgba(20,77,127,.18),transparent 33%),var(--bg);
-  background-attachment:fixed;
+  background:var(--bg);
 }
 [data-color-mode="dark"] .usage-card {
-  border-color:#315573;
-  background:linear-gradient(115deg,#193d59 0%,#142b43 63%,#14243a 100%);
-  box-shadow:0 12px 26px rgba(0,0,0,.19);
+  background:transparent;
+  border:0;
+  border-bottom:1px solid var(--border);
+  border-radius:0;
+  box-shadow:none;
+  padding:17px 2px 19px;
+  margin-top:8px;
 }
-[data-color-mode="dark"] .usage-card::after { color:rgba(166,219,255,.13); }
+[data-color-mode="dark"] .usage-card::after,
+[data-color-mode="dark"] .usage-kicker::before { content:none; }
 [data-color-mode="dark"] .usage-kicker { color:#a6dbff; }
 [data-color-mode="dark"] .order-card.order-selected { border-color:#5ba4d5; box-shadow:0 4px 22px rgba(57,161,225,.12); }
 [data-color-mode="dark"] .chip.urgent { background:#502d3d; color:#ffc3cf; }
