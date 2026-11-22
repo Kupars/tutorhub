@@ -49,7 +49,7 @@ export async function onRequestPost(context) {
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
         return [{ name: String(poi.name || ""), district: String(poi.adname || ""),
           province: String(poi.pname || ""), address: typeof poi.address === "string" ? poi.address : "",
-          lat, lng }];
+          type: String(poi.type || ""), lat, lng }];
       });
       return jsonResp({ ok: data.status === "1", candidates });
     }
