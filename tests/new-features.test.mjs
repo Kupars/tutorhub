@@ -64,9 +64,11 @@ test("五条旧JJ演示单不再作为默认家教单，地图详情只含公开
   assert(!JSON.stringify(group).includes("隐私备注"));
 });
 
-test("旧JJ演示单仅清理指定五个ID，真实云端单保留", async () => {
+test("旧JJ测试单仅清理指定八个ID，真实云端单保留", async () => {
   const entries = new Map([["orders", JSON.stringify([
-    { id: "JJ-2026-101", title: "虚构演示" }, { id: "#3903", title: "真实单" }
+    { id: "JJ-2026-101", title: "虚构演示" }, { id: "JJ-2026-4737", title: "云端残留测试" },
+    { id: "JJ-2026-4738", title: "云端残留测试" }, { id: "JJ-2026-888", title: "云端残留测试" },
+    { id: "#3903", title: "真实单" }
   ])]]);
   const env = { TUTOR_KV: { get: async (key) => entries.get(key), put: async (key, value) => entries.set(key, value) } };
   const response = await onRequest({ request: new Request("https://example.com/api/store"), env });

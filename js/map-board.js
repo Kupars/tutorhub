@@ -157,7 +157,8 @@ function renderOrderMarkers() {
       list.append(card);
     }
     label.append(header, caption, list);
-    marker.bindPopup(label, { minWidth: 280, maxWidth: 375, className: "tutor-map-popup", autoPanPadding: [30, 30] });
+    // 悬停时不自动挪动地图：否则标记会在鼠标下移走，导致详情卡片立刻关闭。
+    marker.bindPopup(label, { minWidth: 280, maxWidth: 375, className: "tutor-map-popup", autoPan: false });
     let closeTimer;
     const cancelClose = () => clearTimeout(closeTimer);
     const scheduleClose = () => { cancelClose(); closeTimer = setTimeout(() => marker.closePopup(), 450); };

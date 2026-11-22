@@ -16,7 +16,8 @@ const KEYS = {
   partTime: "tutorhub_parttime_v1",
   origin: "tutorhub_origin_v3"
 };
-const LEGACY_DEMO_IDS = new Set(["JJ-2026-101", "JJ-2026-102", "JJ-2026-103", "JJ-2026-104", "JJ-2026-105"]);
+const LEGACY_DEMO_IDS = new Set(["JJ-2026-101", "JJ-2026-102", "JJ-2026-103", "JJ-2026-104", "JJ-2026-105",
+  "JJ-2026-4737", "JJ-2026-4738", "JJ-2026-888"]);
 
 let cloudReady = false;
 let importedOrders = [];

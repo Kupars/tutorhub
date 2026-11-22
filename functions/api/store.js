@@ -9,8 +9,9 @@ const DEFAULT_SITE = {
   theme: "indigo",
   contactWechat: ""
 };
-// 用户要求移除早期虚构的五条 JJ 家教演示数据。仅匹配这五个确定的旧 ID。
-const LEGACY_DEMO_IDS = new Set(["JJ-2026-101", "JJ-2026-102", "JJ-2026-103", "JJ-2026-104", "JJ-2026-105"]);
+// 用户要求移除 JJ 家教测试单：五条早期演示 + 三条现场确认的云端残留。仅匹配确定的旧 ID。
+const LEGACY_DEMO_IDS = new Set(["JJ-2026-101", "JJ-2026-102", "JJ-2026-103", "JJ-2026-104", "JJ-2026-105",
+  "JJ-2026-4737", "JJ-2026-4738", "JJ-2026-888"]);
 
 export async function onRequest(context) {
   const { request, env } = context;
