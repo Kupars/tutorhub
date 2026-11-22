@@ -1,7 +1,7 @@
 import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
-import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=2";
-import { gcj02ToWgs84, moveMapTo, openMapBoard, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=4";
+import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=3";
+import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=6";
 import { parseMessyOrders, interpretSiteCommand, optimizeOrderAddressesWithAI } from "./ai-engine.js";
 import { Store } from "./store.js";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
@@ -219,6 +219,15 @@ function renderHall() {
   items = sortBoardOrders(items, sort);
   visibleBoardOrders = items;
   updateMapOrders(items);
+
+  const unresolved = items.filter((order) => order.mode !== "线上" && !getPublicMapLocation(order)).length;
+  const mapVerificationNote = $("mapVerificationNote");
+  if (mapVerificationNote) {
+    mapVerificationNote.hidden = unresolved === 0;
+    mapVerificationNote.textContent = unresolved
+      ? `本次筛选有 ${unresolved} 条公开地点尚未通过坐标核验，暂不绘制可能误导的标记；家教单仍可在下方查看。`
+      : "";
+  }
 
   $("resultStats").textContent = `共匹配 ${items.length} 条家教单（当前出发地址：${origin.name}）`;
   const advancedIds = ["qSubject", "qGrade", "qMode", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate"];
@@ -872,7 +881,7 @@ function locateMe(silent = false) {
       // GPS 只在当前浏览器本地保存，不上传后台；地图订单仍只使用公开地址。
       await Store.setOrigin({ name: "我的当前位置", lat, lng, isGps: true });
       updateMapOrigin(Store.getOrigin());
-      moveMapTo(lat, lng, 13);
+      moveMapTo(lat, lng, silent ? (window.matchMedia?.("(max-width: 640px)").matches ? 10 : 11) : 13);
       renderHall();
       if (!silent) showToast("定位成功，已重新计算大致路程");
     } catch { if (!silent) showToast("更新当前位置失败，请稍后重试"); }

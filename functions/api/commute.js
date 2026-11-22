@@ -41,7 +41,7 @@ export async function onRequestPost(context) {
       searchUrl.searchParams.set("citylimit", "true");
       searchUrl.searchParams.set("offset", "10");
       searchUrl.searchParams.set("key", env.AMAP_KEY);
-      const result = await fetch(searchUrl.toString(), { signal: AbortSignal.timeout(9000) });
+      const result = await fetch(searchUrl.toString(), { signal: AbortSignal.timeout(20000) });
       const data = await result.json();
       const candidates = (Array.isArray(data.pois) ? data.pois : []).flatMap((poi) => {
         if (typeof poi.location !== "string") return [];

@@ -1,0 +1,1145 @@
+{
+  "天津市和平区耀华小学": {
+    "lat": 39.113811,
+    "lng": 117.200957,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市和平区鞍山道地铁站": {
+    "lat": 39.119257,
+    "lng": 117.18245,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "公交地铁站点",
+    "formattedAddress": "天津市和平区鞍山道地铁站(公交站)",
+    "source": "amap-public-address"
+  },
+  "天津市和平区长寿公寓": {
+    "lat": 39.125093,
+    "lng": 117.176915,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区宝龙湾家园": {
+    "lat": 39.139573,
+    "lng": 117.158905,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区古文化街": {
+    "lat": 39.143493,
+    "lng": 117.185534,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "道路",
+    "formattedAddress": "天津市南开区古文化街",
+    "source": "amap-public-address"
+  },
+  "天津市南开区临渭佳园": {
+    "lat": 39.132157,
+    "lng": 117.136521,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "住宅区",
+    "formattedAddress": "天津市南开区临渭佳园",
+    "source": "amap-public-address"
+  },
+  "天津市南开区鼓楼地铁站": {
+    "lat": 39.139411,
+    "lng": 117.169489,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "公交地铁站点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区保山道": {
+    "lat": 39.105053,
+    "lng": 117.135,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "道路",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区安德公寓": {
+    "lat": 39.102681,
+    "lng": 117.205284,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "兴趣点",
+    "formattedAddress": "天津市河西区安德公寓(北门)",
+    "source": "amap-public-address"
+  },
+  "天津市河西区恩德西里": {
+    "lat": 39.098761,
+    "lng": 117.202123,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区天津瑞府": {
+    "lat": 39.040834,
+    "lng": 117.24178,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "兴趣点",
+    "formattedAddress": "天津市河西区天津瑞府(北门)",
+    "source": "amap-public-address"
+  },
+  "天津市河西区体院北一区气象南里西区": {
+    "lat": 39.087358,
+    "lng": 117.174691,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区华江里": {
+    "lat": 39.054264,
+    "lng": 117.252604,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "天津市河西区华江里",
+    "source": "amap-public-address"
+  },
+  "天津市河西区海景文苑": {
+    "lat": 39.08717,
+    "lng": 117.235092,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "天津市河西区海景文苑",
+    "source": "amap-public-address"
+  },
+  "天津市河西区广顺园": {
+    "lat": 39.099984,
+    "lng": 117.208398,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市西青区理工大学北门附近学府花园": {
+    "lat": 39.068899,
+    "lng": 117.128236,
+    "province": "天津市",
+    "district": "西青区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市红桥区西青道科园公寓": {
+    "lat": 39.154062,
+    "lng": 117.128925,
+    "province": "天津市",
+    "district": "红桥区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市红桥区风采里": {
+    "lat": 39.174633,
+    "lng": 117.159039,
+    "province": "天津市",
+    "district": "红桥区",
+    "level": "住宅区",
+    "formattedAddress": "天津市红桥区风采里",
+    "source": "amap-public-address"
+  },
+  "天津市北辰区融创璟园": {
+    "lat": 39.228629,
+    "lng": 117.161998,
+    "province": "天津市",
+    "district": "北辰区",
+    "level": "住宅区",
+    "formattedAddress": "天津市北辰区融创璟园",
+    "source": "amap-public-address"
+  },
+  "天津市河东区工业大学家属院": {
+    "lat": 39.132506,
+    "lng": 117.232646,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河东区大直沽": {
+    "lat": 39.109933,
+    "lng": 117.237163,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河东区鲁山道街彩丽园": {
+    "lat": 39.150756,
+    "lng": 117.283686,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河东区大直沽街道直沽园": {
+    "lat": 39.109958,
+    "lng": 117.235934,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河东区东瑞家园": {
+    "lat": 39.156508,
+    "lng": 117.25445,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河东区荣泰公寓": {
+    "lat": 39.119428,
+    "lng": 117.231197,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河东区中海信和苑": {
+    "lat": 39.122997,
+    "lng": 117.210988,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河北区胜利路秋星里": {
+    "lat": 39.145289,
+    "lng": 117.200737,
+    "province": "天津市",
+    "district": "河北区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河北区诗景雅苑": {
+    "lat": 39.167838,
+    "lng": 117.224844,
+    "province": "天津市",
+    "district": "河北区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河北区爱家星河小区": {
+    "lat": 39.158539,
+    "lng": 117.217635,
+    "province": "天津市",
+    "district": "河北区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河北区王串场": {
+    "lat": 39.153099,
+    "lng": 117.221622,
+    "province": "天津市",
+    "district": "河北区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河北区中山路地铁站": {
+    "lat": 39.160394,
+    "lng": 117.197488,
+    "province": "天津市",
+    "district": "河北区",
+    "level": "公交地铁站点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市东丽区新立街道津滨大道松江津滨置地广场底商88号": {
+    "lat": 39.114436,
+    "lng": 117.298667,
+    "province": "天津市",
+    "district": "东丽区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市东丽区满江东道昆俞欣园": {
+    "lat": 39.164264,
+    "lng": 117.282446,
+    "province": "天津市",
+    "district": "东丽区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区金海湾花园": {
+    "lat": 39.075211,
+    "lng": 117.260348,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市和平区宝鸡西道景阳里": {
+    "lat": 39.116167,
+    "lng": 117.182431,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区广东路中裕园": {
+    "lat": 39.096005,
+    "lng": 117.211091,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区挂甲寺街道天意里小区": {
+    "lat": 39.093467,
+    "lng": 117.218705,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市西青区中北镇溪悦园": {
+    "lat": 39.121376,
+    "lng": 117.064964,
+    "province": "天津市",
+    "district": "西青区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河东区嘉华小区": {
+    "lat": 39.129152,
+    "lng": 117.237134,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河北区月牙河": {
+    "lat": 39.163484,
+    "lng": 117.245611,
+    "province": "天津市",
+    "district": "河北区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市和平区万全道天赐园": {
+    "lat": 39.118295,
+    "lng": 117.176134,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市和平区西康路地铁站": {
+    "lat": 39.111173,
+    "lng": 117.18181,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "公交地铁站点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区嘉陵道": {
+    "lat": 39.125276,
+    "lng": 117.136741,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "道路",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区芥园西道": {
+    "lat": 39.14014,
+    "lng": 117.113814,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "道路",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区越秀路恩德里社区": {
+    "lat": 39.098891,
+    "lng": 117.202628,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区万象城": {
+    "lat": 39.08984,
+    "lng": 117.209164,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "兴趣点",
+    "formattedAddress": "天津市河西区天津万象城(N1门)",
+    "source": "amap-public-address"
+  },
+  "天津市河西区河西万科广场": {
+    "lat": 39.106201,
+    "lng": 117.207107,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区天塔": {
+    "lat": 39.089244,
+    "lng": 117.175953,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区河西绿城": {
+    "lat": 39.072788,
+    "lng": 117.240927,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区才俊里": {
+    "lat": 39.077422,
+    "lng": 117.189803,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区风致里": {
+    "lat": 39.067065,
+    "lng": 117.27115,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市西青区王顶堤家园小区": {
+    "lat": 39.08864,
+    "lng": 117.101827,
+    "province": "天津市",
+    "district": "西青区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市津南区中海南开郡": {
+    "lat": 38.989412,
+    "lng": 117.355658,
+    "province": "天津市",
+    "district": "津南区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河东区秋实园": {
+    "lat": 39.142992,
+    "lng": 117.201743,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市和平区荣庆园": {
+    "lat": 39.13046,
+    "lng": 117.177318,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "住宅区",
+    "formattedAddress": "天津市和平区荣庆园",
+    "source": "amap-public-address"
+  },
+  "天津市和平区大悦城": {
+    "lat": 39.116678,
+    "lng": 117.19159,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区王顶堤": {
+    "lat": 39.095758,
+    "lng": 117.137175,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "住宅区",
+    "formattedAddress": "天津市南开区王顶堤",
+    "source": "amap-public-address"
+  },
+  "天津市南开区天拖江坪园": {
+    "lat": 39.112189,
+    "lng": 117.129901,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区华宁南里": {
+    "lat": 39.100815,
+    "lng": 117.133793,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "住宅区",
+    "formattedAddress": "天津市南开区华宁南里",
+    "source": "amap-public-address"
+  },
+  "天津市河西区小海地": {
+    "lat": 39.062079,
+    "lng": 117.26018,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区地铁1号线复兴门站": {
+    "lat": 39.076242,
+    "lng": 117.253908,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "公交地铁站点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区太湖路天空之镜": {
+    "lat": 39.079226,
+    "lng": 117.229497,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "道路",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区瑞江花园菊苑": {
+    "lat": 39.06721,
+    "lng": 117.228145,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区浦口西里": {
+    "lat": 39.107851,
+    "lng": 117.204295,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市西青区金瀚园": {
+    "lat": 39.000215,
+    "lng": 117.213815,
+    "province": "天津市",
+    "district": "西青区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市津南区双港": {
+    "lat": 39.030266,
+    "lng": 117.29908,
+    "province": "天津市",
+    "district": "津南区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市津南区咸水沽": {
+    "lat": 38.982115,
+    "lng": 117.379957,
+    "province": "天津市",
+    "district": "津南区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市红桥区惠灵顿河滨花苑": {
+    "lat": 39.146278,
+    "lng": 117.173081,
+    "province": "天津市",
+    "district": "红桥区",
+    "level": "住宅区",
+    "formattedAddress": "天津市红桥区惠灵顿·河滨花苑",
+    "source": "amap-public-address"
+  },
+  "天津市红桥区三条石大街千吉花园": {
+    "lat": 39.151976,
+    "lng": 117.172268,
+    "province": "天津市",
+    "district": "红桥区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市北辰区珑著": {
+    "lat": 39.203048,
+    "lng": 117.106581,
+    "province": "天津市",
+    "district": "北辰区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河东区远洋国际": {
+    "lat": 39.682495,
+    "lng": 117.63634,
+    "province": "天津市",
+    "district": "宝坻区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河东区河东万新村昆仑路曲溪西里": {
+    "lat": 39.13478,
+    "lng": 117.265972,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "住宅区",
+    "formattedAddress": "天津市河东区天津河东万新村昆仑路曲溪西里",
+    "source": "amap-public-address"
+  },
+  "天津市河东区互助南里": {
+    "lat": 39.104799,
+    "lng": 117.25529,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市和平区诚基中心": {
+    "lat": 39.116548,
+    "lng": 117.195403,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区闽侯路7号": {
+    "lat": 39.10677,
+    "lng": 117.216738,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "门牌号",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河北区林庭公寓": {
+    "lat": 39.148909,
+    "lng": 117.208112,
+    "province": "天津市",
+    "district": "河北区",
+    "level": "住宅区",
+    "formattedAddress": "天津市河北区林庭公寓",
+    "source": "amap-public-address"
+  },
+  "天津市河北区悦湾公馆": {
+    "lat": 39.139748,
+    "lng": 117.194803,
+    "province": "天津市",
+    "district": "河北区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区迎水道王顶堤地铁站": {
+    "lat": 39.091701,
+    "lng": 117.134938,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "公交地铁站点",
+    "formattedAddress": "天津市南开区迎水道王顶堤地铁站(公交站)",
+    "source": "amap-public-address"
+  },
+  "天津市红桥区丁字沽零号路春风里小区": {
+    "lat": 39.185379,
+    "lng": 117.149125,
+    "province": "天津市",
+    "district": "红桥区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市和平区宜天花园": {
+    "lat": 39.12221,
+    "lng": 117.178184,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "住宅区",
+    "formattedAddress": "天津市和平区宜天花园",
+    "source": "amap-public-address"
+  },
+  "天津市南开区凯立花园": {
+    "lat": 39.120257,
+    "lng": 117.166245,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区东舍宅": {
+    "lat": 39.097424,
+    "lng": 117.228302,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市津南区锦绣大家": {
+    "lat": 38.995252,
+    "lng": 117.357578,
+    "province": "天津市",
+    "district": "津南区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河北区金海花园": {
+    "lat": 39.151627,
+    "lng": 117.19595,
+    "province": "天津市",
+    "district": "河北区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区连荣里社区": {
+    "lat": 39.100621,
+    "lng": 117.203965,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区阳光晶典": {
+    "lat": 39.136676,
+    "lng": 117.177023,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市红桥区西北角地铁站": {
+    "lat": 39.145472,
+    "lng": 117.165304,
+    "province": "天津市",
+    "district": "红桥区",
+    "level": "公交地铁站点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河东区雅颂居": {
+    "lat": 39.126258,
+    "lng": 117.210677,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市和平区君隆广场自习室": {
+    "lat": 39.115587,
+    "lng": 117.198295,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市和平区金街地铁站": {
+    "lat": 39.131108,
+    "lng": 117.185574,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "公交地铁站点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市和平区都会轩": {
+    "lat": 39.116385,
+    "lng": 117.193295,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "兴趣点",
+    "formattedAddress": "天津市和平区都会轩",
+    "source": "amap-public-address"
+  },
+  "天津市和平区银行里小区": {
+    "lat": 39.10879,
+    "lng": 117.177181,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市和平区南市街": {
+    "lat": 39.134014,
+    "lng": 117.183358,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "道路",
+    "formattedAddress": "天津市和平区南市街",
+    "source": "amap-public-address"
+  },
+  "天津市和平区睦南道72号": {
+    "lat": 39.109041,
+    "lng": 117.197676,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "门址",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市和平区府上和平": {
+    "lat": 39.114508,
+    "lng": 117.193198,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区华苑地铁站": {
+    "lat": 39.086035,
+    "lng": 117.122343,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "公交地铁站点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区雅美里": {
+    "lat": 39.141978,
+    "lng": 117.136417,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区教师村": {
+    "lat": 39.093826,
+    "lng": 117.205555,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "天津市河西区教师村",
+    "source": "amap-public-address"
+  },
+  "天津市河西区小白楼、下瓦房、马场道、友谊路附近均可": {
+    "lat": 39.087582,
+    "lng": 117.198189,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "道路",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区新闻里": {
+    "lat": 39.095588,
+    "lng": 117.195515,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "天津市河西区新闻里",
+    "source": "amap-public-address"
+  },
+  "天津市河西区天山里小区": {
+    "lat": 39.066939,
+    "lng": 117.261141,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "天津市河西区天山里小区",
+    "source": "amap-public-address"
+  },
+  "天津市河西区友谊路新闻里小区": {
+    "lat": 39.095046,
+    "lng": 117.196495,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区黑牛城道柳江里": {
+    "lat": 39.075451,
+    "lng": 117.20364,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区恒华公寓": {
+    "lat": 39.102589,
+    "lng": 117.21897,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "天津市河西区恒华公寓",
+    "source": "amap-public-address"
+  },
+  "天津市河西区财信河西府": {
+    "lat": 39.049502,
+    "lng": 117.266684,
+    "province": "天津市",
+    "district": "津南区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市西青区天津南站": {
+    "lat": 39.055794,
+    "lng": 117.05445,
+    "province": "天津市",
+    "district": "西青区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河东区二号桥黄岩里": {
+    "lat": 39.088424,
+    "lng": 117.29436,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "住宅区",
+    "formattedAddress": "天津市河东区二号桥黄岩里",
+    "source": "amap-public-address"
+  },
+  "天津市河东区太阳城": {
+    "lat": 39.153749,
+    "lng": 117.27162,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河北区吉泰花园": {
+    "lat": 39.17094,
+    "lng": 117.178931,
+    "province": "天津市",
+    "district": "河北区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河北区北斗花园": {
+    "lat": 39.148187,
+    "lng": 117.206369,
+    "province": "天津市",
+    "district": "河北区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市东丽区万科金色雅筑北苑15号楼": {
+    "lat": 39.108305,
+    "lng": 117.298586,
+    "province": "天津市",
+    "district": "东丽区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市红桥区潞河园小区": {
+    "lat": 39.182861,
+    "lng": 117.154409,
+    "province": "天津市",
+    "district": "红桥区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市北辰区和悦府小区": {
+    "lat": 38.986411,
+    "lng": 117.605247,
+    "province": "天津市",
+    "district": "滨海新区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河东区第四十五中学": {
+    "lat": 39.103797,
+    "lng": 117.263913,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "兴趣点",
+    "formattedAddress": "天津市河东区天津市第四十五中学(西北门)",
+    "source": "amap-public-address"
+  },
+  "天津市河东区真理园": {
+    "lat": 39.151214,
+    "lng": 117.247481,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市东丽区香邑国际": {
+    "lat": 39.13735,
+    "lng": 117.302513,
+    "province": "天津市",
+    "district": "东丽区",
+    "level": "兴趣点",
+    "formattedAddress": "天津市东丽区香邑国际(东南门)",
+    "source": "amap-public-address"
+  },
+  "天津市河东区远洋国际中心华庆里": {
+    "lat": 39.142157,
+    "lng": 117.218839,
+    "province": "天津市",
+    "district": "河东区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区长虹公园": {
+    "lat": 39.132896,
+    "lng": 117.143706,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区保康里": {
+    "lat": 39.11716,
+    "lng": 117.163083,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市南开区八里台": {
+    "lat": 39.096361,
+    "lng": 117.164282,
+    "province": "天津市",
+    "district": "南开区",
+    "level": "兴趣点",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区马场道": {
+    "lat": 39.100146,
+    "lng": 117.18963,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市红桥区绮水苑": {
+    "lat": 39.174948,
+    "lng": 117.138779,
+    "province": "天津市",
+    "district": "红桥区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市和平区马场道18号": {
+    "lat": 39.111279,
+    "lng": 117.206497,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "门址",
+    "formattedAddress": "天津市和平区马场道18号",
+    "source": "amap-public-address"
+  },
+  "天津市和平区营口道、柳州路": {
+    "lat": 39.113905,
+    "lng": 117.190179,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "道路",
+    "formattedAddress": "天津市和平区营口道柳州路",
+    "source": "amap-public-address"
+  },
+  "天津市和平区同发里": {
+    "lat": 39.105617,
+    "lng": 117.181167,
+    "province": "天津市",
+    "district": "和平区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "天津市河西区澧新里": {
+    "lat": 39.081499,
+    "lng": 117.220778,
+    "province": "天津市",
+    "district": "河西区",
+    "level": "住宅区",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  },
+  "北京市丰台区东大街游泳场北路": {
+    "lat": 39.853931,
+    "lng": 116.284193,
+    "province": "北京市",
+    "district": "丰台区",
+    "level": "道路",
+    "formattedAddress": "",
+    "source": "amap-public-address"
+  }
+}

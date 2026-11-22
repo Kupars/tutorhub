@@ -1,5 +1,5 @@
 // TutorHub 家教需求单统一结构：AI、手动表单、复制和筛选共用此模块。
-import { normalizePublicAddress } from "./address-normalizer.js";
+import { compactPublicAddress } from "./address-normalizer.js";
 export const START_ORDER_NUMBER = 2991;
 export const DEFAULT_SALARY = {
   小学: "70～90元/小时",
@@ -127,8 +127,8 @@ export function normalizeOrder(raw = {}, options = {}) {
     /可网课/.test(raw.rawText || "");
   const status = pick(raw.status) || "招募中";
   const title = pick(repaired?.title, raw.title) || `${grade}${subject}${/陪读/.test(raw.notes || "") ? "陪读" : ""}家教`;
-  const address = normalizePublicAddress(pick(repaired?.address, str(raw.address).replace(/^】/, "")) || "地址待补充", raw.district);
-  const publicAddress = normalizePublicAddress(pick(raw.publicAddress, address), raw.district);
+  const address = compactPublicAddress(pick(repaired?.address, str(raw.address).replace(/^】/, "")) || "地址待补充", raw.district);
+  const publicAddress = compactPublicAddress(pick(raw.publicAddress, address), raw.district);
   return {
     ...raw,
     id: pick(raw.id, options.id),

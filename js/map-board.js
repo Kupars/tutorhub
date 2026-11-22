@@ -1,4 +1,5 @@
-import { inferCoordsFromText, isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "./commute.js?v=2";
+import { adoptVerifiedPublicLocations, inferCoordsFromText, inferNamedLandmarkCoords, isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "./commute.js?v=3";
+import { isDistrictOnlyAddress, mapGeocodeQuery } from "./address-normalizer.js";
 
 let map = null;
 let orderLayer = null;
@@ -6,14 +7,34 @@ let originLayer = null;
 let pendingOrders = [];
 let mapLoading = null;
 let firstTilesReady = null;
-const GEO_CACHE_KEY = "tutorhub_public_address_geocodes_v1";
+const GEO_CACHE_KEY = "tutorhub_public_address_geocodes_v2";
 let geocodeCache = {};
+let verifiedIndexLoading = null;
 let geocodeStarted = false;
 let onToggleOrder = null;
 let isOrderSelected = () => false;
 let markerSignature = "";
 let markerGroups = [];
 try { geocodeCache = JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || "{}"); } catch { /* private mode */ }
+
+function loadVerifiedPublicLocations() {
+  if (verifiedIndexLoading) return verifiedIndexLoading;
+  verifiedIndexLoading = (async () => {
+    try {
+      const res = await fetch("./data/public-geocodes.json?v=1", { cache: "no-cache", signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        // 静态已核验的公开地点优先于设备上可能过期的旧缓存。
+        geocodeCache = { ...geocodeCache, ...data };
+        try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(geocodeCache)); } catch { /* 隐私模式或存储限制 */ }
+        adoptVerifiedPublicLocations(geocodeCache);
+        document.dispatchEvent(new Event("tutorhub-geocodes-updated"));
+      }
+    } catch { /* 静态文件暂不可用时继续实时定位 */ }
+  })();
+  return verifiedIndexLoading;
+}
 
 function publicAddress(order) {
   return String(order.publicAddress || order.address || "").trim();
@@ -58,13 +79,15 @@ export function getPublicMapLocation(order) {
   if (order.mode === "线上") return null;
   const district = order.district || "";
   const address = publicAddress(order);
+  const query = mapGeocodeQuery(address, district);
   const landmark = verifiedPublicLandmarkCoords(address);
   if (landmark) return { ...landmark, district, geocoded: true, landmark: true };
-  const geocoded = geocodeCache[address];
+  const geocoded = geocodeCache[query];
   if (isPlausiblePublicGeocode({ district, publicAddress: address }, geocoded)) {
     return { lat: geocoded.lat, lng: geocoded.lng, district, geocoded: true };
   }
-  const place = inferCoordsFromText(address) || inferCoordsFromText(district);
+  const place = inferNamedLandmarkCoords(address, district) ||
+    (isDistrictOnlyAddress(address, district) ? inferCoordsFromText(district) : null);
   return place ? { lat: place.lat, lng: place.lng, district, geocoded: false } : null;
 }
 
@@ -283,9 +306,11 @@ async function geocodePublicAddresses() {
   if (geocodeStarted) return;
   geocodeStarted = true;
   // 控制并发；仅在地图被打开时请求公开地址，不发送任何内部后台字段。
-  const addresses = [...new Set(pendingOrders.map(publicAddress))]
+  const addresses = [...new Set(pendingOrders.map((order) => mapGeocodeQuery(publicAddress(order), order.district)))]
     .filter((address) => address.length > 5 && !verifiedPublicLandmarkCoords(address) &&
-      !geocodeCache[address] && !/待补充|待协商|线上|网课|某小区/.test(address));
+      !isDistrictOnlyAddress(address) &&
+      (!geocodeCache[address] || (geocodeCache[address].failedAt && Date.now() - geocodeCache[address].failedAt > 86400000)) &&
+      !/待补充|待协商|线上|网课|某小区/.test(address));
   let nextIndex = 0;
   let missingKey = false;
   const worker = async () => {
@@ -293,7 +318,7 @@ async function geocodePublicAddresses() {
       const address = addresses[nextIndex++];
       try {
         const res = await fetch("/api/commute", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "geocode", address: address.replace(/(?:附近|周边|旁边)$/, "") }),
+          body: JSON.stringify({ action: "geocode", address }),
           signal: AbortSignal.timeout(7000) });
         const body = await res.json();
         if (body?.error?.includes("AMAP_KEY")) {
@@ -303,18 +328,20 @@ async function geocodePublicAddresses() {
           break;
         }
         if (body?.ok && Number.isFinite(body.lat) && Number.isFinite(body.lng)) {
-          const corrected = { ...gcj02ToWgs84(body.lat, body.lng), district: body.district, province: body.province };
-          const order = pendingOrders.find((item) => publicAddress(item) === address);
+          const corrected = { ...gcj02ToWgs84(body.lat, body.lng), district: body.district,
+            province: body.province, level: body.level, formattedAddress: body.formattedAddress };
+          const order = pendingOrders.find((item) => mapGeocodeQuery(publicAddress(item), item.district) === address);
           if (isPlausiblePublicGeocode({ district: order?.district, publicAddress: address }, corrected)) {
             geocodeCache[address] = corrected;
             renderOrderMarkers();
-          } else geocodeCache[address] = { failed: true };
-        } else geocodeCache[address] = { failed: true };
-      } catch { geocodeCache[address] = { failed: true }; }
+          } else geocodeCache[address] = { failedAt: Date.now() };
+        } else geocodeCache[address] = { failedAt: Date.now() };
+      } catch { geocodeCache[address] = { failedAt: Date.now() }; }
     }
   };
   await Promise.all([worker(), worker(), worker()]);
   try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(geocodeCache)); } catch { /* storage quota */ }
+  adoptVerifiedPublicLocations(geocodeCache);
   geocodeStarted = false;
   if (!missingKey && addresses.length) document.dispatchEvent(new Event("tutorhub-geocodes-updated"));
 }
@@ -331,10 +358,12 @@ export function updateMapOrigin(origin) {
 }
 
 export async function openMapBoard(origin) {
-  const L = await loadLeaflet();
+  const [L] = await Promise.all([loadLeaflet(), loadVerifiedPublicLocations()]);
   if (!map) {
     const hasOrigin = origin?.lat != null && origin?.lng != null && Number.isFinite(Number(origin.lat)) && Number.isFinite(Number(origin.lng));
-    map = L.map("tutorMap", { zoomControl: true }).setView(hasOrigin ? [origin.lat, origin.lng] : [39.115, 117.215], hasOrigin ? 12 : 11);
+    // 手机初次进入要一眼看见若干家教标记，不要因为默认过度放大而像空地图。
+    const initialZoom = globalThis.matchMedia?.("(max-width: 640px)").matches ? 10 : 11;
+    map = L.map("tutorMap", { zoomControl: true }).setView(hasOrigin ? [origin.lat, origin.lng] : [39.115, 117.215], initialZoom);
     const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 18,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'

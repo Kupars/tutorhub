@@ -1,4 +1,5 @@
 import { APP_CONFIG } from "./app-env.js";
+import { isDistrictOnlyAddress, mapGeocodeQuery, publicPlaceKeyword } from "./address-normalizer.js";
 
 // 常见地标与区域坐标库（支持用户直接输入自定义地址进行本地快速定位）
 const PLACE_COORDS = {
@@ -49,6 +50,19 @@ export function inferCoordsFromText(text) {
     if (text.includes(key) || (key.endsWith("区") && text.includes(key.slice(0, -1)))) {
       return { ...coords };
     }
+  }
+  return null;
+}
+
+// 只有明确写出已知地标时才使用地标锚点，不能从“河西区某小区”错误地回退到全区中心。
+export function inferNamedLandmarkCoords(address, district = "") {
+  const query = mapGeocodeQuery(address, district);
+  const placeName = publicPlaceKeyword(address, district);
+  const expected = String(district).replace(/^天津市/, "");
+  for (const [name, coords] of Object.entries(PLACE_COORDS)) {
+    if (name.endsWith("区") || !query.includes(name) || placeName !== name) continue;
+    if (expected && expected !== "区域待补充" && coords.district !== expected) continue;
+    return { ...coords };
   }
   return null;
 }
@@ -105,6 +119,23 @@ export function isPlausiblePublicGeocode(order, point) {
   if (!Number.isFinite(point?.lat) || !Number.isFinite(point?.lng)) return false;
   const district = String(order.district || "").replace(/^天津市/, "");
   const source = String(order.publicAddress || order.address || "");
+  const query = mapGeocodeQuery(source, district);
+  const districtOnly = isDistrictOnlyAddress(source, district);
+  const level = String(point.level || "");
+  // 高德可能只识别到同一区的道路、商圈甚至公交站，却把结果当作某个小区。
+  // 有明确地名时不接受这种低精度匹配；仅有区名时允许区中心。
+  if (districtOnly && level && level !== "区县" && level !== "市") return false;
+  if (!districtOnly && /^(?:国家|省|市|区县|开发区|乡镇|村庄|未知)$/.test(level)) return false;
+  if (!districtOnly && level === "公交地铁站点" && !/(?:地铁|公交|车站|站口|站附近|火车站|天津站)/.test(query)) return false;
+  if (!districtOnly && /^(?:道路|热点商圈)$/.test(level)
+    && /(?:小区|家园|花园|公寓|新苑|社区|别墅|园|苑|里|城|府|大厦|中心)$/.test(query)) return false;
+  // 高德某些响应虽然标成“住宅区”，但规范地址实际指向同区另一个小区。
+  // 只有真实地点名仍出现在规范地址中才能缓存，标点差异可忽略。
+  if (!districtOnly && point.formattedAddress) {
+    const keyword = publicPlaceKeyword(source, district).replace(/[（）()·、，,\s]/g, "");
+    const matched = String(point.formattedAddress).replace(/[（）()·、，,\s]/g, "");
+    if (keyword.length >= 3 && !matched.includes(keyword)) return false;
+  }
   if ((source.includes("天津") || district.endsWith("区")) && point.province && !String(point.province).includes("天津")) {
     // 北京等非天津订单保留其原有位置，避免错杀其他城市。
     if (/^(?:天津市|天津)/.test(source) || /^(?:和平区|河东区|河西区|南开区|河北区|红桥区|津南区|西青区|东丽区|北辰区|武清区|滨海新区)/.test(district)) return false;
@@ -119,14 +150,18 @@ export function isPlausiblePublicGeocode(order, point) {
 
 let publicGeoCache = {};
 let lastGeoLoad = 0;
+export function adoptVerifiedPublicLocations(index) {
+  publicGeoCache = { ...publicGeoCache, ...index };
+  lastGeoLoad = Date.now();
+}
 function publicGeocodedPoint(order) {
   try {
     if (Date.now() - lastGeoLoad > 2500) {
-      publicGeoCache = JSON.parse(localStorage.getItem("tutorhub_public_address_geocodes_v1") || "{}");
+      publicGeoCache = JSON.parse(localStorage.getItem("tutorhub_public_address_geocodes_v2") || "{}");
       lastGeoLoad = Date.now();
     }
   } catch { return null; }
-  const location = publicGeoCache[String(order.publicAddress || order.address || "").trim()];
+  const location = publicGeoCache[mapGeocodeQuery(order.publicAddress || order.address, order.district)];
   return isPlausiblePublicGeocode(order, location) ? location : null;
 }
 
@@ -146,8 +181,10 @@ export function estimateCommuteLocal(origin, order) {
     return null;
   }
   // 公共看板仅用行政区示意坐标估算；不读取后台私有精确坐标。
-  const inferred = verifiedPublicLandmarkCoords(order.publicAddress || order.address) || publicGeocodedPoint(order) ||
-    inferCoordsFromText(String(order.publicAddress || order.address || "")) || inferCoordsFromText(order.district || "");
+  const address = String(order.publicAddress || order.address || "");
+  const inferred = verifiedPublicLandmarkCoords(address) || publicGeocodedPoint(order) ||
+    inferNamedLandmarkCoords(address, order.district) ||
+    (isDistrictOnlyAddress(address, order.district) ? inferCoordsFromText(order.district || "") : null);
   if (!inferred) return null;
   const targetLat = inferred.lat;
   const targetLng = inferred.lng;

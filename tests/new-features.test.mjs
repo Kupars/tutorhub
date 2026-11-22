@@ -6,7 +6,7 @@ import { teacherGenderRequirement } from "../js/board-utils.js";
 import { clusterNearbyMapGroups, getPublicMapLocation, groupPublicMapOrders, markerStyleForGroup, popupTitleForGroup } from "../js/map-board.js";
 import { canonicalDistrict, normalizeOrder } from "../js/order-format.js";
 import { SAMPLE_ORDERS } from "../js/data.js";
-import { normalizePublicAddress, safeOptimizedPublicAddress } from "../js/address-normalizer.js";
+import { compactPublicAddress, isDistrictOnlyAddress, mapGeocodeQuery, normalizePublicAddress, safeOptimizedPublicAddress } from "../js/address-normalizer.js";
 import { isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "../js/commute.js";
 import { getSeasonForDate, termDay } from "../js/season-theme.js";
 
@@ -85,6 +85,26 @@ test("AI 地址润色不能编造新地点、门牌或抹掉‘附近’", () =>
     "天津市河东区第四十五中学附近");
   assert.equal(safeOptimizedPublicAddress("天津市和平区诚基中心", "天津市河西区某公寓", "和平区"),
     "天津市和平区诚基中心");
+});
+
+test("公开地址地理编码只取已有地标，按缺失地点回退到区中心", () => {
+  assert.equal(normalizePublicAddress("天津市西青道跃升里", "红桥区"), "天津市红桥区西青道跃升里");
+  assert.equal(mapGeocodeQuery("天津市河东区第四十五中学附近（地铁步行5分钟）", "河东区"), "天津市河东区第四十五中学");
+  assert.equal(compactPublicAddress("天津市南开区临渭佳园（地铁6号线步行5分钟）", "南开区"), "天津市南开区临渭佳园");
+  assert(isDistrictOnlyAddress("天津市河西区某小区", "河西区"));
+  assert(isDistrictOnlyAddress("天津市河西区", "河西区"));
+  assert(!isDistrictOnlyAddress("天津市河西区海景文苑", "河西区"));
+  const unspecified = { mode: "上门", district: "河西区", address: "天津市河西区某小区" };
+  assert.equal(getPublicMapLocation(unspecified)?.geocoded, false);
+  assert.equal(getPublicMapLocation({ ...unspecified, address: "天津市河西区查无此地花园" }), null);
+});
+
+test("高德返回同区另一住宅区的坐标也必须拒绝", () => {
+  const order = { district: "津南区", publicAddress: "天津市津南区辛庄镇万橡馨苑" };
+  assert.equal(isPlausiblePublicGeocode(order, { lat: 39.01, lng: 117.33, province: "天津市",
+    district: "津南区", level: "住宅区", formattedAddress: "天津市津南区辛庄镇津南悦府" }), false);
+  assert.equal(isPlausiblePublicGeocode(order, { lat: 39.01, lng: 117.33, province: "天津市",
+    district: "津南区", level: "住宅区", formattedAddress: "天津市津南区万橡馨苑" }), true);
 });
 
 test("地图仅将包含已勾选单的标记变绿，详情标题不误报区域总数", () => {
