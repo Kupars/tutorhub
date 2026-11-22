@@ -96,7 +96,38 @@ test("公开地址地理编码只取已有地标，按缺失地点回退到区�
   assert(!isDistrictOnlyAddress("天津市河西区海景文苑", "河西区"));
   const unspecified = { mode: "上门", district: "河西区", address: "天津市河西区某小区" };
   assert.equal(getPublicMapLocation(unspecified)?.geocoded, false);
-  assert.equal(getPublicMapLocation({ ...unspecified, address: "天津市河西区查无此地花园" }), null);
+  const unknown = getPublicMapLocation({ ...unspecified, address: "天津市河西区查无此地花园" });
+  assert.equal(unknown?.fallbackLevel, "district");
+  assert.equal(unknown?.fallbackLabel, "河西区中心示意");
+  assert.deepEqual([unknown.lat, unknown.lng], [getPublicMapLocation(unspecified).lat, getPublicMapLocation(unspecified).lng]);
+});
+
+test("未确认的小区标在镇或区中心，且与真实定位区分；没有行政区时不乱猜", () => {
+  const town = getPublicMapLocation({ mode: "上门", district: "西青区",
+    publicAddress: "天津市西青区大寺镇某住宅" });
+  const district = getPublicMapLocation({ mode: "上门", district: "西青区",
+    publicAddress: "天津市西青区未核实的某小区" });
+  assert.equal(town.fallbackLevel, "town");
+  assert.equal(town.fallbackLabel, "大寺镇中心示意");
+  assert.equal(district.fallbackLevel, "district");
+  assert.notDeepEqual([town.lat, town.lng], [district.lat, district.lng]);
+  assert.equal(getPublicMapLocation({ mode: "上门", district: "区域待补充",
+    publicAddress: "未知地点" }), null);
+  const [group] = groupPublicMapOrders([{ id: "x", mode: "上门", district: "西青区",
+    publicAddress: "天津市西青区未核实的某小区" }]);
+  assert.equal(group.fallback, true);
+  assert.equal(markerStyleForGroup(group, () => false).fillColor, "#fbbf24");
+  assert.equal(markerStyleForGroup(group, () => true).fillColor, "#4ade80");
+});
+
+test("全部已导入的线下家教单均可显示地图点，未知小区只给区域示意位置", async () => {
+  const items = JSON.parse(await readFile(new URL("../data/imported-orders.json", import.meta.url), "utf8"));
+  const onSite = items.filter((order) => order.mode !== "线上");
+  assert(onSite.every((order) => getPublicMapLocation(order)), "线下单应有地标或区/镇中心示意点");
+  const unknown = onSite.find((order) => order.orderNumber === "#2690");
+  assert.equal(getPublicMapLocation(unknown).fallbackLevel, "district");
+  const named = onSite.find((order) => order.orderNumber === "#2465-2");
+  assert.equal(getPublicMapLocation(named).landmark, true);
 });
 
 test("高德返回同区另一住宅区的坐标也必须拒绝", () => {

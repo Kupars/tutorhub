@@ -1,7 +1,7 @@
 import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
-import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=4";
-import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=7";
+import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=5";
+import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=8";
 import { parseMessyOrders, interpretSiteCommand, optimizeOrderAddressesWithAI } from "./ai-engine.js";
 import { Store } from "./store.js";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
@@ -221,13 +221,18 @@ function renderHall() {
   visibleBoardOrders = items;
   updateMapOrders(items);
 
-  const unresolved = items.filter((order) => order.mode !== "线上" && !getPublicMapLocation(order)).length;
+  const onSiteLocations = items.filter((order) => order.mode !== "线上")
+    .map((order) => getPublicMapLocation(order));
+  const approximate = onSiteLocations.filter((place) => place?.fallback).length;
+  const unresolved = onSiteLocations.filter((place) => !place).length;
   const mapVerificationNote = $("mapVerificationNote");
   if (mapVerificationNote) {
-    mapVerificationNote.hidden = unresolved === 0;
-    mapVerificationNote.textContent = unresolved
-      ? `本次筛选有 ${unresolved} 条公开地点尚未通过坐标核验，暂不绘制可能误导的标记；家教单仍可在下方查看。`
-      : "";
+    mapVerificationNote.hidden = approximate === 0 && unresolved === 0;
+    mapVerificationNote.textContent = [
+      approximate ? `${approximate} 条家教单尚未核实到具体地点，已标在镇/区中心（橙色示意点，非实际授课位置）。` : "",
+      unresolved ? `${unresolved} 条家教单因缺少可确定的行政区，暂时无法绘制标记。` : "",
+      approximate ? "这类位置不参与精确通勤时间估算。" : ""
+    ].filter(Boolean).join(" ");
   }
 
   $("resultStats").textContent = `共匹配 ${items.length} 条家教单（当前出发地址：${origin.name}）`;

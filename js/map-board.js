@@ -1,4 +1,4 @@
-import { adoptVerifiedPublicLocations, inferCoordsFromText, inferNamedLandmarkCoords, isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "./commute.js?v=4";
+import { adoptVerifiedPublicLocations, inferCoordsFromText, inferNamedLandmarkCoords, isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "./commute.js?v=5";
 import { isDistrictOnlyAddress, mapGeocodeQuery } from "./address-normalizer.js";
 
 let map = null;
@@ -61,6 +61,27 @@ export function gcj02ToWgs84(lat, lng) {
   return { lat: lat - deltaLat, lng: lng - deltaLng };
 }
 
+// 已核实的镇政府公开 POI，作为无法找到小区位置时的镇级示意锚点。
+// 原始坐标来自高德 GCJ-02，地图使用时转为 WGS84；不是学生的精确地址。
+const TOWN_CENTER_POIS = [
+  { district: "西青区", keyword: "大寺镇", name: "大寺镇", lat: 39.020127, lng: 117.240027 },
+  { district: "西青区", keyword: "张家窝镇", name: "张家窝镇", lat: 39.057629, lng: 117.042172 },
+  { district: "津南区", keyword: "咸水沽", name: "咸水沽镇", lat: 38.978913, lng: 117.395151 },
+  { district: "津南区", keyword: "辛庄镇", name: "辛庄镇", lat: 39.026265, lng: 117.350040 }
+];
+
+function approximatePublicCenter(address, district) {
+  const normalizedDistrict = String(district || "").replace(/^天津市/, "");
+  const town = TOWN_CENTER_POIS.find((entry) =>
+    entry.district === normalizedDistrict && address.includes(entry.keyword));
+  if (town) return { ...gcj02ToWgs84(town.lat, town.lng), district: normalizedDistrict,
+    geocoded: false, fallback: true, fallbackLevel: "town", fallbackLabel: `${town.name}中心示意` };
+  const districtCenter = inferCoordsFromText(normalizedDistrict);
+  return districtCenter ? { lat: districtCenter.lat, lng: districtCenter.lng,
+    district: normalizedDistrict, geocoded: false, fallback: true, fallbackLevel: "district",
+    fallbackLabel: `${normalizedDistrict}中心示意` } : null;
+}
+
 function loadLeaflet() {
   if (globalThis.L) return Promise.resolve(globalThis.L);
   if (mapLoading) return mapLoading;
@@ -74,7 +95,7 @@ function loadLeaflet() {
   return mapLoading;
 }
 
-// 只能从对外展示的公开地址求坐标；没有可解析坐标时显示行政区示意。
+// 只能从对外展示的公开地址求坐标；未通过核验时显示镇或区中心示意，不冒充真实小区。
 export function getPublicMapLocation(order) {
   if (order.mode === "线上") return null;
   const district = order.district || "";
@@ -86,9 +107,9 @@ export function getPublicMapLocation(order) {
   if (isPlausiblePublicGeocode({ district, publicAddress: address }, geocoded)) {
     return { lat: geocoded.lat, lng: geocoded.lng, district, geocoded: true };
   }
-  const place = inferNamedLandmarkCoords(address, district) ||
-    (isDistrictOnlyAddress(address, district) ? inferCoordsFromText(district) : null);
-  return place ? { lat: place.lat, lng: place.lng, district, geocoded: false } : null;
+  const namedPlace = inferNamedLandmarkCoords(address, district);
+  if (namedPlace) return { lat: namedPlace.lat, lng: namedPlace.lng, district, geocoded: false, landmark: true };
+  return approximatePublicCenter(address, district);
 }
 
 export function groupPublicMapOrders(orders) {
@@ -99,6 +120,7 @@ export function groupPublicMapOrders(orders) {
     const key = `${pos.district}|${pos.lat}|${pos.lng}`;
     if (!groups.has(key)) groups.set(key, { ...pos, orders: [] });
     groups.get(key).orders.push({ id: order.id, orderNumber: order.orderNumber || order.id,
+      fallback: !!pos.fallback,
       grade: order.grade, subject: order.subject, studentGender: order.studentGender,
       teacherCount: order.teacherCount, address: publicAddress(order),
       weeklyFrequency: order.weeklyFrequency, hoursPerSession: order.hoursPerSession,
@@ -147,6 +169,8 @@ export function clusterNearbyMapGroups(groups, project, radiusPx = 54) {
         ? members[0].district : "多个区域",
       geocoded: members.every((member) => member.geocoded),
       landmark: members.every((member) => member.landmark),
+      fallback: members.some((member) => member.fallback),
+      fallbackLabel: members.find((member) => member.fallback)?.fallbackLabel,
       locationsCount: members.length,
       orders: members.flatMap((member) => member.orders)
     };
@@ -179,8 +203,9 @@ function syncPopupSelections() {
 
 export function markerStyleForGroup(group, selected = () => false) {
   const hasSelected = group.orders.some((order) => selected(order.id));
-  return { color: hasSelected ? "#15803d" : "#4338ca",
-    fillColor: hasSelected ? "#4ade80" : "#818cf8", fillOpacity: hasSelected ? 0.87 : 0.7 };
+  return { color: hasSelected ? "#15803d" : group.fallback ? "#b45309" : "#4338ca",
+    fillColor: hasSelected ? "#4ade80" : group.fallback ? "#fbbf24" : "#818cf8",
+    fillOpacity: hasSelected ? 0.87 : 0.7 };
 }
 
 function syncMarkerColors() {
@@ -202,7 +227,8 @@ function buildMapPopup(group) {
   const caption = document.createElement("p");
   caption.className = "map-popup-caption";
   caption.textContent = group.locationsCount > 1
-    ? `${group.locationsCount} 个公开位置靠得很近，已合并标记；放大地图可分别查看。` :
+    ? `${group.locationsCount} 个公开位置靠得很近，已合并标记；放大地图可分别查看。${group.fallback ? "其中含区/镇中心示意点，非实际住址。" : ""}` :
+    group.fallback ? `${group.fallbackLabel || "区域中心示意"}，非学生实际住址；路程时间暂不作精确估算。` :
     group.landmark ? "按公开地标定位（非学生精确住址）" :
     group.geocoded ? "按公开地址定位（大致位置）" : "区域示意点（不是学生具体住址）";
   const list = document.createElement("div");
@@ -287,7 +313,8 @@ function renderOrderMarkers() {
       color: "#4338ca", fillColor: "#818cf8", fillOpacity: 0.7, weight: 2, bubblingMouseEvents: false
     }).addTo(orderLayer);
     markerGroups.push({ marker, group });
-    marker.bindTooltip(n > 1 ? `${n} 条家教单 · 点击查看详情` : "点击查看详情",
+    marker.bindTooltip(group.fallback ? `${n} 条家教单 · 含区/镇示意位置，点击查看` :
+      n > 1 ? `${n} 条家教单 · 点击查看详情` : "点击查看详情",
       { sticky: true, direction: "top", className: "tutor-map-hint", offset: [0, -8] });
     marker.bindPopup(buildMapPopup(group), { className: "tutor-map-popup", minWidth: 290, maxWidth: 360,
       autoPan: true, autoPanPadding: [24, 24] });
