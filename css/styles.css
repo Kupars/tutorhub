@@ -135,6 +135,29 @@ body {
 }
 [hidden] { display: none !important; }
 
+/* 首次打开时同时等待家教单与地图首屏，避免空白看板闪现。 */
+.startup-loading {
+  position:fixed; inset:0; z-index:1200; display:grid; place-items:center;
+  padding:24px; background:var(--bg); color:var(--text);
+}
+.startup-loading-card {
+  width:min(100%,330px); text-align:center; background:var(--surface);
+  border:1px solid var(--border); border-radius:20px;
+  padding:37px 28px; box-shadow:var(--shadow);
+}
+.startup-loading-spinner {
+  width:48px; height:48px; border:4px solid var(--primary-soft);
+  border-top-color:var(--primary); border-radius:50%;
+  margin:0 auto 18px; animation:startup-spin .9s linear infinite;
+}
+.startup-loading h2 { font-size:22px; font-weight:800; margin-bottom:8px; }
+.startup-loading p { font-size:14px; color:var(--muted); min-height:22px; }
+.startup-loading .btn { margin-top:18px; }
+@keyframes startup-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .startup-loading-spinner { animation:none; border-top-color:var(--primary); }
+}
+
 .container { max-width: 1180px; margin: 0 auto; padding: 0 18px; }
 
 /* 顶部导航 */

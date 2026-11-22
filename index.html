@@ -28,9 +28,17 @@
     })();
   </script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="./css/styles.css?v=16" />
+  <link rel="stylesheet" href="./css/styles.css?v=17" />
 </head>
 <body>
+  <div class="startup-loading" id="startupLoading" role="status" aria-live="polite" aria-atomic="true">
+    <div class="startup-loading-card">
+      <div class="startup-loading-spinner" aria-hidden="true"></div>
+      <h2>正在加载</h2>
+      <p id="startupLoadingDetail">正在获取家教单…</p>
+      <button class="btn btn-primary" id="startupRetry" type="button" hidden>重新加载</button>
+    </div>
+  </div>
   <header class="topbar">
     <div class="container topbar-inner">
       <nav class="main-nav" aria-label="浏览栏目"><button class="nav-link active" id="btnViewTutoring">家教</button><button class="nav-link" id="btnViewPartTime">更多兼职</button></nav>
@@ -149,6 +157,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=17"></script>
+  <script type="module" src="./js/app.js?v=18"></script>
 </body>
 </html>

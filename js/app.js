@@ -885,7 +885,32 @@ async function openMap() {
   try {
     await openMapBoard(Store.getOrigin());
     updateMapOrders(visibleBoardOrders);
-  } catch (error) { $("mapLocationNote").textContent = `${error.message}；仍可在上方输入地址计算估算路程。`; }
+    return true;
+  } catch (error) {
+    $("mapLocationNote").textContent = `${error.message}；仍可在上方输入地址计算估算路程。`;
+    return false;
+  }
+}
+
+function updateStartupLoading(message) {
+  $("startupLoadingDetail").textContent = message;
+}
+
+function completeStartupLoading() {
+  $("startupLoading").hidden = true;
+}
+
+async function waitForMapStartup() {
+  let timeoutId;
+  const mapTask = openMap();
+  const timeout = new Promise((resolve) => {
+    timeoutId = setTimeout(() => resolve(false), 9500);
+  });
+  const loaded = await Promise.race([mapTask, timeout]);
+  clearTimeout(timeoutId);
+  if (!loaded && $("mapLocationNote").textContent.startsWith("默认尝试")) {
+    $("mapLocationNote").textContent = "地图加载较慢，家教单已可查看；地图会在网络恢复后继续显示。";
+  }
 }
 
 function setBoardLayout(layout) {
@@ -1028,10 +1053,25 @@ function renderAll() {
 }
 
 (async () => {
-  initColorMode();
-  initControls();
-  await Store.init();
-  renderAll();
-  void openMap();
-  if (!Store.getOrigin()?.manuallyChosen) locateMe(true);
+  $("startupRetry").onclick = () => window.location.reload();
+  const slowTimer = setTimeout(() => {
+    updateStartupLoading("网络有点慢，仍在加载中，可点击重新加载重试。");
+    $("startupRetry").hidden = false;
+  }, 15000);
+  try {
+    initColorMode();
+    initControls();
+    await Store.init();
+    renderAll();
+    updateStartupLoading("正在准备地图和家教地点…");
+    await waitForMapStartup();
+    if (!Store.getOrigin()?.manuallyChosen) locateMe(true);
+    completeStartupLoading();
+  } catch (error) {
+    console.error("看板初始化失败", error);
+    updateStartupLoading("加载失败，请检查网络后重试。");
+    $("startupRetry").hidden = false;
+  } finally {
+    clearTimeout(slowTimer);
+  }
 })();

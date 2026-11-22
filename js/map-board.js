@@ -5,6 +5,7 @@ let orderLayer = null;
 let originLayer = null;
 let pendingOrders = [];
 let mapLoading = null;
+let firstTilesReady = null;
 const GEO_CACHE_KEY = "tutorhub_public_address_geocodes_v1";
 let geocodeCache = {};
 let geocodeStarted = false;
@@ -284,10 +285,24 @@ export async function openMapBoard(origin) {
   if (!map) {
     const hasOrigin = origin?.lat != null && origin?.lng != null && Number.isFinite(Number(origin.lat)) && Number.isFinite(Number(origin.lng));
     map = L.map("tutorMap", { zoomControl: true }).setView(hasOrigin ? [origin.lat, origin.lng] : [39.115, 117.215], hasOrigin ? 12 : 11);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 18,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
-    }).addTo(map);
+    });
+    // Leaflet 容器创建完成不代表底图已显示；首批瓦片加载后再结束启动动画。
+    // 地图第三方服务异常时兜底返回，不能无限挡住家教单。
+    firstTilesReady = new Promise((resolve) => {
+      let settled = false;
+      const done = (loaded) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(loaded);
+      };
+      const timer = setTimeout(() => done(false), 7000);
+      tiles.once("load", () => done(true));
+    });
+    tiles.addTo(map);
     orderLayer = L.layerGroup().addTo(map);
     originLayer = L.layerGroup().addTo(map);
     renderOrderMarkers();
@@ -295,6 +310,7 @@ export async function openMapBoard(origin) {
   }
   setTimeout(() => map.invalidateSize(), 50);
   updateMapOrigin(origin);
+  if (firstTilesReady) await firstTilesReady;
   return map;
 }
 
