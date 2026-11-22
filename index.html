@@ -7,14 +7,25 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>小木学长 · 天津家教看板</title>
+  <meta name="theme-color" content="#f0f8ff" />
+  <script>
+    (() => {
+      const systemDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+      let saved = null;
+      try { saved = localStorage.getItem("tutorhub_color_mode_v1"); } catch { /* 隐私模式 */ }
+      document.documentElement.dataset.colorMode = saved === "light" || saved === "dark"
+        ? saved : (systemDark ? "dark" : "light");
+    })();
+  </script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="./css/styles.css?v=13" />
+  <link rel="stylesheet" href="./css/styles.css?v=14" />
 </head>
 <body>
   <header class="topbar">
     <div class="container topbar-inner">
       <nav class="main-nav" aria-label="浏览栏目"><button class="nav-link active" id="btnViewTutoring">家教</button><button class="nav-link" id="btnViewPartTime">更多兼职</button></nav>
       <div class="header-actions">
+        <button class="mode-toggle" id="btnColorMode" type="button" aria-label="切换深色模式" aria-pressed="false">🌙 深色</button>
         <button class="btn btn-sm admin-entry" id="btnAdminEntry">管理</button>
         <button class="btn btn-sm" id="btnBackToHall" hidden>返回看板</button>
         <div class="user-actions" id="userActions"></div>
@@ -23,6 +34,7 @@
   </header>
 
   <main class="container">
+    <div class="mobile-theme-tools"><button class="mode-toggle" id="btnMobileColorMode" type="button" aria-label="切换深色模式" aria-pressed="false">🌙 深色</button></div>
     <section id="view-hall" class="view active">
       <section class="usage-card" aria-label="家教选单使用方法">
         <div class="usage-card-copy"><span class="usage-kicker">使用方法 · 选好家教，微信联系</span><h1>筛选心仪家教，勾选后一键复制，发给南开小木同学</h1><p>筛选或在地图上挑选家教单，添加到选单清单，再把复制的内容发给「南开小木同学」微信。也可以让智能推荐帮你先挑选。</p></div>
@@ -127,6 +139,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=14"></script>
+  <script type="module" src="./js/app.js?v=15"></script>
 </body>
 </html>

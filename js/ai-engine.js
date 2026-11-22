@@ -2,6 +2,7 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText } from "./commute.js";
 import { getGenderFromText, nextOrderId, normalizeOrder, parseFormattedOrder } from "./order-format.js";
+import { normalizePublicAddress, safeOptimizedPublicAddress } from "./address-normalizer.js";
 
 let lastAIError = "";
 
@@ -11,7 +12,8 @@ async function callServerlessAI(action, payload) {
     const res = await fetch(`${APP_CONFIG.apiBase}/ai`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ action, payload })
+      body: JSON.stringify({ action, payload }),
+      ...(action === "optimize_addresses" ? { signal: AbortSignal.timeout(15000) } : {})
     });
     const data = await res.json();
     if (!res.ok || !data?.ok) {
@@ -42,6 +44,29 @@ function prepareDrafts(rawText, orders, existingOrders = []) {
     candidate.title = `${candidate.grade}${candidate.subject}家教`;
     return candidate;
   });
+}
+
+// 发布时批量向当前 GLM 等已配置模型请求地址润色；不可用时保留本地安全规范化结果。
+// 每条模型建议都会做二次校验，不允许捏造新的地标、门牌、楼栋或消除“附近”。
+export async function optimizeOrderAddressesWithAI(orders) {
+  const result = orders.map((order) => {
+    const publicAddress = normalizePublicAddress(order.publicAddress || order.address, order.district);
+    return { ...order, address: publicAddress, publicAddress };
+  });
+  const indexes = result.map((order, index) => ({ order, index }))
+    .filter(({ order }) => order.mode !== "线上" && !/^(?:地址待补充|线上|网课)/.test(order.publicAddress));
+  for (let start = 0; start < indexes.length; start += 25) {
+    const batch = indexes.slice(start, start + 25);
+    const remote = await callServerlessAI("optimize_addresses", { addresses: batch.map(({ order }) => ({
+      address: order.publicAddress, district: order.district
+    })) });
+    if (!Array.isArray(remote?.addresses) || remote.addresses.length !== batch.length) break;
+    batch.forEach(({ order, index }, i) => {
+      const updated = safeOptimizedPublicAddress(order.publicAddress, remote.addresses[i], order.district);
+      result[index] = { ...order, address: updated, publicAddress: updated };
+    });
+  }
+  return result;
 }
 
 // 1. 零散微信/群聊文本自动整理成标准家教单（优先调云端免费大模型，未配置时自动启用内置规则引擎）

@@ -1,4 +1,4 @@
-import { inferCoordsFromText } from "./commute.js";
+import { inferCoordsFromText, isPlausiblePublicGeocode } from "./commute.js";
 
 let map = null;
 let orderLayer = null;
@@ -58,7 +58,9 @@ export function getPublicMapLocation(order) {
   const district = order.district || "";
   const address = publicAddress(order);
   const geocoded = geocodeCache[address];
-  if (geocoded?.lat && geocoded?.lng) return { lat: geocoded.lat, lng: geocoded.lng, district, geocoded: true };
+  if (isPlausiblePublicGeocode({ district, publicAddress: address }, geocoded)) {
+    return { lat: geocoded.lat, lng: geocoded.lng, district, geocoded: true };
+  }
   const place = inferCoordsFromText(address) || inferCoordsFromText(district);
   return place ? { lat: place.lat, lng: place.lng, district, geocoded: false } : null;
 }
@@ -161,7 +163,7 @@ function buildMapPopup(group) {
     details.className = "map-order-expanded-card";
     details.hidden = true;
     for (const [name, value] of [["学生", [order.grade, order.studentGender].filter(Boolean).join("、")],
-      ["补习科目", order.subject], ["需要老师", order.teacherCount ? `${order.teacherCount}位` : ""],
+      ["补习科目", order.subject], ["需要老师", Number(order.teacherCount) > 1 ? `${order.teacherCount}位` : ""],
       ["公开地点", order.address], ["上课时间", order.weeklyFrequency],
       ["每次时长", order.hoursPerSession ? `${order.hoursPerSession}小时` : ""],
       ["当前成绩", order.currentScores], ["老师要求", order.requirements], ["试课", order.trialTime]]) {
@@ -236,7 +238,8 @@ async function geocodePublicAddresses() {
       const address = addresses[nextIndex++];
       try {
         const res = await fetch("/api/commute", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "geocode", address }), signal: AbortSignal.timeout(7000) });
+          body: JSON.stringify({ action: "geocode", address: address.replace(/(?:附近|周边|旁边)$/, "") }),
+          signal: AbortSignal.timeout(7000) });
         const body = await res.json();
         if (body?.error?.includes("AMAP_KEY")) {
           missingKey = true;
@@ -245,8 +248,12 @@ async function geocodePublicAddresses() {
           break;
         }
         if (body?.ok && Number.isFinite(body.lat) && Number.isFinite(body.lng)) {
-          geocodeCache[address] = gcj02ToWgs84(body.lat, body.lng);
-          renderOrderMarkers();
+          const corrected = { ...gcj02ToWgs84(body.lat, body.lng), district: body.district, province: body.province };
+          const order = pendingOrders.find((item) => publicAddress(item) === address);
+          if (isPlausiblePublicGeocode({ district: order?.district, publicAddress: address }, corrected)) {
+            geocodeCache[address] = corrected;
+            renderOrderMarkers();
+          } else geocodeCache[address] = { failed: true };
         } else geocodeCache[address] = { failed: true };
       } catch { geocodeCache[address] = { failed: true }; }
     }

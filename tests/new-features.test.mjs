@@ -6,6 +6,8 @@ import { teacherGenderRequirement } from "../js/board-utils.js";
 import { getPublicMapLocation, groupPublicMapOrders, markerStyleForGroup, popupTitleForGroup } from "../js/map-board.js";
 import { canonicalDistrict, normalizeOrder } from "../js/order-format.js";
 import { SAMPLE_ORDERS } from "../js/data.js";
+import { normalizePublicAddress, safeOptimizedPublicAddress } from "../js/address-normalizer.js";
+import { isPlausiblePublicGeocode } from "../js/commute.js";
 
 test("220条公开家教单均有独立内部ID，原始重复编号不被篡改", async () => {
   const items = JSON.parse(await readFile(new URL("../data/imported-orders.json", import.meta.url), "utf8"));
@@ -43,6 +45,27 @@ test("地图仅使用公开地址，忽略后台精确经纬度和私人住址",
   const loc = getPublicMapLocation(order);
   assert(loc && loc.lat > 30 && loc.lng > 110);
   assert.equal(groupPublicMapOrders([order]).length, 1);
+});
+
+test("2684与2621的公开地址规范为准确地标，拒绝异区误定位", () => {
+  assert.equal(normalizePublicAddress("天津市和平区诚基经贸中心", "和平区"), "天津市和平区诚基中心");
+  assert.equal(normalizePublicAddress("天津市河东区45中附近", "河东区"), "天津市河东区第四十五中学附近");
+  const a = normalizeOrder({ id: "fs-0136", district: "和平区", publicAddress: "天津市和平区诚基经贸中心",
+    address: "天津市和平区诚基经贸中心" });
+  assert.equal(a.publicAddress, "天津市和平区诚基中心");
+  assert.equal(a.address, "天津市和平区诚基中心");
+  assert.equal(isPlausiblePublicGeocode(a, { lat: 39.1171, lng: 117.2146, district: "和平区", province: "天津市" }), true);
+  assert.equal(isPlausiblePublicGeocode(a, { lat: 39.20, lng: 116.90, district: "和平区", province: "天津市" }), false);
+  assert.equal(isPlausiblePublicGeocode(a, { lat: 39.1171, lng: 117.2146, district: "河东区", province: "天津市" }), false);
+});
+
+test("AI 地址润色不能编造新地点、门牌或抹掉‘附近’", () => {
+  assert.equal(safeOptimizedPublicAddress("河东区45中附近", "天津市河东区第四十五中学附近", "河东区"),
+    "天津市河东区第四十五中学附近");
+  assert.equal(safeOptimizedPublicAddress("天津市河东区第四十五中学附近", "天津市河东区广宁路15号", "河东区"),
+    "天津市河东区第四十五中学附近");
+  assert.equal(safeOptimizedPublicAddress("天津市和平区诚基中心", "天津市河西区某公寓", "和平区"),
+    "天津市和平区诚基中心");
 });
 
 test("地图仅将包含已勾选单的标记变绿，详情标题不误报区域总数", () => {

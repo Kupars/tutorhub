@@ -88,6 +88,23 @@ export function calcDistanceKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// 高德对简称或“附近”有时会返回异地同名点，不能把这个结果当作准确定位。
+export function isPlausiblePublicGeocode(order, point) {
+  if (!Number.isFinite(point?.lat) || !Number.isFinite(point?.lng)) return false;
+  const district = String(order.district || "").replace(/^天津市/, "");
+  const source = String(order.publicAddress || order.address || "");
+  if ((source.includes("天津") || district.endsWith("区")) && point.province && !String(point.province).includes("天津")) {
+    // 北京等非天津订单保留其原有位置，避免错杀其他城市。
+    if (/^(?:天津市|天津)/.test(source) || /^(?:和平区|河东区|河西区|南开区|河北区|红桥区|津南区|西青区|东丽区|北辰区|武清区|滨海新区)/.test(district)) return false;
+  }
+  if (point.district && district && point.district !== district && !String(point.district).includes(district)) return false;
+  const center = inferCoordsFromText(district);
+  if (!center) return true;
+  const maxKm = /^(?:和平区|河东区|河西区|南开区|河北区|红桥区)$/.test(district) ? 16
+    : /^(?:津南区|西青区|东丽区|北辰区)$/.test(district) ? 42 : 95;
+  return calcDistanceKm(center.lat, center.lng, point.lat, point.lng) <= maxKm;
+}
+
 let publicGeoCache = {};
 let lastGeoLoad = 0;
 function publicGeocodedPoint(order) {
@@ -98,7 +115,7 @@ function publicGeocodedPoint(order) {
     }
   } catch { return null; }
   const location = publicGeoCache[String(order.publicAddress || order.address || "").trim()];
-  return Number.isFinite(location?.lat) && Number.isFinite(location?.lng) ? location : null;
+  return isPlausiblePublicGeocode(order, location) ? location : null;
 }
 
 // 计算骑行与公交双耗时（同时返回骑行、公交与距离）

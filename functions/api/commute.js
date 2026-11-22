@@ -35,10 +35,14 @@ export async function onRequestPost(context) {
       const geoUrl = `https://restapi.amap.com/v3/geocode/geo?address=${encodeURIComponent(body.address)}&key=${env.AMAP_KEY}`;
       const geoRes = await fetch(geoUrl);
       const geoData = await geoRes.json();
-      const loc = geoData?.geocodes?.[0]?.location;
+      const place = geoData?.geocodes?.[0];
+      const loc = place?.location;
       if (!loc) return jsonResp({ ok: false });
       const [lng, lat] = loc.split(",").map(Number);
-      return jsonResp({ ok: true, lat, lng });
+      return jsonResp({ ok: true, lat, lng,
+        district: typeof place.district === "string" ? place.district : "",
+        province: typeof place.province === "string" ? place.province : "",
+        level: typeof place.level === "string" ? place.level : "" });
     }
 
     // 2. 骑行 + 公交耗时估算

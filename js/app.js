@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js";
 import { gcj02ToWgs84, moveMapTo, openMapBoard, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js";
-import { parseMessyOrders, interpretSiteCommand } from "./ai-engine.js";
+import { parseMessyOrders, interpretSiteCommand, optimizeOrderAddressesWithAI } from "./ai-engine.js";
 import { Store } from "./store.js";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
@@ -21,11 +21,49 @@ let visibleBoardOrders = [];
 let expandedOrderId = null;
 // 升级展示偏好版本：之前的默认列表偏好不影响新版默认卡片。
 const BOARD_LAYOUT_KEY = "tutorhub_board_layout_v2";
+const COLOR_MODE_KEY = "tutorhub_color_mode_v1";
 let mapCandidates = [];
 let mapSearchVersion = 0;
 let mapSearchTimer = null;
 
 const $ = (id) => document.getElementById(id);
+
+function savedColorMode() {
+  try {
+    const stored = localStorage.getItem(COLOR_MODE_KEY);
+    return stored === "dark" || stored === "light" ? stored : null;
+  } catch { return null; }
+}
+
+function applyColorMode(mode) {
+  document.documentElement.dataset.colorMode = mode;
+  const isDark = mode === "dark";
+  for (const id of ["btnColorMode", "btnMobileColorMode"]) {
+    const button = $(id);
+    if (!button) continue;
+    button.textContent = isDark ? "☀️ 浅色" : "🌙 深色";
+    button.setAttribute("aria-label", isDark ? "切换浅色模式" : "切换深色模式");
+    button.setAttribute("aria-pressed", String(isDark));
+    button.title = isDark ? "切换冬日浅色主题" : "切换冬日深色主题";
+  }
+  const browserTheme = document.querySelector('meta[name="theme-color"]');
+  if (browserTheme) browserTheme.content = isDark ? "#0b1728" : "#f0f8ff";
+}
+
+function initColorMode() {
+  const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+  applyColorMode(savedColorMode() || (media?.matches ? "dark" : "light"));
+  for (const id of ["btnColorMode", "btnMobileColorMode"]) {
+    $(id)?.addEventListener("click", () => {
+      const next = document.documentElement.dataset.colorMode === "dark" ? "light" : "dark";
+      try { localStorage.setItem(COLOR_MODE_KEY, next); } catch { /* 隐私模式仍可切换 */ }
+      applyColorMode(next);
+    });
+  }
+  media?.addEventListener?.("change", (event) => {
+    if (!savedColorMode()) applyColorMode(event.matches ? "dark" : "light");
+  });
+}
 
 function showToast(msg) {
   const el = $("toast");
@@ -214,7 +252,8 @@ function renderHall() {
           <div><strong>地点：</strong>${escapeHtml(o.address)}</div>
           <div><strong>时间：</strong>${escapeHtml(o.weeklyFrequency)} · 每次 ${o.hoursPerSession}小时</div>
           <div><strong>成绩：</strong>${escapeHtml(o.currentScores)}</div>
-          <div><strong>学生：</strong>${escapeHtml(o.studentGender)} · <strong>老师人数：</strong>${o.teacherCount}位</div>
+          <div><strong>学生：</strong>${escapeHtml(o.studentGender)}</div>
+          ${Number(o.teacherCount) > 1 ? `<div class="teacher-count-row"><strong>需要老师：</strong>${Number(o.teacherCount)}位</div>` : ""}
           ${teacherGenderRequirement(o) === "不限" ? "" : `<div><strong>老师性别：</strong>${teacherGenderRequirement(o) === "男生" ? "男老师" : "女老师"}</div>`}
           ${o.trialTime ? `<div><strong>试课：</strong>${escapeHtml(o.trialTime)}</div>` : ""}
           ${o.studentInfo ? `<div><strong>补充：</strong>${escapeHtml(o.studentInfo)}</div>` : ""}
@@ -420,7 +459,7 @@ function renderAdminView() {
 
     <div class="panel">
       <h2>✍️ ${state.editingOrderId ? "编辑已有家教单" : "新增家教单"} <span class="chip">九字段标准模板</span></h2>
-      <p class="admin-helper">家长微信可以直接粘贴到下方 AI 整理区；也可以手动填表。只读大厅中的筛选不会修改数据库。</p>
+      <p class="admin-helper">家长微信可以直接粘贴到下方 AI 整理区；也可以手动填表。发布时自动优化公开地址表述，不会猜测未提供的小区或门牌。</p>
       <form id="manualOrderForm">
         <div class="admin-manual-grid">
           <div class="field"><label for="manualId">编号</label><input id="manualId" required value="${escapeHtml(state.editingOrderId || nextOrderId(orders))}" placeholder="#2992" /></div>
@@ -543,9 +582,13 @@ function renderAdminView() {
 
   $("manualOrderForm").onsubmit = async (event) => {
     event.preventDefault();
+    const saveButton = $("btnSaveManual");
+    const saveLabel = saveButton.textContent;
+    saveButton.disabled = true;
+    saveButton.textContent = "正在优化公开地址…";
     try {
       const old = orders.find((o) => o.id === state.editingOrderId);
-      const item = collectManualOrder(old || {});
+      const [item] = await optimizeOrderAddressesWithAI([collectManualOrder(old || {})]);
       if (!item.subject || item.subject === "科目待补充") return showToast("请填写补习科目");
       if (old) await Store.updateOrder(old.id, item);
       else await Store.addOrders([item]);
@@ -553,6 +596,7 @@ function renderAdminView() {
       renderAll();
       showToast(old ? "家教单已保存修改" : `家教单 ${item.id} 已发布`);
     } catch (err) { showToast(`保存失败：${err.message}`); }
+    finally { saveButton.disabled = false; saveButton.textContent = saveLabel; }
   };
   $("btnResetManual").onclick = () => { state.editingOrderId = null; renderAdminView(); };
   $("btnCopyQuestionnaire").onclick = () => copyText([
@@ -579,13 +623,18 @@ function renderAdminView() {
     const drafts = [...$("parsedPreview").querySelectorAll("[data-draft-text]")];
     const items = drafts.map((el) => parseFormattedOrder(el.value));
     if (items.some((o) => !o || !o.id)) return showToast("草稿字段不完整，请确认每条编号和九字段");
+    const publishButton = $("btnPublishDrafts");
+    const publishLabel = publishButton.textContent;
+    publishButton.disabled = true;
+    publishButton.textContent = "正在优化地址并发布…";
     try {
-      await Store.addOrders(items);
+      await Store.addOrders(await optimizeOrderAddressesWithAI(items));
       const n = items.length;
       state.parsedDraftOrders = [];
       renderAll();
       showToast(`已发布 ${n} 条家教单到招募大厅`);
     } catch (err) { showToast(`发布失败：${err.message}`); }
+    finally { publishButton.disabled = false; publishButton.textContent = publishLabel; }
   };
   $("btnCopyDrafts").onclick = () => copyText([...$("parsedPreview").querySelectorAll("[data-draft-text]")]
     .map((el) => el.value.trim()).join("\n\n"), "已复制全部草稿");
@@ -957,6 +1006,7 @@ function renderAll() {
 }
 
 (async () => {
+  initColorMode();
   initControls();
   await Store.init();
   renderAll();
