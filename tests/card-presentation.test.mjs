@@ -25,6 +25,7 @@ test("上课频率、单次时长高亮，星期和具体时段只在小标签�
 test("老师性别小标签准确区分要求、优先和不限", () => {
   assert.equal(cardTeacherGenderTag({ requirements: "天津大学、南开大学女老师" }), "♀ 女老师");
   assert.equal(cardTeacherGenderTag({ requirements: "女老师优先" }), "♀ 女老师优先");
+  assert.equal(cardTeacherGenderTag({ requirements: "女老师，天津本地考生优先" }), "♀ 女老师");
   assert.equal(cardTeacherGenderTag({ requirements: "最好男老师，有耐心" }), "♂ 男老师优先");
   assert.equal(cardTeacherGenderTag({ studentGender: "女生", requirements: "认真负责" }), "");
   assert.equal(cardTeacherGenderTag({ requirements: "男女老师均可" }), "");
@@ -35,6 +36,8 @@ test("复制地址只能采用公开地址，线上单不复制私人地址", ()
     privateAddress: "楼号与房间号", lat: 39.1, lng: 117.2 };
   assert.equal(cardCopyableAddress(order), "天津市河西区海景文苑");
   assert.equal(cardCopyableAddress({ ...order, mode: "线上" }), "");
+  assert.equal(cardCopyableAddress({ mode: "线上", publicAddress: "线上网课；线下天津市河西区金海湾花园" }),
+    "天津市河西区金海湾花园");
   assert.equal(cardCopyableAddress({ mode: "均可", publicAddress: "线上网课；线下天津市河西区金海湾花园" }),
     "天津市河西区金海湾花园");
   assert.equal(cardCopyableAddress({ mode: "上门", publicAddress: "地址待补充" }), "");

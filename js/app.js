@@ -7,7 +7,7 @@ import { Store } from "./store.js";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=2";
-import { cardCopyableAddress, cardDisplayTitle, cardSchedule, cardTeacherGenderTag } from "./card-presentation.js";
+import { cardCopyableAddress, cardDisplayTitle, cardSchedule, cardTeacherGenderTag } from "./card-presentation.js?v=2";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 
 const state = {
