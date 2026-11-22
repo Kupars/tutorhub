@@ -10,9 +10,10 @@ export function isPubliclyOpenOrder(order) {
 export function teacherGenderRequirement(order) {
   const raw = String(order.requirements || "");
   const explicit = String(order.genderPref || "");
+  const explicitGender = explicit.replace(/^(?:只要|只招|只找|只考虑|必须是?|仅限|只限|限)/, "");
   if (/男女(?:老师|教师|大学生|教员)?(?:都可|均可|不限)|(?:男|女)(?:女|男)(?:性别)?不限/.test(raw)) return "不限";
-  if (/^(男|男生|男老师)$/.test(explicit)) return "男生";
-  if (/^(女|女生|女老师)$/.test(explicit)) return "女生";
+  if (/^(男|男生|男老师|男教师)(?:优先)?$/.test(explicitGender)) return "男生";
+  if (/^(女|女生|女老师|女教师)(?:优先)?$/.test(explicitGender)) return "女生";
   // 老师性别与学生性别是不同字段；只读招聘要求中的明确性别条件。
   const female = /女(老师|教师|大学生|教员)|女性(老师|教师)|限女|女生优先|女老师优先/.test(raw);
   const male = /男(老师|教师|大学生|教员)|男性(老师|教师)|限男|男生优先|男老师优先/.test(raw);

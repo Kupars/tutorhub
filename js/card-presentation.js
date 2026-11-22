@@ -1,5 +1,5 @@
 // 仅处理家教看板的视觉文案；不修改原单、编号或复制整单时的九字段内容。
-import { teacherGenderRequirement } from "./board-utils.js?v=2";
+import { teacherGenderRequirement } from "./board-utils.js?v=4";
 
 export function cardDisplayTitle(title) {
   return String(title || "").replace(/家教(?!.*家教)/, "").trim();
@@ -50,10 +50,15 @@ export function cardTeacherGenderTag(order) {
   const gender = teacherGenderRequirement(order);
   if (gender === "不限") return "";
   const raw = String(order.requirements || "");
+  const explicit = String(order.genderPref || "");
   const term = gender === "男生" ? "(?:男老师|男教师|男大学生|男性老师|男生)"
     : "(?:女老师|女教师|女大学生|女性老师|女生)";
-  const prefers = new RegExp(`${term}[\\s，,、]?(?:优先|最好)|(?:优先|最好|尽量)(?:考虑|是)?[\\s，,、]?${term}`).test(raw);
-  return `${gender === "男生" ? "男老师" : "女老师"}${prefers ? "优先" : ""}`;
+  // 原文仅说“男老师/女老师”时，展示为倾向标签；不能把它渲染成家长明确规定的硬性门槛。
+  // 只有写明“只要、必须、仅限”等条件，才使用不带“优先”的严格标签。
+  const hardRequirement = new RegExp(
+    `(?:只要|只招|只找|只考虑|只收|必须(?:是)?|仅限|只限|限定|限|要求)[\\s，,、]*${term}|${term}[\\s，,、]*(?:才行|才可以|限定|必须)`
+  ).test(`${raw} ${explicit}`);
+  return `${gender === "男生" ? "男老师" : "女老师"}${hardRequirement ? "" : "优先"}`;
 }
 
 // 学生性别是固定信息；标签必须写明“学生”，避免与老师性别要求混淆。

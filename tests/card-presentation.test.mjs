@@ -34,12 +34,26 @@ test("上课频率、单次时长高亮，星期和具体时段只在小标签�
 });
 
 test("老师性别小标签准确区分要求、优先和不限", () => {
-  assert.equal(cardTeacherGenderTag({ requirements: "天津大学、南开大学女老师" }), "女老师");
+  assert.equal(cardTeacherGenderTag({ requirements: "天津大学、南开大学女老师" }), "女老师优先");
   assert.equal(cardTeacherGenderTag({ requirements: "女老师优先" }), "女老师优先");
-  assert.equal(cardTeacherGenderTag({ requirements: "女老师，天津本地考生优先" }), "女老师");
+  assert.equal(cardTeacherGenderTag({ requirements: "女老师，天津本地考生优先" }), "女老师优先");
   assert.equal(cardTeacherGenderTag({ requirements: "最好男老师，有耐心" }), "男老师优先");
+  assert.equal(cardTeacherGenderTag({ requirements: "男老师" }), "男老师优先");
+  assert.equal(cardTeacherGenderTag({ requirements: "只要男老师" }), "男老师");
+  assert.equal(cardTeacherGenderTag({ requirements: "必须是女老师" }), "女老师");
+  assert.equal(cardTeacherGenderTag({ requirements: "仅限男老师" }), "男老师");
+  assert.equal(cardTeacherGenderTag({ genderPref: "男老师优先" }), "男老师优先");
+  assert.equal(cardTeacherGenderTag({ genderPref: "只要男老师" }), "男老师");
   assert.equal(cardTeacherGenderTag({ studentGender: "女生", requirements: "认真负责" }), "");
   assert.equal(cardTeacherGenderTag({ requirements: "男女老师均可" }), "");
+});
+
+test("2517原文只写男老师时，卡片显示男老师优先，但不改原始九字段", async () => {
+  const imported = JSON.parse(await readFile(new URL("../data/imported-orders.json", import.meta.url), "utf8"));
+  const original = imported.find((o) => o.orderNumber === "#2517");
+  assert.equal(original.requirements, "男老师");
+  assert.equal(cardTeacherGenderTag(original), "男老师优先");
+  assert.equal(original.requirements, "男老师");
 });
 
 test("学生性别标签明确标识学生，未提供性别时不编造", () => {
