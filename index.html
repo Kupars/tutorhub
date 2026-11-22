@@ -28,7 +28,7 @@
     })();
   </script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="./css/styles.css?v=20" />
+  <link rel="stylesheet" href="./css/styles.css?v=21" />
 </head>
 <body>
   <div class="startup-loading" id="startupLoading" role="status" aria-live="polite" aria-atomic="true">
@@ -57,9 +57,15 @@
       <section class="usage-card" aria-label="家教选单使用方法">
         <div class="usage-card-copy"><span class="usage-kicker">使用方法 · 选好家教，微信联系</span><h1>筛选心仪家教，勾选后一键复制，发给南开小木同学</h1><p>筛选或在地图上挑选家教单，添加到选单清单，再把复制的内容发给「南开小木同学」微信。也可以让智能推荐帮你先挑选。</p></div>
         <div class="wechat-contact" aria-label="联系南开小木同学">
-          <span class="wechat-contact-label">💬 微信联系小木同学</span>
-          <div class="wechat-contact-action"><strong>cheerpup012</strong><button class="btn btn-sm btn-copy-wechat" type="button" data-copy-wechat>复制微信号</button></div>
-          <small>微信搜索添加，咨询家教单</small>
+          <div class="wechat-contact-info">
+            <span class="wechat-contact-label">💬 微信联系小木同学</span>
+            <div class="wechat-contact-action"><strong>cheerpup012</strong><button class="btn btn-sm btn-copy-wechat" type="button" data-copy-wechat>复制微信号</button></div>
+            <small>扫码添加或微信搜索，咨询家教单</small>
+          </div>
+          <button class="wechat-qr-trigger" id="btnOpenWechatQr" type="button" aria-label="查看小木同学的微信二维码">
+            <span class="wechat-qr-crop"><img src="./assets/wechat-qr-cheerpup012.png" alt="小木同学微信二维码" width="1202" height="1754" /></span>
+            <span>扫码添加</span>
+          </button>
         </div>
       </section>
       <div class="announcement-inline" id="siteAnnouncement"></div>
@@ -152,6 +158,14 @@
     </div>
   </div>
 
+  <dialog class="wechat-qr-dialog" id="wechatQrDialog" aria-labelledby="wechatQrTitle">
+    <div class="wechat-qr-heading"><h2 id="wechatQrTitle">扫码添加南开小木同学</h2><button class="btn btn-sm" id="btnCloseWechatQr" type="button" aria-label="关闭微信二维码">关闭</button></div>
+    <div class="wechat-qr-large wechat-qr-crop"><img src="./assets/wechat-qr-cheerpup012.png" alt="微信扫一扫添加小木同学，微信号 cheerpup012" width="1202" height="1754" /></div>
+    <p class="wechat-qr-id">微信号：<strong>cheerpup012</strong></p>
+    <p class="wechat-qr-help">电脑端用微信扫一扫；手机端可长按保存图片，再用微信识别。</p>
+    <div class="wechat-qr-actions"><button class="btn btn-primary" type="button" data-copy-wechat>📋 复制微信号</button><a class="btn btn-sm" href="./assets/wechat-qr-cheerpup012.png" download="小木同学微信二维码.png">保存二维码图片</a></div>
+  </dialog>
+
   <!-- 仅保留管理员登录，普通老师无需账号 -->
   <div class="modal-backdrop" id="authModal">
     <div class="modal">
@@ -163,6 +177,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=25"></script>
+  <script type="module" src="./js/app.js?v=26"></script>
 </body>
 </html>

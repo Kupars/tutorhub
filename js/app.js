@@ -953,6 +953,12 @@ function initControls() {
   document.querySelectorAll("[data-copy-wechat]").forEach((button) => {
     button.onclick = () => copyText("cheerpup012", "微信号已复制，在微信搜索添加小木同学");
   });
+  const wechatQrDialog = $("wechatQrDialog");
+  $("btnOpenWechatQr").onclick = () => wechatQrDialog.showModal();
+  $("btnCloseWechatQr").onclick = () => wechatQrDialog.close();
+  wechatQrDialog.onclick = (event) => {
+    if (event.target === wechatQrDialog) wechatQrDialog.close();
+  };
   try { if (localStorage.getItem(BOARD_LAYOUT_KEY) === "list") state.layout = "list"; } catch { /* private mode */ }
   setMapOrderSelectionHandlers((id) => {
     Store.toggleSelectedOrder(id);
