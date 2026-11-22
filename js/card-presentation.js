@@ -53,14 +53,14 @@ export function cardTeacherGenderTag(order) {
   const term = gender === "男生" ? "(?:男老师|男教师|男大学生|男性老师|男生)"
     : "(?:女老师|女教师|女大学生|女性老师|女生)";
   const prefers = new RegExp(`${term}[\\s，,、]?(?:优先|最好)|(?:优先|最好|尽量)(?:考虑|是)?[\\s，,、]?${term}`).test(raw);
-  return `${gender === "男生" ? "♂" : "♀"} ${gender === "男生" ? "男老师" : "女老师"}${prefers ? "优先" : ""}`;
+  return `${gender === "男生" ? "男老师" : "女老师"}${prefers ? "优先" : ""}`;
 }
 
 // 学生性别是固定信息；标签必须写明“学生”，避免与老师性别要求混淆。
 export function cardStudentGenderTag(order) {
   const gender = String(order.studentGender || "").trim();
-  if (gender === "男生" || gender === "男孩") return "学生 · 男生";
-  if (gender === "女生" || gender === "女孩") return "学生 · 女生";
+  if (gender === "男生" || gender === "男孩") return "男学生";
+  if (gender === "女生" || gender === "女孩") return "女学生";
   return "";
 }
 

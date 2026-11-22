@@ -3,9 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <meta http-equiv="Pragma" content="no-cache" />
-  <meta http-equiv="Expires" content="0" />
+  <meta http-equiv="Cache-Control" content="no-cache" />
   <title>小木学长 · 天津家教看板</title>
   <meta name="theme-color" content="#f0f8ff" />
   <script>
@@ -27,7 +25,7 @@
         : md < 1100 + termDay(7.438) ? "autumn" : "winter";
     })();
   </script>
-  <link rel="stylesheet" href="./css/styles.css?v=24" />
+  <link rel="stylesheet" href="./css/styles.css?v=25" />
 </head>
 <body>
   <div class="startup-loading" id="startupLoading" role="status" aria-live="polite" aria-atomic="true">
@@ -38,6 +36,17 @@
       <button class="btn btn-primary" id="startupRetry" type="button" hidden>重新加载</button>
     </div>
   </div>
+  <script>
+    // 即使部分脚本在微信浏览器内加载失败，也不要让全屏动画永远没有反馈。
+    setTimeout(() => {
+      const overlay = document.getElementById("startupLoading");
+      if (!overlay || overlay.hidden) return;
+      document.getElementById("startupLoadingDetail").textContent = "网络加载较慢，可尝试切换 Wi-Fi / 移动网络后重新打开。";
+      const retry = document.getElementById("startupRetry");
+      retry.hidden = false;
+      retry.onclick = () => location.reload();
+    }, 13000);
+  </script>
   <header class="topbar">
     <div class="container topbar-inner">
       <nav class="main-nav" aria-label="浏览栏目"><button class="nav-link active" id="btnViewTutoring">家教</button><button class="nav-link" id="btnViewPartTime">更多兼职</button></nav>
@@ -69,7 +78,7 @@
       </section>
       <div class="announcement-inline" id="siteAnnouncement"></div>
 
-      <div class="search-panel">
+      <div class="search-panel" id="searchPanel">
         <div class="primary-search-row">
           <input id="qSearch" type="search" placeholder="搜索单号 / 年级 / 科目 / 小区 / 老师要求…" aria-label="搜索家教需求" />
           <select id="qSort" aria-label="排序方式">
@@ -79,25 +88,30 @@
             <option value="latest">最新发布</option>
           </select>
         </div>
-
-        <section class="advanced-filters" id="advancedFilters">
-          <h2>筛选条件 <span id="activeFilterCount"></span></h2>
-          <div class="search-row search-row-extra">
-            <select id="qSubject" aria-label="科目"><option value="">全部科目</option></select>
-            <select id="qGrade" aria-label="年级"><option value="">全部年级</option></select>
-            <select id="qMode" aria-label="授课方式">
-              <option value="">授课方式（全部）</option><option value="上门">仅看上门</option>
-              <option value="线上">仅看线上</option><option value="均可">上门/线上均可</option>
+        <div class="quick-filter-bar" role="group" aria-label="常用家教筛选条件">
+          <div class="quick-filter-options">
+            <select id="qSubject" aria-label="筛选科目"><option value="">科目</option></select>
+            <select id="qGrade" aria-label="筛选年级"><option value="">年级</option></select>
+            <select id="qDistrict" aria-label="筛选区域"><option value="">区域</option></select>
+            <select id="qMode" aria-label="筛选授课方式">
+              <option value="">方式</option><option value="线上">线上</option>
+              <option value="上门">上门</option><option value="均可">均可</option>
             </select>
+          </div>
+          <button class="btn btn-primary quick-filter-toggle" type="button" id="btnToggleFilters" aria-controls="advancedFilters" aria-expanded="false">☰ 筛选<span id="quickFilterCount"></span></button>
+        </div>
+
+        <section class="advanced-filters" id="advancedFilters" aria-label="更多筛选条件" hidden>
+          <div class="advanced-filters-heading"><h2>更多筛选 <span id="activeFilterCount"></span></h2><button class="btn btn-sm" id="btnCloseFilters" type="button">收起 ✕</button></div>
+          <div class="search-row search-row-extra">
             <select id="qStudentGender" aria-label="学生性别">
               <option value="">学生性别（全部）</option><option value="男生">男生</option>
               <option value="女生">女生</option><option value="待补充">性别待补充</option>
             </select>
             <select id="qTeacherGender" aria-label="老师性别要求">
-              <option value="">老师性别（全部）</option><option value="男生">男老师可接</option>
-              <option value="女生">女老师可接</option><option value="不限">仅看不限性别</option>
+              <option value="">老师性别（全部）</option><option value="男生">男老师优先</option>
+              <option value="女生">女老师优先</option><option value="不限">不限性别</option>
             </select>
-            <select id="qDistrict" aria-label="补课区域"><option value="">全部区域</option></select>
             <select id="qTime" aria-label="补课时间">
               <option value="">上课时间（全部）</option><option value="weekend">周末</option><option value="weekday">周中</option>
             </select>
@@ -105,7 +119,6 @@
             <button class="btn btn-sm" id="btnClearFilters">清空筛选</button>
           </div>
           <div class="filter-switches">
-            <label><input id="onlyOpen" type="checkbox" /> 仅看招募中</label>
             <label><input id="onlySelected" type="checkbox" /> 仅看已选单</label>
           </div>
           <div class="filter-ai-row"><button class="btn btn-primary btn-smart-main" id="btnSmartSelect">✨ AI 自动勾选</button><span>根据当前筛选条件，按时薪与预计路程帮你挑选最多 5 条家教单</span></div>
@@ -136,6 +149,8 @@
   </main>
 
   <nav class="mobile-bottom-nav" aria-label="手机栏目导航"><button class="mobile-bottom-link active" id="btnMobileTutoring" aria-current="page"><span aria-hidden="true">🏠</span><strong>家教</strong></button><button class="mobile-bottom-link" id="btnMobileMore"><span aria-hidden="true">▦</span><strong>更多兼职</strong></button></nav>
+
+  <button class="wechat-float" id="btnFloatingWechat" type="button" aria-label="微信联系小木同学，查看二维码" title="拖动调整位置，点击查看微信二维码"><span aria-hidden="true">💬</span><strong>加微信</strong></button>
 
   <div class="cart-dock" id="cartDock" hidden>
     <strong>已勾选 <span id="cartCount">0</span> 个</strong>
@@ -176,6 +191,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=29"></script>
+  <script type="module" src="./js/app.js?v=30"></script>
 </body>
 </html>

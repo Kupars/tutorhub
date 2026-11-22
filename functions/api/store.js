@@ -13,6 +13,11 @@ const DEFAULT_SITE = {
 const LEGACY_DEMO_IDS = new Set(["JJ-2026-101", "JJ-2026-102", "JJ-2026-103", "JJ-2026-104", "JJ-2026-105",
   "JJ-2026-4737", "JJ-2026-4738", "JJ-2026-888"]);
 
+function isPubliclyOpenOrder(order) {
+  return !/(?:已匹配|已关闭|关闭|已结束|结束|已完成|已招满|招满|已下架|下架|已取消|取消|停止招募|暂停招募)/
+    .test(String(order?.status || "").trim());
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
 
@@ -37,7 +42,11 @@ export async function onRequest(context) {
         // 幂等的特定演示数据清理；保留所有真实用户创建的记录。
         await kvPut(env.TUTOR_KV, "orders", realOrders);
       }
-      return jsonResp({ ok: true, cloud: true, siteConfig, orders: realOrders.map(toPublicOrder), hiddenImported,
+      // 后台关闭的订单不发送给公共 API；静态飞书导入单需要额外屏蔽其原始 ID，避免刷新后复活。
+      const publiclyOpen = realOrders.filter(isPubliclyOpenOrder);
+      const closedIds = realOrders.filter((order) => !isPubliclyOpenOrder(order)).map((order) => order.id);
+      const publicHidden = [...new Set([...hiddenImported, ...closedIds])];
+      return jsonResp({ ok: true, cloud: true, siteConfig, orders: publiclyOpen.map(toPublicOrder), hiddenImported: publicHidden,
         partTimePosts: partTimePosts.map(toPublicPartTime) });
     }
 
@@ -275,6 +284,6 @@ function corsHeaders() {
 function jsonResp(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json; charset=utf-8", ...corsHeaders() }
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...corsHeaders() }
   });
 }

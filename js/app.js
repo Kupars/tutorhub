@@ -6,14 +6,13 @@ import { parseMessyOrders, interpretSiteCommand, optimizeOrderAddressesWithAI } 
 import { Store } from "./store.js";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
-import { buildWechatSelectionText, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=2";
-import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTitleSegments } from "./card-presentation.js?v=4";
+import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=3";
+import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=5";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 
 const state = {
   view: "hall",
   layout: "cards",
-  onlyOpen: false,
   onlySelected: false,
   parsedDraftOrders: [],
   editingOrderId: null,
@@ -174,13 +173,13 @@ function renderHall() {
   const subjectSelect = $("qSubject");
   const selectedSubject = subjectSelect.value;
   const subjects = [...SUBJECTS, "作业辅导", "陪读", "道法"];
-  subjectSelect.innerHTML = '<option value="">全部科目</option>' +
+  subjectSelect.innerHTML = '<option value="">科目</option>' +
     subjects.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
   subjectSelect.value = subjects.includes(selectedSubject) ? selectedSubject : "";
   const districtSelect = $("qDistrict");
   const selectedDistrict = districtSelect.value;
-  const districts = [...new Set(Store.getOrders().map((o) => canonicalDistrict(o.district)).filter((d) => d && d !== "区域待补充"))].sort();
-  districtSelect.innerHTML = '<option value="">全部区域</option>' +
+  const districts = [...new Set(Store.getOrders().filter(isPubliclyOpenOrder).map((o) => canonicalDistrict(o.district)).filter((d) => d && d !== "区域待补充"))].sort();
+  districtSelect.innerHTML = '<option value="">区域</option>' +
     districts.map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join("");
   districtSelect.value = districts.includes(selectedDistrict) ? selectedDistrict : "";
   const q = $("qSearch").value.trim().toLowerCase();
@@ -203,7 +202,7 @@ function renderHall() {
   }));
 
   items = items.filter((o) => {
-    if (state.onlyOpen && o.status !== "招募中") return false;
+    if (!isPubliclyOpenOrder(o)) return false;
     if (state.onlySelected && !o.selected) return false;
     if (subject && o.subject !== subject && !getSubjectList(o.subject).includes(subject) && !o.subject.includes(subject)) return false;
     if (grade && o.grade !== grade && !o.grade.includes(grade) && !(grade === "小学" && /[一二三四五六1-6]年级/.test(o.grade))) return false;
@@ -211,7 +210,7 @@ function renderHall() {
     if (studentGender && o.studentGender !== studentGender) return false;
     const teacherPref = teacherGenderRequirement(o);
     if (teacherGender === "不限" && teacherPref !== "不限") return false;
-    if (["男生", "女生"].includes(teacherGender) && teacherPref !== "不限" && teacherPref !== teacherGender) return false;
+    if (["男生", "女生"].includes(teacherGender) && teacherPref !== teacherGender) return false;
     if (district && canonicalDistrict(o.district) !== district) return false;
     if (minRate && o.hourlyRate < minRate) return false;
     if (time === "weekend" && !/周末|周六|周日|周天/.test(o.weeklyFrequency || o.schedule || "")) return false;
@@ -247,8 +246,9 @@ function renderHall() {
 
   $("resultStats").textContent = `共匹配 ${items.length} 条家教单（当前出发地址：${origin.name}）`;
   const advancedIds = ["qSubject", "qGrade", "qMode", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate"];
-  const activeCount = advancedIds.filter((id) => $(id).value).length + Number(state.onlyOpen) + Number(state.onlySelected);
+  const activeCount = advancedIds.filter((id) => $(id).value).length + Number(state.onlySelected);
   $("activeFilterCount").textContent = activeCount ? ` · 已选 ${activeCount} 项` : "";
+  $("quickFilterCount").textContent = activeCount ? String(activeCount) : "";
   $("btnListMode").classList.toggle("active", state.layout === "list");
   $("btnCardMode").classList.toggle("active", state.layout === "cards");
   $("btnListMode").setAttribute("aria-pressed", String(state.layout === "list"));
@@ -260,13 +260,15 @@ function renderHall() {
   cardLoadObserver = null;
   grid.classList.toggle("is-list-mode", state.layout === "list");
   if (items.length === 0) {
-    grid.innerHTML = `<div class="panel" style="grid-column:1/-1;text-align:center;color:var(--muted);">${Store.getOrders().length ? "没有符合条件的家教单，试试放宽筛选条件吧。" : "暂无家教单，管理员可在「安全后台」新增或批量导入。"} </div>`;
+    const hasOpenOrders = Store.getOrders().some(isPubliclyOpenOrder);
+    grid.innerHTML = `<div class="panel" style="grid-column:1/-1;text-align:center;color:var(--muted);">${hasOpenOrders ? "没有符合条件的家教单，试试放宽筛选条件吧。" : "目前暂无正在招募的家教单，可以稍后再来看看。"} </div>`;
     return;
   }
 
   const renderDetailCard = (o) => {
     const schedule = cardSchedule(o);
     const studentTag = cardStudentGenderTag(o);
+    const teacherTag = cardTeacherGenderTag(o);
     const addressToCopy = cardCopyableAddress(o);
     const title = cardTitleSegments(o.title, o.subject);
     const titleHtml = `${escapeHtml(title.before)}${title.subject ? `<span class="card-subject">${escapeHtml(title.subject)}</span>` : ""}${escapeHtml(title.after)}`;
@@ -276,23 +278,22 @@ function renderHall() {
         ? `<span class="chip commute">💻 线上免通勤</span>`
         : `<span class="chip commute">路程约：骑行 ${o.commute.bikeMin} 分 / 公交 ${o.commute.transitMin} 分</span>`
       : "";
-    const statusClass = o.status === "招募中" ? "status-open" : "status-closed";
     return `
       <article class="order-card ${o.selected ? "order-selected" : ""}">
         <div class="card-head">
           <div>
             <div class="order-number">${escapeHtml(o.orderNumber || o.id)}</div>
-            <div class="card-title"><span class="card-district">${escapeHtml(displayDistrict)}</span><span class="card-title-separator">·</span><span class="card-title-text">${titleHtml}</span></div>
+            <div class="card-title"><span class="card-district">${escapeHtml(displayDistrict)}</span><span class="card-title-text">${titleHtml}</span></div>
           </div>
           <div class="price-badge">${escapeHtml((o.salaryText || "老师报价").replace("（可报价）", ""))}</div>
         </div>
 
         <div class="meta-row">
-          ${o.status && o.status !== "待确认" ? `<span class="chip ${statusClass}">${escapeHtml(o.status)}</span>` : ""}
           ${o.urgent ? `<span class="chip urgent">🔥 急招</span>` : ""}
           ${o.onlineAllowed ? '<span class="chip">💻 可网课</span>' : ""}
           <span class="chip duration-chip">⏱ 每次${escapeHtml(schedule.duration)}</span>
           ${studentTag ? `<span class="chip student-gender-chip">${escapeHtml(studentTag)}</span>` : ""}
+          ${teacherTag ? `<span class="chip teacher-gender-chip">${escapeHtml(teacherTag)}</span>` : ""}
           ${commuteHtml}
         </div>
 
@@ -315,7 +316,7 @@ function renderHall() {
         </div>
         <div class="card-foot">
           <button type="button" class="btn btn-sm" data-copy="${escapeHtml(o.id)}">📋 复制整单</button>
-          <label class="order-check ${o.selected ? "is-selected" : ""}"><input type="checkbox" data-select="${escapeHtml(o.id)}" ${o.selected ? "checked" : ""} /><span>${o.selected ? "✓ 已加入选单" : "＋ 加入选单"}</span></label>
+          <label class="order-check ${o.selected ? "is-selected" : ""}"><input type="checkbox" data-select="${escapeHtml(o.id)}" ${o.selected ? "checked" : ""} /><span>${o.selected ? "已加入选单" : "加入选单"}</span></label>
         </div>
       </article>
     `;
@@ -410,7 +411,7 @@ function renderHall() {
 }
 
 function getSelectedOrders() {
-  const byId = new Map(Store.getOrders().map((order) => [order.id, order]));
+  const byId = new Map(Store.getOrders().filter(isPubliclyOpenOrder).map((order) => [order.id, order]));
   return Store.getSelectedOrderIds().map((id) => byId.get(id)).filter(Boolean);
 }
 
@@ -609,7 +610,8 @@ function renderAdminView() {
 
 
     <div class="panel">
-      <h2>📋 家教单管理（${orders.length} 条）</h2>
+      <h2>📋 家教单管理（展示中 ${orders.filter(isPubliclyOpenOrder).length} 条 · 已关闭 ${orders.filter((o) => !isPubliclyOpenOrder(o)).length} 条）</h2>
+      <p class="admin-helper">点击“关闭展示”后，老师端看板、筛选和地图都不再显示该单；数据保留在后台，可以随时重新上架。</p>
       <div class="admin-editor-actions"><button class="btn btn-sm" id="btnMergeSelected">合并选中的同学多科单</button></div>
       <div style="display:flex;flex-direction:column;gap:8px;">
         ${orders.length ? orders.map((o) => `
@@ -625,7 +627,7 @@ function renderAdminView() {
             <div style="display:flex;gap:6px;">
               <button class="btn btn-sm" data-edit-order="${escapeHtml(o.id)}">编辑</button>
               ${getSubjectList(o.subject).length > 1 ? `<button class="btn btn-sm" data-split-order="${escapeHtml(o.id)}">按科目拆单</button>` : ""}
-              <button class="btn btn-sm" data-toggle-status="${o.id}">${o.status === "招募中" ? "设为已匹配" : "重新上架"}</button>
+              <button class="btn btn-sm" data-toggle-status="${escapeHtml(o.id)}">${isPubliclyOpenOrder(o) ? "关闭展示" : "重新上架"}</button>
               <button class="btn btn-danger btn-sm" data-del-order="${o.id}">删除</button>
             </div>
           </div>
@@ -759,8 +761,9 @@ function renderAdminView() {
       const o = Store.getOrders().find((x) => x.id === btn.dataset.toggleStatus);
       if (!o) return;
       try {
-        await Store.updateOrder(o.id, { status: o.status === "招募中" ? "已匹配" : "招募中" });
+        await Store.updateOrder(o.id, { status: isPubliclyOpenOrder(o) ? "已匹配" : "招募中" });
         renderAdminView();
+        showToast(isPubliclyOpenOrder(o) ? "已关闭展示，老师端和地图将不再显示此单" : "已重新上架");
       } catch (err) { showToast(`更新失败：${err.message}`); }
     };
   });
@@ -1011,17 +1014,69 @@ function setBoardLayout(layout) {
   renderHall();
 }
 
+function setAdvancedFiltersOpen(open) {
+  $("advancedFilters").hidden = !open;
+  $("btnToggleFilters").setAttribute("aria-expanded", String(open));
+}
+
+function initFloatingWechat(dialog) {
+  const button = $("btnFloatingWechat");
+  let start = null;
+  let ignoreClick = false;
+  button.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const rect = button.getBoundingClientRect();
+    start = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+      left: rect.left, top: rect.top, width: rect.width, height: rect.height, moved: false };
+    button.setPointerCapture?.(event.pointerId);
+  });
+  button.addEventListener("pointermove", (event) => {
+    if (!start || start.pointerId !== event.pointerId) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (!start.moved && Math.hypot(dx, dy) < 6) return;
+    start.moved = true;
+    const bottomInset = window.matchMedia?.("(max-width: 640px)").matches ? 84 : 12;
+    const left = Math.max(8, Math.min(window.innerWidth - start.width - 8, start.left + dx));
+    const top = Math.max(8, Math.min(window.innerHeight - start.height - bottomInset, start.top + dy));
+    Object.assign(button.style, { left: `${left}px`, top: `${top}px`, right: "auto", bottom: "auto" });
+  });
+  const finishDrag = (event) => {
+    if (!start || start.pointerId !== event.pointerId) return;
+    if (start.moved) {
+      ignoreClick = true;
+      setTimeout(() => { ignoreClick = false; }, 0);
+    }
+    start = null;
+  };
+  button.addEventListener("pointerup", finishDrag);
+  button.addEventListener("pointercancel", finishDrag);
+  button.onclick = () => {
+    if (ignoreClick) { ignoreClick = false; return; }
+    dialog.showModal();
+  };
+}
+
 function initControls() {
   $("btnRetryMap").onclick = () => { void openMap(); };
   document.querySelectorAll("[data-copy-wechat]").forEach((button) => {
     button.onclick = () => copyText("cheerpup012", "微信号已复制，在微信搜索添加小木同学");
   });
   const wechatQrDialog = $("wechatQrDialog");
+  initFloatingWechat(wechatQrDialog);
   $("btnOpenWechatQr").onclick = () => wechatQrDialog.showModal();
   $("btnCloseWechatQr").onclick = () => wechatQrDialog.close();
   wechatQrDialog.onclick = (event) => {
     if (event.target === wechatQrDialog) wechatQrDialog.close();
   };
+  $("btnToggleFilters").onclick = () => setAdvancedFiltersOpen($("advancedFilters").hidden);
+  $("btnCloseFilters").onclick = () => setAdvancedFiltersOpen(false);
+  document.addEventListener("pointerdown", (event) => {
+    if (!$("advancedFilters").hidden && !$("searchPanel").contains(event.target)) setAdvancedFiltersOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("advancedFilters").hidden) setAdvancedFiltersOpen(false);
+  });
   try { if (localStorage.getItem(BOARD_LAYOUT_KEY) === "list") state.layout = "list"; } catch { /* private mode */ }
   setMapOrderSelectionHandlers((id) => {
     Store.toggleSelectedOrder(id);
@@ -1041,15 +1096,8 @@ function initControls() {
   $("btnClearFilters").onclick = () => {
     ["qSearch", "qSubject", "qGrade", "qMode", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate"].forEach((id) => { $(id).value = ""; });
     $("qSort").value = "recommend";
-    state.onlyOpen = false;
     state.onlySelected = false;
-    $("onlyOpen").checked = false;
     $("onlySelected").checked = false;
-    renderHall();
-  };
-
-  $("onlyOpen").onchange = (event) => {
-    state.onlyOpen = event.target.checked;
     renderHall();
   };
   $("onlySelected").onchange = (event) => {
@@ -1069,7 +1117,7 @@ function initControls() {
   $("btnCardMode").onclick = () => setBoardLayout("cards");
 
   $("btnSmartSelect").onclick = () => {
-    const candidates = sortBoardOrders(visibleBoardOrders.filter((order) => order.status !== "已匹配"), "recommend").slice(0, 5);
+    const candidates = sortBoardOrders(visibleBoardOrders, "recommend").slice(0, 5);
     if (!candidates.length) return showToast("当前筛选条件下没有可推荐的家教单");
     const previous = Store.getSelectedOrderIds();
     Store.setSelectedOrderIds([...previous, ...candidates.map((order) => order.id)]);

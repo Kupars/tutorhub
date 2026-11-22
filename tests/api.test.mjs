@@ -85,6 +85,22 @@ test("飞书导入单可在后台编辑删除并隐藏，刷新也不复活", as
   assert.deepEqual(result.hiddenImported, ["fs-0003"]);
 });
 
+test("关闭的家教单不再通过公共接口返回，管理员仍可重新上架", async () => {
+  const env = makeEnv();
+  const closed = { id: "fs-0088", orderNumber: "#2517", title: "高二物理家教", status: "已匹配" };
+  const open = { id: "#3001", title: "初一数学家教", status: "招募中" };
+  await storeHandler({ request: request({ action: "admin_add_orders", orders: [closed, open] }), env });
+  const publicResponse = await storeHandler({ request: new Request("https://example.pages.dev/api/store"), env });
+  const publicData = await publicResponse.json();
+  assert.deepEqual(publicData.orders.map((o) => o.id), ["#3001"]);
+  assert(publicData.hiddenImported.includes("fs-0088"));
+  const admin = await storeHandler({ request: request({ action: "admin_data" }), env });
+  assert.equal((await admin.json()).orders.length, 2);
+  await storeHandler({ request: request({ action: "admin_update_order", id: "fs-0088", patch: { status: "招募中" } }), env });
+  const reopenned = await storeHandler({ request: new Request("https://example.pages.dev/api/store"), env });
+  assert.equal((await reopenned.json()).orders.length, 2);
+});
+
 test("云端 AI 需要认证并能返回上游具体错误而非泛化 JSON 错误", async () => {
   const env = { ...makeEnv(), OPENAI_API_KEY: "fake-test-key", OPENAI_MODEL: "glm-4.7-flash" };
   const payload = { action: "parse_orders", payload: { text: "高一数学，每周一次" } };

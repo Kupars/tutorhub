@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildWechatSelectionText, sortBoardOrders } from "../js/board-utils.js";
+import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders } from "../js/board-utils.js";
 
 const orders = [
   { id: "#2993", title: "高二英语家教", grade: "高二", subject: "英语", hourlyRate: 150, commute: { bestMin: 90 }, createdAt: "2026-11-20" },
@@ -30,4 +30,11 @@ test("选单复制内容包含完整标准家教单和微信联系提示", () =>
   assert.match(text, /【补习科目】/);
   assert.match(text, /【对老师要求】/);
   assert.equal(buildWechatSelectionText([]), "");
+});
+
+test("后台关闭的家教单从公开看板消失，旧导入待确认单仍正常展示", () => {
+  for (const status of ["招募中", "待确认", ""]) assert.equal(isPubliclyOpenOrder({ status }), true, status);
+  for (const status of ["已匹配", "已关闭", "已招满", "已下架", "暂停招募"]) {
+    assert.equal(isPubliclyOpenOrder({ status }), false, status);
+  }
 });

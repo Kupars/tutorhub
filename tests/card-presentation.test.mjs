@@ -34,17 +34,17 @@ test("上课频率、单次时长高亮，星期和具体时段只在小标签�
 });
 
 test("老师性别小标签准确区分要求、优先和不限", () => {
-  assert.equal(cardTeacherGenderTag({ requirements: "天津大学、南开大学女老师" }), "♀ 女老师");
-  assert.equal(cardTeacherGenderTag({ requirements: "女老师优先" }), "♀ 女老师优先");
-  assert.equal(cardTeacherGenderTag({ requirements: "女老师，天津本地考生优先" }), "♀ 女老师");
-  assert.equal(cardTeacherGenderTag({ requirements: "最好男老师，有耐心" }), "♂ 男老师优先");
+  assert.equal(cardTeacherGenderTag({ requirements: "天津大学、南开大学女老师" }), "女老师");
+  assert.equal(cardTeacherGenderTag({ requirements: "女老师优先" }), "女老师优先");
+  assert.equal(cardTeacherGenderTag({ requirements: "女老师，天津本地考生优先" }), "女老师");
+  assert.equal(cardTeacherGenderTag({ requirements: "最好男老师，有耐心" }), "男老师优先");
   assert.equal(cardTeacherGenderTag({ studentGender: "女生", requirements: "认真负责" }), "");
   assert.equal(cardTeacherGenderTag({ requirements: "男女老师均可" }), "");
 });
 
 test("学生性别标签明确标识学生，未提供性别时不编造", () => {
-  assert.equal(cardStudentGenderTag({ studentGender: "男生", requirements: "女老师优先" }), "学生 · 男生");
-  assert.equal(cardStudentGenderTag({ studentGender: "女孩" }), "学生 · 女生");
+  assert.equal(cardStudentGenderTag({ studentGender: "男生", requirements: "女老师优先" }), "男学生");
+  assert.equal(cardStudentGenderTag({ studentGender: "女孩" }), "女学生");
   assert.equal(cardStudentGenderTag({ studentGender: "性别待补充" }), "");
   assert.equal(cardStudentGenderTag({ requirements: "男老师优先" }), "");
 });
@@ -57,6 +57,19 @@ test("启动完成不再等待地图，地图样式和卡片采用分阶段加�
   assert.match(app, /items\.slice\(0, shownCardCount\)/);
   assert(!html.includes('<link rel="stylesheet" href="https://unpkg.com/leaflet'), "地图外链 CSS 不应阻塞首屏");
   assert(html.includes('id="mapLoadingNote"'), "地图需要独立加载提示");
+});
+
+test("常用筛选置顶并支持展开，公开卡片的选单和标题不再有多余符号", async () => {
+  const app = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const css = await readFile(new URL("../css/styles.css", import.meta.url), "utf8");
+  assert(html.includes('id="btnToggleFilters"') && html.includes('id="advancedFilters" aria-label="更多筛选条件" hidden'));
+  assert(html.includes('id="btnFloatingWechat"'));
+  assert(!html.includes('id="onlyOpen"'));
+  assert(css.includes('position:sticky; top:64px; z-index:65'));
+  assert(!app.includes('class="card-title-separator"'));
+  assert(!app.includes('＋ 加入选单'));
+  assert(app.includes('isPubliclyOpenOrder(o)'));
 });
 
 test("复制地址只能采用公开地址，线上单不复制私人地址", () => {
