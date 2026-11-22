@@ -10,6 +10,7 @@ import { buildWechatSelectionText, sortBoardOrders, teacherGenderRequirement } f
 
 const state = {
   view: "hall",
+  layout: "list",
   onlyOpen: false,
   onlySelected: false,
   parsedDraftOrders: [],
@@ -17,6 +18,8 @@ const state = {
   editingPartTimeId: null
 };
 let visibleBoardOrders = [];
+let expandedOrderId = null;
+const BOARD_LAYOUT_KEY = "tutorhub_board_layout_v1";
 let mapCandidates = [];
 let mapSearchVersion = 0;
 let mapSearchTimer = null;
@@ -174,17 +177,22 @@ function renderHall() {
 
   $("resultStats").textContent = `共匹配 ${items.length} 条家教单（当前出发地址：${origin.name}）`;
   const advancedIds = ["qSubject", "qGrade", "qMode", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate"];
-  const activeCount = advancedIds.filter((id) => $(id).value).length + Number(!state.onlyOpen) + Number(state.onlySelected);
+  const activeCount = advancedIds.filter((id) => $(id).value).length + Number(state.onlyOpen) + Number(state.onlySelected);
   $("activeFilterCount").textContent = activeCount ? ` · 已选 ${activeCount} 项` : "";
+  $("btnListMode").classList.toggle("active", state.layout === "list");
+  $("btnCardMode").classList.toggle("active", state.layout === "cards");
+  $("btnListMode").setAttribute("aria-pressed", String(state.layout === "list"));
+  $("btnCardMode").setAttribute("aria-pressed", String(state.layout === "cards"));
   renderCart();
 
   const grid = $("ordersGrid");
+  grid.classList.toggle("is-list-mode", state.layout === "list");
   if (items.length === 0) {
     grid.innerHTML = `<div class="panel" style="grid-column:1/-1;text-align:center;color:var(--muted);">${Store.getOrders().length ? "没有符合条件的家教单，试试放宽筛选条件吧。" : "暂无家教单，管理员可在「安全后台」新增或批量导入。"} </div>`;
     return;
   }
 
-  grid.innerHTML = items.map((o) => {
+  const renderDetailCard = (o) => {
     const monthlyEst = o.hourlyRate && o.sessionsPerWeek
       ? Math.round(o.hourlyRate * o.hoursPerSession * o.sessionsPerWeek * 4) : null;
     const commuteHtml = o.commute
@@ -227,7 +235,40 @@ function renderHall() {
         </div>
       </article>
     `;
-  }).join("");
+  };
+
+  if (state.layout === "cards") {
+    grid.innerHTML = items.map(renderDetailCard).join("");
+  } else {
+    const header = ["单号", "区域", "年级", "性别", "科目", "时薪", "频率", "详情"]
+      .map((label) => `<span>${label}</span>`).join("");
+    grid.innerHTML = `<div class="orders-list"><div class="orders-list-header">${header}</div>${items.map((o) => {
+      const expanded = expandedOrderId === o.id;
+      const area = o.district === "线上" ? "线上" : canonicalDistrict(o.district) || "待补充";
+      const rate = (o.salaryText || "老师报价").replace("（可报价）", "");
+      const detailsId = `detail-${String(o.id).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+      return `<div class="orders-list-item ${expanded ? "expanded" : ""} ${o.selected ? "is-selected" : ""}">
+        <button type="button" class="orders-list-row" data-expand-order="${escapeHtml(o.id)}" aria-expanded="${expanded}" aria-controls="${detailsId}">
+          <span class="list-cell list-id">${escapeHtml(o.orderNumber || o.id)}</span>
+          <span class="list-cell list-area">${escapeHtml(area)}</span>
+          <span class="list-cell list-grade">${escapeHtml(o.grade)}</span>
+          <span class="list-cell list-gender">${escapeHtml(o.studentGender)}</span>
+          <span class="list-cell list-subject" title="${escapeHtml(o.subject)}">${escapeHtml(o.subject)}</span>
+          <span class="list-cell list-rate">${escapeHtml(rate)}</span>
+          <span class="list-cell list-frequency" title="${escapeHtml(o.weeklyFrequency)}">${escapeHtml(o.weeklyFrequency)}</span>
+          <span class="list-cell list-expand">${o.selected ? "✓ 已选 · " : ""}${expanded ? "收起 ▲" : "展开 ▼"}</span>
+        </button>
+        ${expanded ? `<div id="${detailsId}" class="orders-list-detail">${renderDetailCard(o)}</div>` : ""}
+      </div>`;
+    }).join("")}</div>`;
+  }
+
+  grid.querySelectorAll("[data-expand-order]").forEach((button) => {
+    button.onclick = () => {
+      expandedOrderId = expandedOrderId === button.dataset.expandOrder ? null : button.dataset.expandOrder;
+      renderHall();
+    };
+  });
 
   grid.querySelectorAll("[data-select]").forEach((input) => {
     input.onchange = () => {
@@ -797,7 +838,15 @@ async function openMap() {
   } catch (error) { $("mapLocationNote").textContent = `${error.message}；仍可在上方输入地址计算估算路程。`; }
 }
 
+function setBoardLayout(layout) {
+  if (layout !== "list" && layout !== "cards") return;
+  state.layout = layout;
+  try { localStorage.setItem(BOARD_LAYOUT_KEY, layout); } catch { /* private mode */ }
+  renderHall();
+}
+
 function initControls() {
+  try { if (localStorage.getItem(BOARD_LAYOUT_KEY) === "cards") state.layout = "cards"; } catch { /* private mode */ }
   setMapOrderSelectionHandlers((id) => {
     Store.toggleSelectedOrder(id);
     renderHall();
@@ -850,6 +899,8 @@ function initControls() {
   $("btnMobileMore").onclick = () => switchView("parttime");
   $("btnMobileAdminEntry").onclick = () => switchView("admin");
   $("btnMobileAdminBack").onclick = () => switchView("hall");
+  $("btnListMode").onclick = () => setBoardLayout("list");
+  $("btnCardMode").onclick = () => setBoardLayout("cards");
 
   $("btnSmartSelect").onclick = () => {
     const candidates = sortBoardOrders(visibleBoardOrders.filter((order) => order.status !== "已匹配"), "recommend").slice(0, 5);

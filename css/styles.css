@@ -200,11 +200,42 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 14px; font-size: 13px; color: var(--muted); flex-wrap: wrap; gap: 8px;
 }
+.stats-actions { display:flex; align-items:center; gap:12px; }
+.layout-switch { display:flex; gap:3px; padding:4px; background:#eaf0ff; border:1px solid #dbe4ff; border-radius:12px; }
+.layout-button { background:transparent; border:0; border-radius:9px; padding:7px 15px; font-size:13px;
+  font-weight:700; color:#475569; cursor:pointer; }
+.layout-button:hover { color:var(--primary); }
+.layout-button.active { background:white; color:var(--primary); box-shadow:0 2px 7px rgba(30,41,59,.10); }
 
 /* 家教单网格 */
 .orders-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px;
 }
+.orders-grid.is-list-mode { display:block; }
+.orders-list { border:1px solid var(--border); border-radius:14px; background:white; box-shadow:var(--shadow); }
+.orders-list-header,.orders-list-row { display:grid;
+  grid-template-columns: minmax(100px,1.05fr) 78px 76px 65px minmax(104px,1fr) minmax(145px,1.12fr) minmax(190px,1.6fr) 84px;
+  gap:12px; align-items:center; }
+.orders-list-header { position:sticky; top:64px; z-index:5; padding:12px 18px; background:#eef2ff;
+  border-bottom:1px solid #dbe4ff; font-weight:750; font-size:12px; color:#4338ca; border-radius:14px 14px 0 0; }
+.orders-list-item { border-bottom:1px solid #edf2f7; }
+.orders-list-item:last-child { border-bottom:0; border-radius:0 0 14px 14px; }
+.orders-list-row { appearance:none; width:100%; border:0; background:transparent; text-align:left; padding:12px 18px;
+  cursor:pointer; color:#334155; font-family:inherit; font-size:13px; transition:background .12s ease; }
+.orders-list-row:hover,.orders-list-row:focus-visible { outline:none; background:#f1f5ff; }
+.orders-list-item.expanded>.orders-list-row { background:#eef2ff; }
+.orders-list-item.is-selected>.orders-list-row { box-shadow:inset 4px 0 0 var(--primary); }
+.list-cell { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.list-id { font-weight:800; font-size:12px; color:#1e293b; }
+.list-area { font-weight:650; }
+.list-rate { color:var(--primary); font-weight:800; }
+.list-frequency { color:#475569; }
+.list-expand { color:var(--primary); font-size:12px; font-weight:700; text-align:right; }
+.orders-list-detail { padding:14px 18px 18px; background:#f8faff; border-top:1px solid #dbe4ff; }
+.orders-list-detail .order-card { box-shadow:none; border-color:#c7d2fe; }
+.orders-list-detail .order-card:hover { transform:none; }
+.orders-list-detail .card-desc { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px 16px; }
+.orders-list-detail .card-desc>div:last-child { grid-column:1/-1; }
 .order-card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 18px;
@@ -338,6 +369,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   .admin-manual-grid { grid-template-columns:1fr 1fr; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
   .parttime-admin-form { grid-template-columns:1fr; }
+  .orders-list-header,.orders-list-row { gap:7px; grid-template-columns: minmax(85px,.8fr) 65px 58px 51px minmax(74px,.9fr) minmax(110px,1fr) minmax(135px,1.4fr) 73px; }
+  .orders-list-header { padding:10px 12px; }
+  .orders-list-row { padding:12px; font-size:12px; }
 }
 @media (max-width: 500px) {
   .container { padding:0 12px; }
@@ -383,4 +417,17 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   .btn-smart-main { min-width:0; width:100%; }
   .cart-dock { bottom:80px; }
   #tutorMap { height:370px; }
+  .stats-bar { align-items:stretch; }
+  .stats-actions { margin-left:auto; }
+  .layout-button { padding:7px 12px; }
+  .orders-list-header { display:none; }
+  .orders-list-row { min-width:0; grid-template-columns:repeat(4,minmax(0,1fr)); gap:7px 9px; padding:13px 14px; }
+  .list-id { grid-column:span 2; font-size:14px; }
+  .list-rate { grid-column:span 2; text-align:right; font-size:13px; }
+  .list-area,.list-grade,.list-gender,.list-subject { font-size:12px; }
+  .list-frequency { grid-column:span 3; font-size:12px; }
+  .list-expand { grid-column:span 1; }
+  .orders-list-detail { padding:10px; }
+  .orders-list-detail .card-desc { grid-template-columns:1fr; }
+  .orders-list-detail .card-desc>div:last-child { grid-column:auto; }
 }

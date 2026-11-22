@@ -8,7 +8,7 @@
   <meta http-equiv="Expires" content="0" />
   <title>小木学长 · 天津家教看板</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="./css/styles.css?v=9" />
+  <link rel="stylesheet" href="./css/styles.css?v=10" />
 </head>
 <body>
   <header class="topbar">
@@ -90,7 +90,7 @@
         <p class="map-note" id="mapLocationNote">选择搜索候选地点后，红色位置标记、地图视角和通勤估算会同步更新；也可点击上方「定位我」。家教定位为公开地址的近似位置。</p>
       </section>
 
-      <div class="stats-bar"><span id="resultStats">正在加载家教单...</span><span id="modeBadge"></span></div>
+      <div class="stats-bar"><span id="resultStats">正在加载家教单...</span><div class="stats-actions"><span id="modeBadge"></span><div class="layout-switch" role="group" aria-label="家教单展示方式"><button class="layout-button active" id="btnListMode" type="button" aria-pressed="true">☰ 列表</button><button class="layout-button" id="btnCardMode" type="button" aria-pressed="false">▦ 卡片</button></div></div></div>
       <div class="orders-grid" id="ordersGrid"></div>
     </section>
 
@@ -137,6 +137,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=9"></script>
+  <script type="module" src="./js/app.js?v=10"></script>
 </body>
 </html>
