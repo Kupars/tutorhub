@@ -1,17 +1,16 @@
 import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { estimateCommuteLocal, resolveUserAddress } from "./commute.js";
-import { parseMessyOrders, optimizeResumeWithAI, interpretSiteCommand } from "./ai-engine.js";
+import { parseMessyOrders, interpretSiteCommand } from "./ai-engine.js";
 import { Store } from "./store.js";
 import { formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
+import { buildWechatSelectionText, sortBoardOrders } from "./board-utils.js";
 
 const state = {
   view: "hall",
   onlyOpen: true,
-  onlyBookmarks: false,
-  authMode: "login",
-  activeApplyOrderId: null,
+  onlySelected: false,
   parsedDraftOrders: [],
   editingOrderId: null
 };
@@ -34,56 +33,65 @@ function escapeHtml(str) {
     .replaceAll('"', "&quot;");
 }
 
-function copyText(text, successMsg = "已复制") {
-  navigator.clipboard?.writeText(text)
-    .then(() => showToast(successMsg))
-    .catch(() => showToast("复制失败，请手动复制"));
+async function copyText(text, successMsg = "已复制") {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+    await navigator.clipboard.writeText(text);
+    showToast(successMsg);
+    return true;
+  } catch {
+    // 兼容部分微信内置浏览器及未授予剪贴板权限的旧浏览器。
+    const input = document.createElement("textarea");
+    input.value = text;
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.appendChild(input);
+    input.select();
+    let copied = false;
+    try { copied = document.execCommand("copy"); } catch { /* 浏览器不支持传统复制 */ }
+    input.remove();
+    showToast(copied ? successMsg : "自动复制失败，请使用卡片里的单独复制按钮");
+    return copied;
+  }
 }
 
 function applySiteConfig() {
   const cfg = Store.getSiteConfig();
   document.documentElement.setAttribute("data-theme", cfg.theme || "indigo");
-  document.title = cfg.siteName || "家教招募大厅";
-  $("siteAnnouncement").textContent = cfg.announcement;
+  document.title = "小木学长 · 天津家教看板";
+  const notice = (cfg.announcement || "").trim();
+  // 旧站公告可能提到账号与自动投递，不再展示过时的使用指引。
+  $("siteAnnouncement").textContent = /自动投递|简历|登录|注册|账号/.test(notice) ? "" : notice;
+  $("siteAnnouncement").hidden = !$("siteAnnouncement").textContent;
   $("modeBadge").textContent = Store.isCloudMode() ? "🟢 云端已同步" : "";
 }
 
 function syncOriginInput() {
   const origin = Store.getOrigin();
   const input = $("originAddressInput");
-  if (input && origin?.name) input.value = origin.name;
+  if (input && origin?.name && origin.name !== "未设置") input.value = origin.name;
 }
 
 function renderUserActions() {
   const user = Store.getCurrentUser();
   const wrap = $("userActions");
-  if (!user) {
-    wrap.innerHTML = `<button class="btn btn-primary btn-sm" id="btnOpenAuth">登录 / 注册</button>`;
-    $("btnOpenAuth").onclick = () => openAuthModal("login");
-  } else {
-    const roleTag = user.role === "admin" ? "🛡️ 管理员" : "🎓 老师";
-    wrap.innerHTML = `
-      <span style="font-size:13px;font-weight:600;">${roleTag} · ${escapeHtml(user.name)}</span>
-      <button class="btn btn-sm" id="btnLogout">退出</button>
-    `;
-    $("btnLogout").onclick = () => {
-      Store.logout();
-      renderAll();
-      showToast("已安全退出登录");
-    };
-  }
+  wrap.innerHTML = user?.role === "admin" ? `<button class="btn btn-sm" id="btnLogout">退出管理</button>` : "";
+  $("btnLogout")?.addEventListener("click", () => {
+    Store.logout();
+    switchView("hall");
+    renderAll();
+    showToast("已安全退出管理后台");
+  });
 }
 
 function switchView(viewName) {
   state.view = viewName;
   document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
   $(`view-${viewName}`).classList.add("active");
-  document.querySelectorAll("[data-view]").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.view === viewName);
-  });
+  $("btnAdminEntry").hidden = viewName === "admin";
+  $("btnBackToHall").hidden = viewName !== "admin";
+  $("cartDock").hidden = viewName !== "hall";
   if (viewName === "hall") renderHall();
-  if (viewName === "my-orders") renderMyOrders();
-  if (viewName === "resume") renderResumeView();
   if (viewName === "admin") renderAdminView();
 }
 
@@ -106,20 +114,17 @@ function renderHall() {
   const time = $("qTime").value;
   const minRate = Number($("qMinRate").value) || 0;
   const origin = Store.getOrigin();
-  const bookmarks = Store.getBookmarks();
-  const user = Store.getCurrentUser();
-  const myApps = user ? Store.getUserApplications(user.id) : [];
+  const selected = Store.getSelectedOrderIds();
 
   let items = Store.getOrders().map((order) => ({
     ...order,
     commute: estimateCommuteLocal(origin, order),
-    bookmarked: bookmarks.includes(order.id),
-    applied: myApps.some((a) => a.orderId === order.id && a.status !== "已撤回")
+    selected: selected.includes(order.id)
   }));
 
   items = items.filter((o) => {
     if (state.onlyOpen && o.status !== "招募中") return false;
-    if (state.onlyBookmarks && !o.bookmarked) return false;
+    if (state.onlySelected && !o.selected) return false;
     if (subject && o.subject !== subject && !getSubjectList(o.subject).includes(subject)) return false;
     if (grade && o.grade !== grade) return false;
     if (mode && o.mode !== mode) return false;
@@ -139,15 +144,13 @@ function renderHall() {
     return true;
   });
 
-  if (sort === "rate") {
-    items.sort((a, b) => b.hourlyRate - a.hourlyRate);
-  } else if (sort === "commute") {
-    items.sort((a, b) => (a.commute?.bestMin ?? 999) - (b.commute?.bestMin ?? 999));
-  } else {
-    items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  }
+  items = sortBoardOrders(items, sort);
 
   $("resultStats").textContent = `共匹配 ${items.length} 条家教单（当前出发地址：${origin.name}）`;
+  const advancedIds = ["qSubject", "qGrade", "qMode", "qStudentGender", "qDistrict", "qTime", "qMinRate"];
+  const activeCount = advancedIds.filter((id) => $(id).value).length + Number(!state.onlyOpen) + Number(state.onlySelected);
+  $("activeFilterCount").textContent = activeCount ? ` · 已选 ${activeCount} 项` : "";
+  renderCart();
 
   const grid = $("ordersGrid");
   if (items.length === 0) {
@@ -161,11 +164,11 @@ function renderHall() {
     const commuteHtml = o.commute
       ? o.commute.isOnline
         ? `<span class="chip commute">💻 线上免通勤</span>`
-        : `<span class="chip commute">🚲 骑行 ${o.commute.bikeMin} 分钟</span><span class="chip commute">🚌 公交 ${o.commute.transitMin} 分钟 · ${o.commute.distanceKm}km</span>`
+        : `<span class="chip commute">🚲 骑行约 ${o.commute.bikeMin} 分钟</span><span class="chip commute">🚌 公交约 ${o.commute.transitMin} 分钟 · ${o.commute.distanceKm}km</span>`
       : "";
     const statusClass = o.status === "招募中" ? "status-open" : "status-closed";
     return `
-      <article class="order-card">
+      <article class="order-card ${o.selected ? "order-selected" : ""}">
         <div class="card-head">
           <div>
             <div style="font-size:12px;color:var(--muted);margin-bottom:2px;">${escapeHtml(o.id)} · ${escapeHtml(o.district || o.mode)}</div>
@@ -195,28 +198,18 @@ function renderHall() {
         </div>
 
         <div class="card-foot">
-          <div style="display:flex;gap:6px;">
-            <button class="btn btn-sm" data-bookmark="${o.id}">${o.bookmarked ? "★ 已收藏" : "☆ 收藏"}</button>
-            <button class="btn btn-sm" data-copy="${o.id}">📋 复制单子</button>
-          </div>
-          <div>
-            ${
-              o.status !== "招募中"
-                ? `<button class="btn btn-sm" disabled>已停止招募</button>`
-                : o.applied
-                ? `<button class="btn btn-sm" disabled>✓ 已投递</button>`
-                : `<button class="btn btn-primary btn-sm" data-apply="${o.id}">🚀 一键投递</button>`
-            }
-          </div>
+          <button class="btn ${o.selected ? "btn-in-cart" : "btn-primary"} btn-sm" data-select="${escapeHtml(o.id)}" aria-pressed="${o.selected}">${o.selected ? "✓ 已加入 · 移出选单" : "+ 加入选单"}</button>
+          <button class="btn btn-sm" data-copy="${escapeHtml(o.id)}">📋 单独复制</button>
         </div>
       </article>
     `;
   }).join("");
 
-  grid.querySelectorAll("[data-bookmark]").forEach((btn) => {
+  grid.querySelectorAll("[data-select]").forEach((btn) => {
     btn.onclick = () => {
-      Store.toggleBookmark(btn.dataset.bookmark);
+      Store.toggleSelectedOrder(btn.dataset.select);
       renderHall();
+      showToast(Store.getSelectedOrderIds().includes(btn.dataset.select) ? "已加入选单清单" : "已从选单清单移除");
     };
   });
   grid.querySelectorAll("[data-copy]").forEach((btn) => {
@@ -226,189 +219,32 @@ function renderHall() {
       copyText(formatOrderText(o), "已复制标准九字段家教单");
     };
   });
-  grid.querySelectorAll("[data-apply]").forEach((btn) => {
-    btn.onclick = () => openApplyModal(btn.dataset.apply);
+}
+
+function getSelectedOrders() {
+  const byId = new Map(Store.getOrders().map((order) => [order.id, order]));
+  return Store.getSelectedOrderIds().map((id) => byId.get(id)).filter(Boolean);
+}
+
+function renderCart() {
+  const orders = getSelectedOrders();
+  $("cartCount").textContent = String(orders.length);
+  $("btnOpenCart").textContent = orders.length ? `查看 ${orders.length} 条选单 · 一键复制` : "查看选单 · 一键复制";
+  $("btnCopyCart").disabled = !orders.length;
+  $("btnClearCart").disabled = !orders.length;
+  const box = $("cartItems");
+  box.innerHTML = orders.length ? orders.map((o) => `
+    <div class="cart-item">
+      <div><strong>${escapeHtml(o.id)} · ${escapeHtml(o.title)}</strong><p>${escapeHtml(o.address)} · ${escapeHtml(o.salaryText)}</p></div>
+      <button class="btn btn-sm" data-remove-selection="${escapeHtml(o.id)}" aria-label="从选单清单移除 ${escapeHtml(o.id)}">移除</button>
+    </div>
+  `).join("") : `<div class="cart-empty">清单还是空的。回到看板，点击家教卡片上的「+ 加入选单」就可以开始挑选。</div>`;
+  box.querySelectorAll("[data-remove-selection]").forEach((btn) => {
+    btn.onclick = () => { Store.toggleSelectedOrder(btn.dataset.removeSelection); renderHall(); };
   });
 }
 
-// ---------------- 投递与自动匹配投递 ----------------
-async function openApplyModal(orderId) {
-  const user = Store.getCurrentUser();
-  if (!user) {
-    showToast("请先登录老师账号再投递");
-    openAuthModal("login");
-    return;
-  }
-  const order = Store.getOrders().find((o) => o.id === orderId);
-  if (!order) return;
-  state.activeApplyOrderId = orderId;
-
-  const resume = Store.getResume(user.id);
-  $("applyModalTitle").textContent = `投递：${order.id}`;
-  $("applyOrderSummary").textContent = `${order.title} · ¥${order.hourlyRate}/时 · ${order.schedule}`;
-  $("applyPitch").value = "正在根据你的简历生成针对性自荐语...";
-  $("applyModal").classList.add("open");
-
-  const aiRes = await optimizeResumeWithAI(resume, order);
-  $("applyPitch").value = aiRes.pitch;
-}
-
-async function runAutoApply() {
-  const user = Store.getCurrentUser();
-  if (!user) {
-    showToast("请先登录老师账号并设置自动投递规则");
-    openAuthModal("login");
-    return;
-  }
-  const resume = Store.getResume(user.id);
-  const rules = resume.autoApplyRules || { subjects: [], maxCommuteMin: 45, minRate: 100 };
-  const origin = Store.getOrigin();
-  const myApps = Store.getUserApplications(user.id);
-
-  const candidates = Store.getOrders().filter((o) => {
-    if (o.status !== "招募中") return false;
-    if (myApps.some((a) => a.orderId === o.id && a.status !== "已撤回")) return false;
-    if (rules.subjects?.length && !getSubjectList(o.subject).some((s) => rules.subjects.includes(s))) return false;
-    if (o.hourlyRate < (rules.minRate || 0)) return false;
-    const commute = estimateCommuteLocal(origin, o);
-    if (commute && !commute.isOnline && commute.bestMin > (rules.maxCommuteMin || 60)) return false;
-    return true;
-  });
-
-  if (candidates.length === 0) {
-    showToast("当前没有新单满足你的自动投递规则（可在「简历与自动投递」中调整）");
-    return;
-  }
-
-  let count = 0;
-  for (const order of candidates) {
-    const aiRes = await optimizeResumeWithAI(resume, order);
-    const res = await Store.applyOrder({
-      orderId: order.id,
-      teacherId: user.id,
-      teacherName: resume.name || user.name,
-      teacherWechat: resume.wechat || user.wechat || "",
-      pitch: aiRes.pitch,
-      resumeSnapshot: resume,
-      isAuto: true
-    });
-    if (res.ok) count++;
-  }
-  renderHall();
-  showToast(`已为你智能匹配并自动投递 ${count} 条家教单！`);
-}
-
-// ---------------- 视图 2：我的接单 ----------------
-function renderMyOrders() {
-  const user = Store.getCurrentUser();
-  const box = $("myAppsContainer");
-  if (!user) {
-    box.innerHTML = `<p style="color:var(--muted);">请先登录后查看你的投递记录与接单进度。</p>`;
-    return;
-  }
-  const apps = Store.getUserApplications(user.id);
-  const orders = Store.getOrders();
-  if (apps.length === 0) {
-    box.innerHTML = `<p style="color:var(--muted);">你还没有投递过家教单，去招募大厅看看吧！</p>`;
-    return;
-  }
-
-  box.innerHTML = apps.map((app) => {
-    const order = orders.find((o) => o.id === app.orderId);
-    return `
-      <div class="panel" style="margin:10px 0;padding:14px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-          <strong>${escapeHtml(app.orderId)} · ${escapeHtml(order?.title || "已归档家教单")}</strong>
-          <div style="display:flex;gap:6px;align-items:center;">
-            ${app.isAuto ? `<span class="chip commute">🤖 自动投递</span>` : ""}
-            <span class="chip status-open">${escapeHtml(app.status)}</span>
-          </div>
-        </div>
-        <p style="font-size:13px;color:#334155;margin:8px 0;"><strong>自荐语：</strong>${escapeHtml(app.pitch)}</p>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <input style="max-width:360px;" placeholder="添加个人备忘（如：周六10点试讲）" value="${escapeHtml(app.teacherNote || "")}" data-note-input="${app.id}" />
-          <button class="btn btn-sm" data-save-note="${app.id}">保存备注</button>
-          ${app.status !== "已撤回" ? `<button class="btn btn-danger btn-sm" data-withdraw="${app.id}">撤回投递</button>` : ""}
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  box.querySelectorAll("[data-save-note]").forEach((btn) => {
-    btn.onclick = async () => {
-      const id = btn.dataset.saveNote;
-      const val = box.querySelector(`[data-note-input="${id}"]`).value;
-      await Store.updateApplication(id, { teacherNote: val }, false);
-      showToast("接单备注已保存");
-    };
-  });
-  box.querySelectorAll("[data-withdraw]").forEach((btn) => {
-    btn.onclick = async () => {
-      await Store.updateApplication(btn.dataset.withdraw, { status: "已撤回" }, false);
-      renderMyOrders();
-      showToast("已撤回该次投递");
-    };
-  });
-}
-
-// ---------------- 视图 3：简历模板 + AI 优化 + 自动投递规则 ----------------
-function renderResumeView() {
-  const user = Store.getCurrentUser();
-  const box = $("resumeFormContainer");
-  if (!user) {
-    box.innerHTML = `<p style="color:var(--muted);">请先登录老师账号，即可按模板填写简历、使用 AI 润色并开启一键自动投递。</p>`;
-    return;
-  }
-  const r = Store.getResume(user.id);
-  const rules = r.autoApplyRules || { subjects: [], maxCommuteMin: 45, minRate: 100 };
-
-  box.innerHTML = `
-    <div class="grid-3">
-      <div class="field"><label>姓名/称呼</label><input id="rName" value="${escapeHtml(r.name)}" /></div>
-      <div class="field"><label>微信号（管理员派单联系）</label><input id="rWechat" value="${escapeHtml(r.wechat || user.wechat || "")}" placeholder="请填写微信号" /></div>
-      <div class="field"><label>学校</label><input id="rSchool" value="${escapeHtml(r.school)}" placeholder="如：天津大学" /></div>
-    </div>
-    <div class="grid-3" style="margin-top:12px;">
-      <div class="field"><label>专业与年级</label><input id="rMajor" value="${escapeHtml(r.major)}" placeholder="如：自动化 · 大三" /></div>
-      <div class="field"><label>擅长科目（逗号分隔）</label><input id="rSubjects" value="${escapeHtml((r.subjects || []).join("，"))}" placeholder="数学，物理，化学" /></div>
-      <div class="field"><label>可授课时间</label><input id="rAvail" value="${escapeHtml(r.availableTime)}" placeholder="周三晚、周末全天" /></div>
-    </div>
-    <div class="field" style="margin-top:12px;">
-      <label>成绩与亮点（高考分、竞赛奖项、证书等）</label>
-      <textarea id="rHighlights" rows="3">${escapeHtml(r.highlights)}</textarea>
-    </div>
-    <div class="field" style="margin-top:12px;">
-      <label>家教经历与教学方法</label>
-      <textarea id="rExperience" rows="3">${escapeHtml(r.experience)}</textarea>
-    </div>
-
-    <h3>🤖 自动匹配投递规则</h3>
-    <div class="grid-3">
-      <div class="field"><label>目标科目（逗号分隔，留空不限）</label><input id="ruleSubjects" value="${escapeHtml((rules.subjects || []).join("，"))}" /></div>
-      <div class="field"><label>最低时薪要求（元/小时）</label><input id="ruleMinRate" type="number" value="${rules.minRate || 100}" /></div>
-      <div class="field"><label>最长可接受通勤（分钟）</label><input id="ruleMaxCommute" type="number" value="${rules.maxCommuteMin || 45}" /></div>
-    </div>
-  `;
-}
-
-function collectResumeFromForm() {
-  const splitList = (v) => v.split(/[，,、\s]+/).map((s) => s.trim()).filter(Boolean);
-  return {
-    name: $("rName").value.trim(),
-    wechat: $("rWechat").value.trim(),
-    school: $("rSchool").value.trim(),
-    major: $("rMajor").value.trim(),
-    subjects: splitList($("rSubjects").value),
-    availableTime: $("rAvail").value.trim(),
-    highlights: $("rHighlights").value.trim(),
-    experience: $("rExperience").value.trim(),
-    autoApplyRules: {
-      subjects: splitList($("ruleSubjects").value),
-      minRate: Number($("ruleMinRate").value) || 0,
-      maxCommuteMin: Number($("ruleMaxCommute").value) || 60
-    }
-  };
-}
+// 公共看板不再提供用户账号、简历或投递功能。
 
 function fillManualOrder(order) {
   const o = normalizeOrder(order);
@@ -479,8 +315,6 @@ function renderAdminView() {
   }
 
   const orders = Store.getOrders();
-  const apps = Store.getApplications();
-  const teachers = Store.getTeachers();
 
   box.innerHTML = `
     ${!Store.isCloudMode() ? `
@@ -550,25 +384,9 @@ function renderAdminView() {
       <p id="aiSiteReply" style="font-size:13px;color:var(--primary);margin-top:8px;"></p>
     </div>
 
-    <div class="panel">
-      <h2>👥 已注册老师与微信号（${teachers.length} 位）</h2>
-      <div style="display:flex;flex-direction:column;gap:8px;">
-        ${teachers.map((t) => `
-          <div style="border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-            <div>
-              <strong>${escapeHtml(t.name)}</strong>
-              <span class="chip status-open">微信号：${escapeHtml(t.wechat || "未填写")}</span>
-              <span class="chip">${escapeHtml(t.email)}</span>
-              ${t.defaultOrigin?.name ? `<span class="chip">📍 ${escapeHtml(t.defaultOrigin.name)}</span>` : ""}
-            </div>
-            ${t.wechat ? `<button class="btn btn-sm" data-copy-wx="${escapeHtml(t.wechat)}">📋 复制微信号</button>` : ""}
-          </div>
-        `).join("")}
-      </div>
-    </div>
 
     <div class="panel">
-      <h2>📋 家教单管理（${orders.length} 条） & 投递审核（${apps.length} 条）</h2>
+      <h2>📋 家教单管理（${orders.length} 条）</h2>
       <div class="admin-editor-actions"><button class="btn btn-sm" id="btnMergeSelected">合并选中的同学多科单</button></div>
       <div style="display:flex;flex-direction:column;gap:8px;">
         ${orders.length ? orders.map((o) => `
@@ -591,31 +409,6 @@ function renderAdminView() {
         `).join("") : '<p class="admin-helper">目前还没有真实家教单。请在上面填写表单或粘贴微信聊天整理。</p>'}
       </div>
 
-      ${apps.length ? `
-        <h3>最新老师投递</h3>
-        <div style="display:flex;flex-direction:column;gap:8px;">
-          ${apps.map((a) => `
-            <div style="border:1px solid var(--border);border-radius:10px;padding:12px;">
-              <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:center;">
-                <div>
-                  <strong>${escapeHtml(a.teacherName)}</strong> 投递了 <strong>${escapeHtml(a.orderId)}</strong>
-                  <span class="chip status-open">微信：${escapeHtml(a.teacherWechat || a.resumeSnapshot?.wechat || "未填")}</span>
-                </div>
-                <div style="display:flex;gap:6px;align-items:center;">
-                  ${(a.teacherWechat || a.resumeSnapshot?.wechat) ? `<button class="btn btn-sm" data-copy-wx="${escapeHtml(a.teacherWechat || a.resumeSnapshot?.wechat)}">复制微信</button>` : ""}
-                  <span class="chip">${escapeHtml(a.status)}</span>
-                </div>
-              </div>
-              <p style="font-size:13px;color:#334155;margin:6px 0;">${escapeHtml(a.pitch)}</p>
-              <div style="display:flex;gap:6px;">
-                <button class="btn btn-sm" data-app-status="${a.id}" data-val="试讲中">安排试讲</button>
-                <button class="btn btn-primary btn-sm" data-app-status="${a.id}" data-val="已录用">标记录用</button>
-                <button class="btn btn-danger btn-sm" data-app-status="${a.id}" data-val="未通过">未通过</button>
-              </div>
-            </div>
-          `).join("")}
-        </div>
-      ` : ""}
     </div>
   `;
 
@@ -646,10 +439,6 @@ function renderAdminView() {
   ].join("\n"), "已复制家长问询模板");
 
   renderParsedPreview();
-
-  box.querySelectorAll("[data-copy-wx]").forEach((btn) => {
-    btn.onclick = () => copyText(btn.dataset.copyWx, `已复制微信号：${btn.dataset.copyWx}`);
-  });
 
   $("btnParseOrders").onclick = async () => {
     const raw = $("rawOrderInput").value.trim();
@@ -753,13 +542,6 @@ function renderAdminView() {
       } catch (err) { showToast(`删除失败：${err.message}`); }
     };
   });
-  box.querySelectorAll("[data-app-status]").forEach((btn) => {
-    btn.onclick = async () => {
-      await Store.updateApplication(btn.dataset.appStatus, { status: btn.dataset.val }, true);
-      renderAdminView();
-      showToast(`已更新状态为「${btn.dataset.val}」`);
-    };
-  });
 }
 
 function renderParsedPreview() {
@@ -809,14 +591,7 @@ function renderParsedPreview() {
 }
 
 // ---------------- 弹窗与初始化 ----------------
-function openAuthModal(mode = "login") {
-  state.authMode = mode;
-  const isReg = mode === "register";
-  $("registerNameField").style.display = isReg ? "flex" : "none";
-  $("registerWechatField").style.display = isReg ? "flex" : "none";
-  $("registerAddressField").style.display = isReg ? "flex" : "none";
-  $("tabLogin").className = !isReg ? "btn btn-primary btn-sm" : "btn btn-sm";
-  $("tabRegister").className = isReg ? "btn btn-primary btn-sm" : "btn btn-sm";
+function openAuthModal() {
   $("authModal").classList.add("open");
 }
 
@@ -848,88 +623,57 @@ function initControls() {
   });
   $("btnClearFilters").onclick = () => {
     ["qSearch", "qSubject", "qGrade", "qMode", "qStudentGender", "qDistrict", "qTime", "qMinRate"].forEach((id) => { $(id).value = ""; });
-    $("qSort").value = "latest";
+    $("qSort").value = "recommend";
+    state.onlyOpen = true;
+    state.onlySelected = false;
+    $("onlyOpen").checked = true;
+    $("onlySelected").checked = false;
     renderHall();
   };
 
-  $("btnOnlyOpen").onclick = () => {
-    state.onlyOpen = !state.onlyOpen;
-    $("btnOnlyOpen").textContent = `仅看招募中：${state.onlyOpen ? "开" : "关"}`;
+  $("onlyOpen").onchange = (event) => {
+    state.onlyOpen = event.target.checked;
     renderHall();
   };
-  $("btnOnlyBookmarks").onclick = () => {
-    state.onlyBookmarks = !state.onlyBookmarks;
-    $("btnOnlyBookmarks").classList.toggle("btn-primary", state.onlyBookmarks);
+  $("onlySelected").onchange = (event) => {
+    state.onlySelected = event.target.checked;
     renderHall();
   };
-  $("btnRunAutoApply").onclick = runAutoApply;
 
-  document.querySelectorAll("[data-view]").forEach((btn) => {
-    btn.onclick = () => switchView(btn.dataset.view);
+  $("btnAdminEntry").onclick = () => switchView("admin");
+  $("btnBackToHall").onclick = () => switchView("hall");
+
+  $("btnOpenCart").onclick = () => { renderCart(); $("cartModal").classList.add("open"); };
+  $("btnCloseCart").onclick = () => $("cartModal").classList.remove("open");
+  $("cartModal").addEventListener("click", (event) => {
+    if (event.target === $("cartModal")) $("cartModal").classList.remove("open");
   });
+  $("btnCopyCart").onclick = async () => {
+    const orders = getSelectedOrders();
+    if (!orders.length) return showToast("请先挑选家教单");
+    await copyText(buildWechatSelectionText(orders), `已复制 ${orders.length} 条家教单，请打开微信发送给小木同学`);
+  };
+  $("btnClearCart").onclick = () => {
+    Store.clearSelectedOrders();
+    renderHall();
+    showToast("选单清单已清空");
+  };
 
-  $("tabLogin").onclick = () => openAuthModal("login");
-  $("tabRegister").onclick = () => openAuthModal("register");
   $("closeAuthModal").onclick = () => $("authModal").classList.remove("open");
   $("btnSubmitAuth").onclick = async () => {
     const email = $("authEmail").value.trim();
     const password = $("authPassword").value;
     if (!email || !password) return showToast("请输入邮箱和密码");
 
-    let res;
-    if (state.authMode === "register") {
-      const name = $("authName").value.trim();
-      const wechat = $("authWechat").value.trim();
-      const addr = $("authAddress").value.trim();
-      if (!name) return showToast("请填写姓名或称呼");
-      if (!wechat) return showToast("请填写微信号，以便管理员联系");
-      const defaultOrigin = addr ? await resolveUserAddress(addr) : Store.getOrigin();
-      res = await Store.register({ name, wechat, email, password, defaultOrigin });
-    } else {
-      res = await Store.login(email, password);
-    }
-
+    const res = await Store.login(email, password);
     if (!res.ok) return showToast(res.error);
+    if (res.user.role !== "admin") {
+      Store.logout();
+      return showToast("仅管理员可登录此后台");
+    }
     $("authModal").classList.remove("open");
     renderAll();
     showToast(`欢迎回来，${res.user.name}`);
-  };
-
-  $("closeApplyModal").onclick = () => $("applyModal").classList.remove("open");
-  $("btnConfirmApply").onclick = async () => {
-    const user = Store.getCurrentUser();
-    if (!user || !state.activeApplyOrderId) return;
-    const resume = Store.getResume(user.id);
-    const res = await Store.applyOrder({
-      orderId: state.activeApplyOrderId,
-      teacherId: user.id,
-      teacherName: resume.name || user.name,
-      teacherWechat: resume.wechat || user.wechat || "",
-      pitch: $("applyPitch").value.trim(),
-      resumeSnapshot: resume
-    });
-    if (!res.ok) return showToast(res.error);
-    $("applyModal").classList.remove("open");
-    renderHall();
-    showToast("投递成功！可在「我的接单」中查看进度");
-  };
-
-  $("btnSaveResume").onclick = async () => {
-    const user = Store.getCurrentUser();
-    if (!user) return openAuthModal("login");
-    await Store.saveResume(user.id, collectResumeFromForm());
-    showToast("简历模板与自动投递规则已保存");
-  };
-
-  $("btnOptimizeResume").onclick = async () => {
-    const user = Store.getCurrentUser();
-    if (!user) return openAuthModal("login");
-    showToast("正在使用 AI 润色简历...");
-    const draft = collectResumeFromForm();
-    const res = await optimizeResumeWithAI(draft);
-    $("rHighlights").value = res.highlights;
-    $("rExperience").value = res.experience;
-    showToast(`润色完成（${res.source}），请记得点击保存`);
   };
 }
 

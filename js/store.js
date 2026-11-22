@@ -11,6 +11,7 @@ const KEYS = {
   resumes: "tutorhub_resumes_v3",
   apps: "tutorhub_apps_v3",
   bookmarks: "tutorhub_bookmarks_v3",
+  selectedOrders: "tutorhub_selected_orders_v1",
   origin: "tutorhub_origin_v3"
 };
 
@@ -50,21 +51,9 @@ function ensureLocalInit() {
         role: "admin",
         defaultOrigin: APP_CONFIG.presetLocations[0],
         createdAt: "2026-11-01T00:00:00Z"
-      },
-      {
-        id: "teacher-1",
-        email: "teacher@tju.edu.cn",
-        passwordHash: btoa("123456"),
-        name: "林同学",
-        wechat: "lin_tutor_tju",
-        role: "teacher",
-        defaultOrigin: APP_CONFIG.presetLocations[0],
-        createdAt: "2026-11-10T00:00:00Z"
       }
     ]);
   }
-  if (!localStorage.getItem(KEYS.resumes)) writeJSON(KEYS.resumes, {});
-  if (!localStorage.getItem(KEYS.apps)) writeJSON(KEYS.apps, []);
 }
 
 ensureLocalInit();
@@ -152,22 +141,11 @@ export const Store = {
   },
 
   getOrigin() {
-    const user = this.getCurrentUser();
-    if (user?.defaultOrigin?.name) return user.defaultOrigin;
-    return readJSON(KEYS.origin, APP_CONFIG.presetLocations[0]);
+    // 无账号看板：出发地只保存在当前设备，不与管理员登录状态绑定。
+    return readJSON(KEYS.origin, { name: "未设置", lat: null, lng: null });
   },
   async setOrigin(loc) {
     writeJSON(KEYS.origin, loc);
-    const user = this.getCurrentUser();
-    if (user) {
-      writeJSON(KEYS.session, { ...user, defaultOrigin: loc });
-      if (cloudReady) {
-        await apiPost({ action: "save_origin", origin: loc }).catch(() => {});
-      } else {
-        const users = readJSON(KEYS.users, []).map((u) => (u.id === user.id ? { ...u, defaultOrigin: loc } : u));
-        writeJSON(KEYS.users, users);
-      }
-    }
     return loc;
   },
 
@@ -367,5 +345,21 @@ export const Store = {
     const next = list.includes(orderId) ? list.filter((id) => id !== orderId) : [...list, orderId];
     writeJSON(KEYS.bookmarks, next);
     return next;
+  },
+
+  getSelectedOrderIds() {
+    const stored = readJSON(KEYS.selectedOrders, null);
+    // 以前的收藏单可直接沿用为选单，避免用户升级后丢失已保存的意向。
+    const ids = Array.isArray(stored) ? stored : readJSON(KEYS.bookmarks, []);
+    return Array.isArray(ids) ? [...new Set(ids.filter((id) => typeof id === "string"))] : [];
+  },
+  toggleSelectedOrder(orderId) {
+    const selected = this.getSelectedOrderIds();
+    const next = selected.includes(orderId) ? selected.filter((id) => id !== orderId) : [...selected, orderId];
+    writeJSON(KEYS.selectedOrders, next);
+    return next;
+  },
+  clearSelectedOrders() {
+    writeJSON(KEYS.selectedOrders, []);
   }
 };

@@ -57,6 +57,18 @@ test("非管理员不能创建订单", async () => {
   assert.equal(response.status, 403);
 });
 
+test("老师注册、简历和投递接口已停用，管理员发布仍可用", async () => {
+  const env = makeEnv();
+  for (const action of ["register", "save_resume", "apply", "update_my_app"]) {
+    const response = await storeHandler({ request: request({ action }, ""), env });
+    assert.equal(response.status, 410, `${action} 应不再开放`);
+  }
+  const deniedTeacher = await storeHandler({ request: request({ action: "admin_data" }, token("teacher")), env });
+  assert.equal(deniedTeacher.status, 403);
+  const admin = await storeHandler({ request: request({ action: "admin_data" }), env });
+  assert.equal((await admin.json()).ok, true);
+});
+
 test("云端 AI 需要认证并能返回上游具体错误而非泛化 JSON 错误", async () => {
   const env = { ...makeEnv(), OPENAI_API_KEY: "fake-test-key", OPENAI_MODEL: "glm-4.7-flash" };
   const payload = { action: "parse_orders", payload: { text: "高一数学，每周一次" } };

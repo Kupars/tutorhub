@@ -1,7 +1,7 @@
 export const DEFAULT_SITE_CONFIG = {
   siteName: "家教招募大厅",
   subtitle: "",
-  announcement: "填写你的默认出发地址即可在每张家教单上自动展示骑行与公交耗时，支持一键套用简历模板投递。",
+  announcement: "选中感兴趣的家教单加入清单，复制后微信联系小木同学。",
   theme: "indigo", // indigo | emerald | amber | rose
   contactWechat: "tutor_admin_01"
 };
