@@ -30,19 +30,51 @@ export async function onRequestPost(context) {
       return jsonResp({ ok: data.status === "1", suggestions });
     }
 
+    // 已知小区/学校/地标优先查 POI 名称，避免地理编码把“小区”降级命中同名公交站或整区中心。
+    if (body.action === "poi_lookup") {
+      const keywords = String(body.keywords || "").trim().slice(0, 70);
+      if (!keywords) return jsonResp({ ok: true, candidates: [] });
+      const city = String(body.city || "天津").slice(0, 16);
+      const searchUrl = new URL("https://restapi.amap.com/v3/place/text");
+      searchUrl.searchParams.set("keywords", keywords);
+      searchUrl.searchParams.set("city", city);
+      searchUrl.searchParams.set("citylimit", "true");
+      searchUrl.searchParams.set("offset", "10");
+      searchUrl.searchParams.set("key", env.AMAP_KEY);
+      const result = await fetch(searchUrl.toString(), { signal: AbortSignal.timeout(9000) });
+      const data = await result.json();
+      const candidates = (Array.isArray(data.pois) ? data.pois : []).flatMap((poi) => {
+        if (typeof poi.location !== "string") return [];
+        const [lng, lat] = poi.location.split(",").map(Number);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+        return [{ name: String(poi.name || ""), district: String(poi.adname || ""),
+          province: String(poi.pname || ""), address: typeof poi.address === "string" ? poi.address : "",
+          lat, lng }];
+      });
+      return jsonResp({ ok: data.status === "1", candidates });
+    }
+
     // 1. 地址转经纬度（供用户填写自定义默认地址时精确定位）
     if (body.action === "geocode" && body.address) {
-      const geoUrl = `https://restapi.amap.com/v3/geocode/geo?address=${encodeURIComponent(body.address)}&key=${env.AMAP_KEY}`;
-      const geoRes = await fetch(geoUrl);
+      const address = String(body.address).trim().slice(0, 120);
+      const city = address.includes("北京市") ? "北京" : address.includes("上海市") ? "上海"
+        : address.includes("天津市") ? "天津" : "";
+      const geoUrl = new URL("https://restapi.amap.com/v3/geocode/geo");
+      geoUrl.searchParams.set("address", address);
+      if (city) geoUrl.searchParams.set("city", city);
+      geoUrl.searchParams.set("key", env.AMAP_KEY);
+      const geoRes = await fetch(geoUrl.toString(), { signal: AbortSignal.timeout(9000) });
       const geoData = await geoRes.json();
       const place = geoData?.geocodes?.[0];
       const loc = place?.location;
-      if (!loc) return jsonResp({ ok: false });
+      if (geoData?.status !== "1" || typeof loc !== "string") return jsonResp({ ok: false, error: geoData?.info || "未找到匹配地址" });
       const [lng, lat] = loc.split(",").map(Number);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return jsonResp({ ok: false, error: "地址坐标异常" });
       return jsonResp({ ok: true, lat, lng,
         district: typeof place.district === "string" ? place.district : "",
         province: typeof place.province === "string" ? place.province : "",
-        level: typeof place.level === "string" ? place.level : "" });
+        level: typeof place.level === "string" ? place.level : "",
+        formattedAddress: typeof place.formatted_address === "string" ? place.formatted_address : "" });
     }
 
     // 2. 骑行 + 公交耗时估算
