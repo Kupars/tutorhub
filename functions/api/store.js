@@ -9,6 +9,8 @@ const DEFAULT_SITE = {
   theme: "indigo",
   contactWechat: ""
 };
+// 用户要求移除早期虚构的五条 JJ 家教演示数据。仅匹配这五个确定的旧 ID。
+const LEGACY_DEMO_IDS = new Set(["JJ-2026-101", "JJ-2026-102", "JJ-2026-103", "JJ-2026-104", "JJ-2026-105"]);
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -29,7 +31,12 @@ export async function onRequest(context) {
         kvGet(env.TUTOR_KV, "hidden_imported_orders", []),
         kvGet(env.TUTOR_KV, "part_time_posts", [])
       ]);
-      return jsonResp({ ok: true, cloud: true, siteConfig, orders: orders.map(toPublicOrder), hiddenImported,
+      const realOrders = orders.filter((order) => !LEGACY_DEMO_IDS.has(order.id));
+      if (realOrders.length !== orders.length) {
+        // 幂等的特定演示数据清理；保留所有真实用户创建的记录。
+        await kvPut(env.TUTOR_KV, "orders", realOrders);
+      }
+      return jsonResp({ ok: true, cloud: true, siteConfig, orders: realOrders.map(toPublicOrder), hiddenImported,
         partTimePosts: partTimePosts.map(toPublicPartTime) });
     }
 

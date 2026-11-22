@@ -9,6 +9,27 @@ export async function onRequestPost(context) {
   try {
     const body = await request.json();
 
+    // 输入提示：仅向前端返回公开地点的名称、行政区、地址及坐标，不泄露服务 Key。
+    if (body.action === "suggest") {
+      const keywords = String(body.keywords || "").trim().slice(0, 80);
+      if (!keywords) return jsonResp({ ok: true, suggestions: [] });
+      const suggestUrl = new URL("https://restapi.amap.com/v3/assistant/inputtips");
+      suggestUrl.searchParams.set("keywords", keywords);
+      suggestUrl.searchParams.set("city", "天津");
+      suggestUrl.searchParams.set("datatype", "poi");
+      suggestUrl.searchParams.set("key", env.AMAP_KEY);
+      const response = await fetch(suggestUrl.toString(), { signal: AbortSignal.timeout(6500) });
+      const data = await response.json();
+      const suggestions = (Array.isArray(data.tips) ? data.tips : []).slice(0, 10).flatMap((tip) => {
+        if (typeof tip.location !== "string") return [];
+        const [lng, lat] = tip.location.split(",").map(Number);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || !tip.name) return [];
+        return [{ name: String(tip.name), address: typeof tip.address === "string" ? tip.address : "",
+          district: typeof tip.district === "string" ? tip.district : "", lat, lng, gcj02: true }];
+      });
+      return jsonResp({ ok: data.status === "1", suggestions });
+    }
+
     // 1. 地址转经纬度（供用户填写自定义默认地址时精确定位）
     if (body.action === "geocode" && body.address) {
       const geoUrl = `https://restapi.amap.com/v3/geocode/geo?address=${encodeURIComponent(body.address)}&key=${env.AMAP_KEY}`;

@@ -4,7 +4,8 @@ import { readFile } from "node:fs/promises";
 import { onRequest } from "../functions/api/store.js";
 import { teacherGenderRequirement } from "../js/board-utils.js";
 import { getPublicMapLocation, groupPublicMapOrders } from "../js/map-board.js";
-import { normalizeOrder } from "../js/order-format.js";
+import { canonicalDistrict, normalizeOrder } from "../js/order-format.js";
+import { SAMPLE_ORDERS } from "../js/data.js";
 
 test("220条公开家教单均有独立内部ID，原始重复编号不被篡改", async () => {
   const items = JSON.parse(await readFile(new URL("../data/imported-orders.json", import.meta.url), "utf8"));
@@ -42,6 +43,36 @@ test("地图仅使用公开地址，忽略后台精确经纬度和私人住址",
   const loc = getPublicMapLocation(order);
   assert(loc && loc.lat > 30 && loc.lng > 110);
   assert.equal(groupPublicMapOrders([order]).length, 1);
+});
+
+test("津南区在筛选和地图里不应分成‘天津市津南区’与‘津南区’", () => {
+  assert.equal(canonicalDistrict("天津市津南区"), "津南区");
+  assert.equal(canonicalDistrict("津南区"), "津南区");
+  const order = normalizeOrder({ id: "#3901", district: "天津市津南区", address: "天津市津南区某小区" });
+  assert.equal(order.district, "津南区");
+  assert.equal(order.address, "天津市津南区某小区");
+});
+
+test("五条旧JJ演示单不再作为默认家教单，地图详情只含公开字段", () => {
+  assert.deepEqual(SAMPLE_ORDERS, []);
+  const [group] = groupPublicMapOrders([{ id: "#3902", orderNumber: "#3902", district: "河西区", mode: "上门",
+    grade: "高二", subject: "数学", salaryText: "120元/小时", weeklyFrequency: "周末",
+    publicAddress: "天津市河西区梅江", privateAddress: "不应显示的门牌", privateNotes: "隐私备注" }]);
+  assert.equal(group.orders[0].salaryText, "120元/小时");
+  assert.equal(group.orders[0].address, "天津市河西区梅江");
+  assert(!JSON.stringify(group).includes("不应显示的门牌"));
+  assert(!JSON.stringify(group).includes("隐私备注"));
+});
+
+test("旧JJ演示单仅清理指定五个ID，真实云端单保留", async () => {
+  const entries = new Map([["orders", JSON.stringify([
+    { id: "JJ-2026-101", title: "虚构演示" }, { id: "#3903", title: "真实单" }
+  ])]]);
+  const env = { TUTOR_KV: { get: async (key) => entries.get(key), put: async (key, value) => entries.set(key, value) } };
+  const response = await onRequest({ request: new Request("https://example.com/api/store"), env });
+  const body = await response.json();
+  assert.deepEqual(body.orders.map((o) => o.id), ["#3903"]);
+  assert.deepEqual(JSON.parse(entries.get("orders")).map((o) => o.id), ["#3903"]);
 });
 
 test("公开接口屏蔽后台地址坐标且支持兼职发布", async () => {

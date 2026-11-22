@@ -1,10 +1,10 @@
 import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
-import { estimateCommuteLocal, resolveUserAddress } from "./commute.js";
-import { getMapCenter, moveMapTo, openMapBoard, updateMapOrders, updateMapOrigin } from "./map-board.js";
+import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js";
+import { gcj02ToWgs84, moveMapTo, openMapBoard, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js";
 import { parseMessyOrders, interpretSiteCommand } from "./ai-engine.js";
 import { Store } from "./store.js";
-import { formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
+import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js";
 
@@ -17,6 +17,9 @@ const state = {
   editingPartTimeId: null
 };
 let visibleBoardOrders = [];
+let mapCandidates = [];
+let mapSearchVersion = 0;
+let mapSearchTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -96,7 +99,12 @@ function switchView(viewName) {
   $("cartDock").hidden = viewName !== "hall";
   $("btnViewTutoring").classList.toggle("active", viewName === "hall");
   $("btnViewPartTime").classList.toggle("active", viewName === "parttime");
-  if (viewName === "hall") renderHall();
+  $("btnMobileTutoring").classList.toggle("active", viewName === "hall");
+  $("btnMobileMore").classList.toggle("active", viewName === "parttime");
+  $("btnMobileTutoring").setAttribute("aria-current", viewName === "hall" ? "page" : "false");
+  $("btnMobileMore").setAttribute("aria-current", viewName === "parttime" ? "page" : "false");
+  document.querySelector(".mobile-bottom-nav").classList.toggle("is-admin", viewName === "admin");
+  if (viewName === "hall") { renderHall(); setTimeout(() => { void openMap(); }, 0); }
   if (viewName === "parttime") renderPartTime();
   if (viewName === "admin") renderAdminView();
 }
@@ -112,7 +120,7 @@ function renderHall() {
   subjectSelect.value = subjects.includes(selectedSubject) ? selectedSubject : "";
   const districtSelect = $("qDistrict");
   const selectedDistrict = districtSelect.value;
-  const districts = [...new Set(Store.getOrders().map((o) => o.district).filter((d) => d && d !== "区域待补充"))].sort();
+  const districts = [...new Set(Store.getOrders().map((o) => canonicalDistrict(o.district)).filter((d) => d && d !== "区域待补充"))].sort();
   districtSelect.innerHTML = '<option value="">全部区域</option>' +
     districts.map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join("");
   districtSelect.value = districts.includes(selectedDistrict) ? selectedDistrict : "";
@@ -145,7 +153,7 @@ function renderHall() {
     const teacherPref = teacherGenderRequirement(o);
     if (teacherGender === "不限" && teacherPref !== "不限") return false;
     if (["男生", "女生"].includes(teacherGender) && teacherPref !== "不限" && teacherPref !== teacherGender) return false;
-    if (district && o.district !== district) return false;
+    if (district && canonicalDistrict(o.district) !== district) return false;
     if (minRate && o.hourlyRate < minRate) return false;
     if (time === "weekend" && !/周末|周六|周日|周天/.test(o.weeklyFrequency || o.schedule || "")) return false;
     if (time === "weekday" && !/周中|周一|周二|周三|周四|周五/.test(o.weeklyFrequency || o.schedule || "")) return false;
@@ -190,13 +198,13 @@ function renderHall() {
         <div class="card-head">
           <div>
             <div style="font-size:12px;color:var(--muted);margin-bottom:2px;">${escapeHtml(o.orderNumber || o.id)}</div>
-            <div class="card-title">${escapeHtml(o.district === "线上" ? "线上" : o.district || "地点待补充")} · ${escapeHtml(o.title)}</div>
+            <div class="card-title">${escapeHtml(o.district === "线上" ? "线上" : canonicalDistrict(o.district) || "地点待补充")} · ${escapeHtml(o.title)}</div>
           </div>
           <div class="price-badge">${escapeHtml((o.salaryText || "老师报价").replace("（可报价）", ""))}</div>
         </div>
 
         <div class="meta-row">
-          <span class="chip ${statusClass}">${escapeHtml(o.status)}</span>
+          ${o.status && o.status !== "待确认" ? `<span class="chip ${statusClass}">${escapeHtml(o.status)}</span>` : ""}
           ${o.urgent ? `<span class="chip urgent">🔥 急招</span>` : ""}
           ${o.onlineAllowed ? '<span class="chip">💻 可网课</span>' : ""}
           ${commuteHtml}
@@ -683,11 +691,87 @@ async function handleSaveOriginAddress() {
   if (!raw) return showToast("请输入你的默认出发地址");
   try {
     const resolved = await resolveUserAddress(raw);
-    await Store.setOrigin({ ...resolved, manuallyChosen: true });
-    updateMapOrigin(Store.getOrigin());
-    renderHall();
+    await setMapOrigin(resolved);
     showToast(`出发地已设为「${resolved.name}」，路程估算已更新`);
   } catch (error) { showToast(error.message); }
+}
+
+async function setMapOrigin(place) {
+  // 高德地图服务返回 GCJ-02，Leaflet/OSM 使用 WGS84。GPS 和本地地标无需转换。
+  const coords = place.gcj02 ? gcj02ToWgs84(place.lat, place.lng) : { lat: place.lat, lng: place.lng };
+  if (!Number.isFinite(Number(coords.lat)) || !Number.isFinite(Number(coords.lng))) throw new Error("此地点没有可用坐标");
+  const origin = { name: place.name, lat: Number(coords.lat), lng: Number(coords.lng), manuallyChosen: true };
+  await Store.setOrigin(origin);
+  $("originAddressInput").value = origin.name;
+  $("mapSearchInput").value = origin.name;
+  updateMapOrigin(origin);
+  moveMapTo(origin.lat, origin.lng, 13);
+  renderHall();
+}
+
+function hideMapCandidates() {
+  mapSearchVersion++;
+  mapCandidates = [];
+  $("mapSearchSuggestions").replaceChildren();
+  $("mapSearchSuggestions").hidden = true;
+  $("mapSearchInput").setAttribute("aria-expanded", "false");
+}
+
+function showMapCandidates(candidates) {
+  mapCandidates = candidates;
+  const box = $("mapSearchSuggestions");
+  box.replaceChildren();
+  box.hidden = !candidates.length;
+  $("mapSearchInput").setAttribute("aria-expanded", String(Boolean(candidates.length)));
+  candidates.forEach((place) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "map-suggestion";
+    button.setAttribute("role", "option");
+    const name = document.createElement("strong");
+    name.textContent = `📍 ${place.name}`;
+    const detail = document.createElement("span");
+    detail.textContent = [place.district, place.address].filter(Boolean).join(" · ") || "点击设为我的位置";
+    button.append(name, detail);
+    button.onclick = async () => {
+      hideMapCandidates();
+      await setMapOrigin(place);
+      $("mapLocationNote").textContent = `已将「${place.name}」设为我的位置，红色标记与通勤估算已更新。紫色家教点仅来自公开地址。`;
+      showToast(`位置已更新为「${place.name}」`);
+    };
+    box.append(button);
+  });
+}
+
+function localMapCandidates(text) {
+  const fromPresets = APP_CONFIG.presetLocations.filter((place) => place.name.includes(text));
+  const fromDistricts = [...new Set(Store.getOrders().map((order) => canonicalDistrict(order.district)))]
+    .filter((name) => name && name.includes(text))
+    .map((name) => { const coords = inferCoordsFromText(name); return coords && { name, ...coords }; })
+    .filter(Boolean);
+  const matched = [...fromPresets, ...fromDistricts];
+  const inferred = inferCoordsFromText(text);
+  if (inferred && !matched.some((place) => place.name === text)) matched.push({ name: text, ...inferred });
+  return matched.filter((place, i) => matched.findIndex((other) => other.name === place.name) === i).slice(0, 7);
+}
+
+async function suggestMapCandidates(text) {
+  const version = ++mapSearchVersion;
+  if (!text) { hideMapCandidates(); return; }
+  const local = localMapCandidates(text);
+  showMapCandidates(local);
+  try {
+    const res = await fetch(`${APP_CONFIG.apiBase}/commute`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "suggest", keywords: text }), signal: AbortSignal.timeout(5000)
+    });
+    const result = await res.json();
+    if (version !== mapSearchVersion || $("mapSearchInput").value.trim() !== text) return;
+    if (result.ok && Array.isArray(result.suggestions)) {
+      const combined = [...result.suggestions, ...local];
+      showMapCandidates(combined.filter((place, i) => combined.findIndex((other) => other.name === place.name && other.district === place.district) === i).slice(0, 10));
+    }
+  } catch { /* 高德不可用时，保留本地候选，不阻塞搜索 */ }
 }
 
 function locateMe(silent = false) {
@@ -699,6 +783,7 @@ function locateMe(silent = false) {
     await Store.setOrigin({ name: "我的当前位置", lat, lng, isGps: true });
     $("originAddressInput").value = "我的当前位置";
     updateMapOrigin(Store.getOrigin());
+    moveMapTo(lat, lng, 13);
     renderHall();
     if (!silent) showToast("定位成功，已重新计算大致路程");
   }, () => { if (!silent) showToast("定位未授权或不可用，可以手动输入地点"); },
@@ -706,8 +791,6 @@ function locateMe(silent = false) {
 }
 
 async function openMap() {
-  $("mapBoard").hidden = false;
-  $("btnToggleMap").setAttribute("aria-expanded", "true");
   try {
     await openMapBoard(Store.getOrigin());
     updateMapOrders(visibleBoardOrders);
@@ -715,6 +798,11 @@ async function openMap() {
 }
 
 function initControls() {
+  setMapOrderSelectionHandlers((id) => {
+    Store.toggleSelectedOrder(id);
+    renderHall();
+    showToast(Store.getSelectedOrderIds().includes(id) ? "已添加到选单" : "已从选单移除");
+  }, (id) => Store.getSelectedOrderIds().includes(id));
   document.addEventListener("tutorhub-geocodes-updated", () => {
     if (state.view === "hall") renderHall();
   });
@@ -758,6 +846,10 @@ function initControls() {
   $("btnBackToHall").onclick = () => switchView("hall");
   $("btnViewTutoring").onclick = () => switchView("hall");
   $("btnViewPartTime").onclick = () => switchView("parttime");
+  $("btnMobileTutoring").onclick = () => switchView("hall");
+  $("btnMobileMore").onclick = () => switchView("parttime");
+  $("btnMobileAdminEntry").onclick = () => switchView("admin");
+  $("btnMobileAdminBack").onclick = () => switchView("hall");
 
   $("btnSmartSelect").onclick = () => {
     const candidates = sortBoardOrders(visibleBoardOrders.filter((order) => order.status !== "已匹配"), "recommend").slice(0, 5);
@@ -767,38 +859,40 @@ function initControls() {
     renderHall();
     showToast(`已按筛选条件、时薪和估算路程智能勾选 ${candidates.length} 条，请核对后复制`);
   };
-  $("btnToggleMap").onclick = async () => {
-    if (!$("mapBoard").hidden) {
-      $("mapBoard").hidden = true;
-      $("btnToggleMap").setAttribute("aria-expanded", "false");
-    } else await openMap();
-  };
-  $("btnCloseMap").onclick = () => {
-    $("mapBoard").hidden = true;
-    $("btnToggleMap").setAttribute("aria-expanded", "false");
-  };
   $("btnMapSearch").onclick = async () => {
     const text = $("mapSearchInput").value.trim();
     if (!text) return showToast("请输入地点名称");
+    if (mapCandidates.length && mapCandidates[0].name.includes(text)) {
+      $("mapSearchSuggestions").querySelector(".map-suggestion")?.click();
+      return;
+    }
     $("btnMapSearch").disabled = true;
     $("btnMapSearch").textContent = "正在搜索…";
     try {
       const resolved = await resolveUserAddress(text);
-      moveMapTo(resolved.lat, resolved.lng);
-      $("mapLocationNote").textContent = `地图已移动到「${text}」附近；点击「设地图中心为出发地」后更新路线估算。`;
+      hideMapCandidates();
+      await setMapOrigin(resolved);
+      $("mapLocationNote").textContent = `已将「${text}」设为我的位置；地图上的红色标记和通勤估算已更新。`;
+      showToast(`位置已更新为「${text}」`);
     } catch (err) { showToast(err.message); }
-    finally { $("btnMapSearch").disabled = false; $("btnMapSearch").textContent = "搜索定位"; }
+    finally { $("btnMapSearch").disabled = false; $("btnMapSearch").textContent = "📍 搜索位置"; }
   };
-  $("mapSearchInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnMapSearch").click(); });
-  $("btnMapUseCenter").onclick = async () => {
-    const center = getMapCenter();
-    if (!center) return showToast("地图还没加载成功");
-    await Store.setOrigin({ name: `地图选点（${center.lat.toFixed(3)}, ${center.lng.toFixed(3)}）`, ...center, manuallyChosen: true });
-    $("originAddressInput").value = Store.getOrigin().name;
-    updateMapOrigin(Store.getOrigin());
-    renderHall();
-    showToast("已将地图中心设为出发地，通勤估算已更新");
-  };
+  $("mapSearchInput").addEventListener("input", () => {
+    clearTimeout(mapSearchTimer);
+    const value = $("mapSearchInput").value.trim();
+    mapSearchVersion++;
+    if (!value) return hideMapCandidates();
+    showMapCandidates(localMapCandidates(value));
+    mapSearchTimer = setTimeout(() => { void suggestMapCandidates(value); }, 260);
+  });
+  $("mapSearchInput").addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { hideMapCandidates(); return; }
+    if (e.key === "ArrowDown" && mapCandidates.length) { e.preventDefault(); $("mapSearchSuggestions").querySelector("button")?.focus(); }
+    if (e.key === "Enter") { e.preventDefault(); $("btnMapSearch").click(); }
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest(".map-search-wrap") && !event.target.closest("#btnMapSearch")) hideMapCandidates();
+  });
 
   $("btnOpenCart").onclick = () => { renderCart(); $("cartModal").classList.add("open"); };
   $("btnCloseCart").onclick = () => $("cartModal").classList.remove("open");
@@ -846,5 +940,6 @@ function renderAll() {
   initControls();
   await Store.init();
   renderAll();
+  void openMap();
   if (!Store.getOrigin()?.manuallyChosen) locateMe(true);
 })();

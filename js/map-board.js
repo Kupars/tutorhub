@@ -8,13 +8,16 @@ let mapLoading = null;
 const GEO_CACHE_KEY = "tutorhub_public_address_geocodes_v1";
 let geocodeCache = {};
 let geocodeStarted = false;
+let onToggleOrder = null;
+let isOrderSelected = () => false;
+let markerSignature = "";
 try { geocodeCache = JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || "{}"); } catch { /* private mode */ }
 
 function publicAddress(order) {
   return String(order.publicAddress || order.address || "").trim();
 }
 
-function gcj02ToWgs84(lat, lng) {
+export function gcj02ToWgs84(lat, lng) {
   // 高德 GCJ-02 → OSM WGS84，避免将地标误置到道路另一侧。
   if (lat < 0.8 || lat > 55.8 || lng < 72 || lng > 137.8) return { lat, lng };
   const x = lng - 105;
@@ -67,32 +70,111 @@ export function groupPublicMapOrders(orders) {
     const key = `${pos.district}|${pos.lat}|${pos.lng}`;
     if (!groups.has(key)) groups.set(key, { ...pos, orders: [] });
     groups.get(key).orders.push({ id: order.id, orderNumber: order.orderNumber || order.id,
-      grade: order.grade, subject: order.subject, address: publicAddress(order) });
+      grade: order.grade, subject: order.subject, address: publicAddress(order),
+      weeklyFrequency: order.weeklyFrequency, hoursPerSession: order.hoursPerSession,
+      salaryText: order.salaryText, currentScores: order.currentScores,
+      requirements: order.requirements, trialTime: order.trialTime });
   }
   return [...groups.values()];
 }
 
+export function setMapOrderSelectionHandlers(toggle, selected) {
+  onToggleOrder = toggle;
+  isOrderSelected = selected;
+}
+
+function popupDetail(label, value) {
+  if (value == null || value === "") return null;
+  const row = document.createElement("div");
+  row.className = "map-order-detail";
+  const bold = document.createElement("strong");
+  bold.textContent = `${label}：`;
+  row.append(bold, document.createTextNode(String(value)));
+  return row;
+}
+
+function syncPopupSelections() {
+  document.querySelectorAll(".map-order-toggle[data-map-order-id]").forEach((button) => {
+    const selected = isOrderSelected(button.dataset.mapOrderId);
+    button.classList.toggle("is-added", selected);
+    button.textContent = selected ? "✓ 已添加" : "+ 添加";
+    button.setAttribute("aria-pressed", String(selected));
+  });
+}
+
 function renderOrderMarkers() {
   if (!map) return;
+  const groups = groupPublicMapOrders(pendingOrders);
+  const nextSignature = groups.map((g) => `${g.district}/${g.lat}/${g.lng}/${g.orders.map((o) => o.id).join(",")}`).join("|");
+  if (nextSignature === markerSignature) { syncPopupSelections(); return; }
+  markerSignature = nextSignature;
   orderLayer.clearLayers();
-  for (const group of groupPublicMapOrders(pendingOrders)) {
+  for (const group of groups) {
     const n = group.orders.length;
     const marker = globalThis.L.circleMarker([group.lat, group.lng], {
       radius: Math.min(24, 9 + Math.sqrt(n) * 2.3),
       color: "#4338ca", fillColor: "#818cf8", fillOpacity: 0.7, weight: 2
     }).addTo(orderLayer);
     const label = document.createElement("div");
+    label.className = "map-popup-panel";
     const header = document.createElement("strong");
-    header.textContent = `${group.district} · ${n} 条家教单`;
+    header.className = "map-popup-heading";
+    header.textContent = `${group.district || "家教位置"} · ${n} 条家教单`;
     const caption = document.createElement("p");
     caption.textContent = group.geocoded ? "📍 按公开地址定位（大致位置）" : "📍 暂按行政区中心示意（不是学生住址）";
-    caption.style.cssText = "margin:5px 0;color:#64748b;font-size:12px";
-    const list = document.createElement("p");
-    list.textContent = group.orders.slice(0, 8).map((o) => `${o.orderNumber} ${o.grade}${o.subject} · ${o.address}`).join("；");
-    list.style.cssText = "margin:5px 0 0;font-size:12px";
+    caption.className = "map-popup-caption";
+    const list = document.createElement("div");
+    list.className = "map-order-list";
+    for (const order of group.orders) {
+      const card = document.createElement("article");
+      card.className = "map-order-card";
+      const cardTitle = document.createElement("strong");
+      cardTitle.className = "map-order-title";
+      cardTitle.textContent = `${order.orderNumber} · ${order.grade || ""}${order.subject || ""}家教`;
+      const rate = document.createElement("span");
+      rate.className = "map-order-salary";
+      rate.textContent = order.salaryText || "老师报价";
+      const top = document.createElement("div");
+      top.className = "map-order-top";
+      top.append(cardTitle, rate);
+      card.append(top);
+      for (const [name, value] of [["公开地点", order.address], ["上课时间", order.weeklyFrequency],
+        ["每次时长", order.hoursPerSession ? `${order.hoursPerSession}小时` : ""],
+        ["当前成绩", order.currentScores], ["老师要求", order.requirements], ["试课", order.trialTime]]) {
+        const detail = popupDetail(name, value);
+        if (detail) card.append(detail);
+      }
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "map-order-toggle";
+      button.dataset.mapOrderId = order.id;
+      button.onclick = (event) => {
+        event.stopPropagation();
+        onToggleOrder?.(order.id);
+        syncPopupSelections();
+      };
+      card.append(button);
+      list.append(card);
+    }
     label.append(header, caption, list);
-    marker.bindPopup(label, { maxWidth: 280 });
-    marker.bindTooltip(`${group.district}：${n}单`, { direction: "top" });
+    marker.bindPopup(label, { minWidth: 280, maxWidth: 375, className: "tutor-map-popup", autoPanPadding: [30, 30] });
+    let closeTimer;
+    const cancelClose = () => clearTimeout(closeTimer);
+    const scheduleClose = () => { cancelClose(); closeTimer = setTimeout(() => marker.closePopup(), 450); };
+    label.addEventListener("mouseenter", cancelClose);
+    label.addEventListener("mouseleave", scheduleClose);
+    marker.on("mouseover", () => { cancelClose(); marker.openPopup(); syncPopupSelections(); });
+    marker.on("mouseout", scheduleClose);
+    marker.on("click", () => { cancelClose(); marker.openPopup(); syncPopupSelections(); });
+    marker.on("popupopen", () => {
+      const popupElement = marker.getPopup()?.getElement();
+      if (popupElement) {
+        popupElement.addEventListener("mouseenter", cancelClose, { once: true });
+        popupElement.addEventListener("mouseleave", scheduleClose, { once: true });
+      }
+      syncPopupSelections();
+    });
+    marker.on("popupclose", cancelClose);
   }
 }
 
@@ -140,16 +222,18 @@ export function updateMapOrigin(origin) {
   if (!map || !originLayer) return;
   originLayer.clearLayers();
   if (Number.isFinite(Number(origin?.lat)) && Number.isFinite(Number(origin?.lng)) && origin?.lat != null && origin?.lng != null) {
-    globalThis.L.circleMarker([origin.lat, origin.lng], {
-      radius: 10, color: "#0369a1", fillColor: "#38bdf8", fillOpacity: 0.9, weight: 3
-    }).addTo(originLayer).bindPopup("我的出发点（仅存储于本设备）");
+    const pin = globalThis.L.divIcon({ className: "user-location-icon",
+      html: '<span class="user-location-pin"><span></span></span>', iconSize: [32, 42], iconAnchor: [16, 39] });
+    globalThis.L.marker([origin.lat, origin.lng], { icon: pin, zIndexOffset: 1100 })
+      .addTo(originLayer).bindPopup("📍 我的位置（仅存储于本设备）");
   }
 }
 
 export async function openMapBoard(origin) {
   const L = await loadLeaflet();
   if (!map) {
-    map = L.map("tutorMap", { zoomControl: true }).setView([39.115, 117.215], 11);
+    const hasOrigin = origin?.lat != null && origin?.lng != null && Number.isFinite(Number(origin.lat)) && Number.isFinite(Number(origin.lng));
+    map = L.map("tutorMap", { zoomControl: true }).setView(hasOrigin ? [origin.lat, origin.lng] : [39.115, 117.215], hasOrigin ? 12 : 11);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 18,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'

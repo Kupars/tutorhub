@@ -8,17 +8,13 @@
   <meta http-equiv="Expires" content="0" />
   <title>小木学长 · 天津家教看板</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="./css/styles.css?v=8" />
+  <link rel="stylesheet" href="./css/styles.css?v=9" />
 </head>
 <body>
   <header class="topbar">
     <div class="container topbar-inner">
-      <div class="brand">
-        <span class="brand-logo" aria-hidden="true">木</span>
-        <div><div class="brand-title">小木学长 · 家教看板</div><div class="brand-sub">天津家教需求 · 随时筛选 · 自由选单</div></div>
-      </div>
+      <nav class="main-nav" aria-label="浏览栏目"><button class="nav-link active" id="btnViewTutoring">家教</button><button class="nav-link" id="btnViewPartTime">更多</button></nav>
       <div class="header-actions">
-        <nav class="main-nav" aria-label="浏览栏目"><button class="nav-link active" id="btnViewTutoring">家教看板</button><button class="nav-link" id="btnViewPartTime">其他兼职</button></nav>
         <button class="btn btn-sm admin-entry" id="btnAdminEntry">管理</button>
         <button class="btn btn-sm" id="btnBackToHall" hidden>返回看板</button>
         <div class="user-actions" id="userActions"></div>
@@ -28,14 +24,17 @@
 
   <main class="container">
     <section id="view-hall" class="view active">
-      <div class="usage-tip">提示：勾选家教单，一键复制，发给小木同学微信</div>
+      <section class="usage-card" aria-label="家教选单使用方法">
+        <div class="usage-card-copy"><span class="usage-kicker">使用方法 · 选好家教，微信联系</span><h1>找到心仪家教，勾选后一键复制</h1><p>筛选或在地图上挑选家教单，添加到选单清单，再把复制的内容发给「小木同学」微信。也可以让智能推荐帮你先挑选。</p></div>
+        <button class="btn btn-primary btn-smart-main" id="btnSmartSelect">✨ 智能帮我选</button>
+      </section>
       <div class="announcement-inline" id="siteAnnouncement"></div>
 
       <div class="search-panel">
         <div class="primary-search-row">
           <input id="qSearch" type="search" placeholder="搜索单号 / 年级 / 科目 / 小区 / 老师要求…" aria-label="搜索家教需求" />
           <select id="qSort" aria-label="排序方式">
-            <option value="recommend">综合推荐（时薪＋路程）</option>
+            <option value="recommend">综合排序（时薪＋路程）</option>
             <option value="commute">路程最近优先</option>
             <option value="rate">课时费最高优先</option>
             <option value="latest">最新发布</option>
@@ -80,20 +79,15 @@
             <button class="btn btn-sm" id="btnSaveOrigin">计算路程</button>
             <button class="btn btn-sm" id="btnLocateMe">◎ 定位我</button>
           </div>
-          <span class="origin-help">默认尝试定位，可手动搜索或在地图上选点；时间为估算值</span>
-        </div>
-        <div class="board-action-row">
-          <button class="btn btn-sm btn-ai" id="btnSmartSelect">✨ AI 智能自动勾选</button>
-          <span class="origin-help">本地规则智能推荐：按筛选条件、时薪与预计路程选最多 5 条</span>
-          <button class="btn btn-sm" id="btnToggleMap" aria-expanded="false" aria-controls="mapBoard">🗺 地图看板</button>
+          <span class="origin-help">默认尝试定位，可搜索更改位置；通勤时间为估算值</span>
         </div>
       </div>
 
-      <section class="map-panel" id="mapBoard" hidden>
-        <div class="map-heading"><div><h2>🗺 家教位置看板</h2><p>与上方筛选同步。优先按公开地址定位；无法解析时显示区域示意点，不展示后台精确地址。</p></div><button class="btn btn-sm" id="btnCloseMap">收起地图</button></div>
-        <div class="map-toolbar"><input id="mapSearchInput" type="search" placeholder="搜索地址 / 地标，例：天津大学、河西区" aria-label="地图搜索地址" /><button class="btn btn-primary btn-sm" id="btnMapSearch">搜索定位</button><button class="btn btn-sm" id="btnMapUseCenter">设地图中心为出发地</button></div>
-        <div class="map-stage"><div id="tutorMap" role="application" aria-label="天津家教单分布和我的出发地地图"></div><span class="map-crosshair" aria-hidden="true">＋</span></div>
-        <p class="map-note" id="mapLocationNote">移动地图中心点后，可点「设地图中心为出发地」。家教定位为区级示意，通勤时间仅供参考。</p>
+      <section class="map-panel" id="mapBoard">
+        <div class="map-heading"><div><h2>🗺 家教位置看板</h2><p>与筛选条件实时同步 · 红色为你的出发地 · 悬停或点击紫色标记查看家教单并添加。只显示公开地址，不展示后台精确地址。</p></div></div>
+        <div class="map-toolbar"><div class="map-search-wrap"><input id="mapSearchInput" type="search" placeholder="搜索新位置，例如天津大学、河西区" aria-label="搜索地图地点并更新我的位置" role="combobox" aria-expanded="false" aria-controls="mapSearchSuggestions" autocomplete="off" /><div id="mapSearchSuggestions" class="map-suggestions" role="listbox" hidden></div></div><button class="btn btn-primary" id="btnMapSearch">📍 搜索位置</button></div>
+        <div class="map-stage"><div id="tutorMap" role="application" aria-label="公开家教单分布与我所在的位置地图"></div></div>
+        <p class="map-note" id="mapLocationNote">选择搜索候选地点后，红色位置标记、地图视角和通勤估算会同步更新；也可点击上方「定位我」。家教定位为公开地址的近似位置。</p>
       </section>
 
       <div class="stats-bar"><span id="resultStats">正在加载家教单...</span><span id="modeBadge"></span></div>
@@ -102,12 +96,15 @@
 
     <section id="view-parttime" class="view">
       <div class="page-heading"><h1>其他兼职</h1><p>兼职信息展示 · 请联系小木同学确认具体安排</p></div>
+      <button class="btn btn-sm mobile-admin-entry" id="btnMobileAdminEntry">管理入口</button>
       <div class="usage-tip">兼职时间、地点及详情以发布内容为准，接单前请再次核实。</div>
       <div id="partTimeGrid" class="parttime-grid"></div>
     </section>
 
-    <section id="view-admin" class="view"><div id="adminContainer"></div></section>
+    <section id="view-admin" class="view"><button class="btn mobile-admin-back" id="btnMobileAdminBack">← 返回家教</button><div id="adminContainer"></div></section>
   </main>
+
+  <nav class="mobile-bottom-nav" aria-label="手机栏目导航"><button class="mobile-bottom-link active" id="btnMobileTutoring" aria-current="page"><span aria-hidden="true">🏠</span><strong>家教</strong></button><button class="mobile-bottom-link" id="btnMobileMore"><span aria-hidden="true">▦</span><strong>更多</strong></button></nav>
 
   <div class="cart-dock" id="cartDock" hidden>
     <strong>已勾选 <span id="cartCount">0</span> 个</strong>
@@ -140,6 +137,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=8"></script>
+  <script type="module" src="./js/app.js?v=9"></script>
 </body>
 </html>

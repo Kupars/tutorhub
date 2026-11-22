@@ -60,7 +60,7 @@ export async function resolveUserAddress(addressText) {
     if (res.ok) {
       const data = await res.json();
       if (data?.ok && data.lat != null && data.lng != null) {
-        return { name: clean, lat: data.lat, lng: data.lng, exact: true };
+        return { name: clean, lat: data.lat, lng: data.lng, exact: true, gcj02: true };
       }
     }
   } catch {
@@ -73,7 +73,7 @@ export async function resolveUserAddress(addressText) {
   }
 
   // 未命中的地点不能冒充“天津大学”来估算，否则排序和时长会误导用户。
-  throw new Error("暂时无法定位该地点，请输入区名、天津大学等地标，或在地图上拖动选点");
+  throw new Error("暂时无法定位该地点，请从地图搜索候选中选择，或输入天津大学、河西区等地标");
 }
 
 // Haversine 球面距离（公里）

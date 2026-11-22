@@ -16,6 +16,7 @@ const KEYS = {
   partTime: "tutorhub_parttime_v1",
   origin: "tutorhub_origin_v3"
 };
+const LEGACY_DEMO_IDS = new Set(["JJ-2026-101", "JJ-2026-102", "JJ-2026-103", "JJ-2026-104", "JJ-2026-105"]);
 
 let cloudReady = false;
 let importedOrders = [];
@@ -44,6 +45,10 @@ function writeJSON(key, val) {
 
 function ensureLocalInit() {
   if (!localStorage.getItem(KEYS.orders)) writeJSON(KEYS.orders, SAMPLE_ORDERS);
+  const existing = readJSON(KEYS.orders, []);
+  if (Array.isArray(existing) && existing.some((order) => LEGACY_DEMO_IDS.has(order.id))) {
+    writeJSON(KEYS.orders, existing.filter((order) => !LEGACY_DEMO_IDS.has(order.id)));
+  }
   if (!localStorage.getItem(KEYS.site)) writeJSON(KEYS.site, DEFAULT_SITE_CONFIG);
   if (!localStorage.getItem(KEYS.users)) {
     writeJSON(KEYS.users, [
@@ -198,7 +203,7 @@ export const Store = {
     const hidden = cloudReady ? cloudState.hiddenImported : readJSON(KEYS.hiddenImported, []);
     const byId = new Map(importedOrders.filter((o) => !hidden.includes(o.id)).map((o) => [o.id, o]));
     for (const order of Array.isArray(orders) ? orders : []) byId.set(order.id, order);
-    return [...byId.values()].filter((o) => !hidden.includes(o.id)).map((raw) => {
+    return [...byId.values()].filter((o) => !hidden.includes(o.id) && !LEGACY_DEMO_IDS.has(o.id)).map((raw) => {
       const { privateAddress, internalAddress, exactAddress, fullAddress, privateNotes,
         lat, lng, exactLat, exactLng, ...order } = raw;
       const publicAddress = raw.publicAddress || (raw.addressVisibility === "private" ? (raw.district || "地址请咨询") : raw.address);

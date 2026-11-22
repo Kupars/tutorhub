@@ -15,6 +15,12 @@ const gradeNames = ["高三", "高二", "高一", "初三", "初二", "初一", 
 const str = (value) => String(value ?? "").trim();
 const pick = (...values) => values.map(str).find(Boolean) || "";
 
+// 对行政区字段去掉“天津市”等前缀，避免同一区在筛选器里重复；不修改公开街道/小区地址。
+export function canonicalDistrict(value) {
+  const input = str(value);
+  return input.match(/^(?:天津市|天津|北京市|北京|上海市|上海)?(和平区|河西区|南开区|河东区|河北区|红桥区|津南区|西青区|东丽区|北辰区|武清区|滨海新区|宝坻区|静海区|宁河区|蓟州区|海淀区|朝阳区|徐汇区)$/)?.[1] || input;
+}
+
 export function getSubjectList(value) {
   return [...new Set(str(value).split(/[、，,＋+\/和\s]+/).map((s) => s.trim()).filter(Boolean))];
 }
@@ -141,7 +147,7 @@ export function normalizeOrder(raw = {}, options = {}) {
     onlineAllowed,
     trialTime: pick(raw.trialTime),
     notes: pick(raw.notes),
-    district: pick(raw.district) || (pick(repaired?.address, raw.address).match(/(?:天津市)?(和平区|河西区|南开区|河东区|河北区|红桥区|津南区|西青区|东丽区|北辰区|武清区|滨海新区|宝坻区|静海区|宁河区|蓟州区)/)?.[1] || (mode === "线上" ? "线上" : "区域待补充")),
+    district: canonicalDistrict(pick(raw.district)) || (pick(repaired?.address, raw.address).match(/(?:天津市)?(和平区|河西区|南开区|河东区|河北区|红桥区|津南区|西青区|东丽区|北辰区|武清区|滨海新区|宝坻区|静海区|宁河区|蓟州区)/)?.[1] || (mode === "线上" ? "线上" : "区域待补充")),
     genderPref: pick(raw.genderPref) || "不限",
     studentInfo: repaired ? "" : pick(raw.studentInfo) || "",
     tags: Array.isArray(raw.tags) ? raw.tags : [],
