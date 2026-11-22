@@ -1,14 +1,15 @@
 import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=5";
-import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=8";
-import { parseMessyOrders, interpretSiteCommand, optimizeOrderAddressesWithAI } from "./ai-engine.js";
+import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=9";
+import { parseMessyOrders, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI } from "./ai-engine.js?v=2";
 import { Store } from "./store.js";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=3";
 import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=5";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
+import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
 
 const state = {
   view: "hall",
@@ -16,13 +17,20 @@ const state = {
   onlySelected: false,
   parsedDraftOrders: [],
   editingOrderId: null,
-  editingPartTimeId: null
+  editingPartTimeId: null,
+  adminQuery: "",
+  adminStatus: "all",
+  adminPageSize: 40
 };
+const adminCheckedOrders = new Set();
 let visibleBoardOrders = [];
 let expandedOrderId = null;
 // 升级展示偏好版本：之前的默认列表偏好不影响新版默认卡片。
 const BOARD_LAYOUT_KEY = "tutorhub_board_layout_v2";
 const COLOR_MODE_KEY = "tutorhub_color_mode_v1";
+const FILTERS_KEY = "tutorhub_filters_v1";
+const PERSISTED_FILTER_IDS = ["qSearch", "qSubject", "qGrade", "qMode", "qSort", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate", "aiPreference"];
+let savedFilters = null;
 let mapCandidates = [];
 let mapSearchVersion = 0;
 let mapSearchTimer = null;
@@ -101,6 +109,25 @@ function escapeHtml(str) {
     .replaceAll('"', "&quot;");
 }
 
+function saveFilters() {
+  const values = Object.fromEntries(PERSISTED_FILTER_IDS.map((id) => [id, $(id)?.value || ""]));
+  values.onlySelected = state.onlySelected;
+  try { localStorage.setItem(FILTERS_KEY, JSON.stringify(values)); } catch { /* 无痕模式 */ }
+}
+
+function loadSavedFilters() {
+  try { savedFilters = JSON.parse(localStorage.getItem(FILTERS_KEY) || "null"); } catch { savedFilters = null; }
+  if (!savedFilters || typeof savedFilters !== "object") return;
+  for (const id of PERSISTED_FILTER_IDS) {
+    if (id === "qSubject" || id === "qDistrict") continue; // 必须等动态选项加载完毕。
+    const el = $(id);
+    if (el && typeof savedFilters[id] === "string" && [...(el.options || [])].some((o) => o.value === savedFilters[id])) el.value = savedFilters[id];
+    else if (id === "qSearch" || id === "qMinRate") el.value = savedFilters[id] || "";
+  }
+  state.onlySelected = savedFilters.onlySelected === true;
+  $("onlySelected").checked = state.onlySelected;
+}
+
 async function copyText(text, successMsg = "已复制") {
   try {
     if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
@@ -171,17 +198,18 @@ function switchView(viewName) {
 // ---------------- 视图 1：招募大厅 ----------------
 function renderHall() {
   const subjectSelect = $("qSubject");
-  const selectedSubject = subjectSelect.value;
+  const selectedSubject = subjectSelect.value || (savedFilters?.qSubject || "");
   const subjects = [...SUBJECTS, "作业辅导", "陪读", "道法"];
   subjectSelect.innerHTML = '<option value="">科目</option>' +
     subjects.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
   subjectSelect.value = subjects.includes(selectedSubject) ? selectedSubject : "";
   const districtSelect = $("qDistrict");
-  const selectedDistrict = districtSelect.value;
+  const selectedDistrict = districtSelect.value || (savedFilters?.qDistrict || "");
   const districts = [...new Set(Store.getOrders().filter(isPubliclyOpenOrder).map((o) => canonicalDistrict(o.district)).filter((d) => d && d !== "区域待补充"))].sort();
   districtSelect.innerHTML = '<option value="">区域</option>' +
     districts.map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join("");
   districtSelect.value = districts.includes(selectedDistrict) ? selectedDistrict : "";
+  savedFilters = null;
   const q = $("qSearch").value.trim().toLowerCase();
   const subject = $("qSubject").value;
   const grade = $("qGrade").value;
@@ -271,6 +299,7 @@ function renderHall() {
     const teacherTag = cardTeacherGenderTag(o);
     const addressToCopy = cardCopyableAddress(o);
     const title = cardTitleSegments(o.title, o.subject);
+    const freshness = orderFreshness(o);
     const titleHtml = `${escapeHtml(title.before)}${title.subject ? `<span class="card-subject">${escapeHtml(title.subject)}</span>` : ""}${escapeHtml(title.after)}`;
     const displayDistrict = o.district === "线上" ? "线上" : canonicalDistrict(o.district) || "地点待补充";
     const commuteHtml = o.commute
@@ -291,6 +320,7 @@ function renderHall() {
         <div class="meta-row">
           ${o.urgent ? `<span class="chip urgent">🔥 急招</span>` : ""}
           ${o.onlineAllowed ? '<span class="chip">💻 可网课</span>' : ""}
+          ${freshness ? `<span class="chip card-freshness">${escapeHtml(freshness)}</span>` : ""}
           <span class="chip duration-chip">⏱ 每次${escapeHtml(schedule.duration)}</span>
           ${studentTag ? `<span class="chip student-gender-chip">${escapeHtml(studentTag)}</span>` : ""}
           ${teacherTag ? `<span class="chip teacher-gender-chip">${escapeHtml(teacherTag)}</span>` : ""}
@@ -316,7 +346,7 @@ function renderHall() {
         </div>
         <div class="card-foot">
           <button type="button" class="btn btn-sm" data-copy="${escapeHtml(o.id)}">📋 复制整单</button>
-          <label class="order-check ${o.selected ? "is-selected" : ""}"><input type="checkbox" data-select="${escapeHtml(o.id)}" ${o.selected ? "checked" : ""} /><span>${o.selected ? "已加入选单" : "加入选单"}</span></label>
+          <button type="button" class="order-check ${o.selected ? "is-selected" : ""}" data-select="${escapeHtml(o.id)}" aria-pressed="${o.selected}"><span class="order-check-emoji" aria-hidden="true">${o.selected ? "✅" : "🛒"}</span><span>${o.selected ? "已加入选单" : "加入选单"}</span></button>
         </div>
       </article>
     `;
@@ -381,6 +411,13 @@ function renderHall() {
 
   // 事件委托：滚动新增的卡片无需重复绑定监听器。
   grid.onclick = (event) => {
+    const selectionButton = event.target.closest("[data-select]");
+    if (selectionButton) {
+      Store.toggleSelectedOrder(selectionButton.dataset.select);
+      renderHall();
+      showToast(Store.getSelectedOrderIds().includes(selectionButton.dataset.select) ? "已加入选单" : "已移出选单");
+      return;
+    }
     const button = event.target.closest("[data-expand-order]");
     if (button) {
       expandedOrderId = expandedOrderId === button.dataset.expandOrder ? null : button.dataset.expandOrder;
@@ -401,13 +438,6 @@ function renderHall() {
       else showToast("这条家教单暂无可导航的线下地址");
     }
   };
-  grid.onchange = (event) => {
-    const input = event.target;
-    if (!input.matches("[data-select]")) return;
-    Store.toggleSelectedOrder(input.dataset.select);
-    renderHall();
-    showToast(Store.getSelectedOrderIds().includes(input.dataset.select) ? "已加入选单" : "已移出选单");
-  };
 }
 
 function getSelectedOrders() {
@@ -427,7 +457,7 @@ function renderCart() {
       <div><strong>${escapeHtml(o.orderNumber || o.id)} · ${escapeHtml(o.title)}</strong><p>${escapeHtml(o.address)} · ${escapeHtml(o.salaryText)}</p></div>
       <button class="btn btn-sm" data-remove-selection="${escapeHtml(o.id)}" aria-label="从选单清单移除 ${escapeHtml(o.id)}">移除</button>
     </div>
-  `).join("") : `<div class="cart-empty">清单还是空的。回到看板，点击家教卡片上的「+ 加入选单」就可以开始挑选。</div>`;
+  `).join("") : `<div class="cart-empty">清单还是空的。回到看板，点击家教卡片上的「🛒 加入选单」就可以开始挑选。</div>`;
   box.querySelectorAll("[data-remove-selection]").forEach((btn) => {
     btn.onclick = () => { Store.toggleSelectedOrder(btn.dataset.removeSelection); renderHall(); };
   });
@@ -507,6 +537,22 @@ function collectManualOrder(original = {}) {
 }
 
 // ---------------- 视图 4：安全管理员后台 ----------------
+function confirmDuplicateRisks(incoming, excludingIds = []) {
+  const existing = Store.getOrders().filter((o) => !excludingIds.includes(o.id));
+  const matches = findPotentialDuplicates(incoming, existing);
+  const withinBatch = findPotentialDuplicates(incoming, incoming).filter((pair) => pair.incoming !== pair.existing);
+  const duplicates = [...matches, ...withinBatch];
+  if (!duplicates.length) return true;
+  const sameInternalId = duplicates.find((item) => item.reason === "内部编号相同");
+  if (sameInternalId) {
+    showToast(`编号 ${sameInternalId.incoming.id} 已存在，请先修改草稿编号`);
+    return false;
+  }
+  const overview = duplicates.slice(0, 5).map((pair) =>
+    `${pair.incoming.orderNumber || pair.incoming.id} ↔ ${pair.existing.orderNumber || pair.existing.id}：${pair.reason}`).join("\n");
+  return confirm(`发现 ${duplicates.length} 组可能重复的家教单：\n${overview}\n\n同地点可能是不同学生。请先核对家长需求，确认不是重复发布再继续。`);
+}
+
 function renderAdminView() {
   const user = Store.getCurrentUser();
   const box = $("adminContainer");
@@ -523,6 +569,17 @@ function renderAdminView() {
   }
 
   const orders = Store.getOrders();
+  const addressQueue = orders.filter((o) => o.mode !== "线上" && (!getPublicMapLocation(o) || getPublicMapLocation(o)?.fallback));
+  const search = state.adminQuery.toLowerCase().trim();
+  const adminFilteredOrders = orders.filter((o) => {
+    if (state.adminStatus === "open" && !isPubliclyOpenOrder(o)) return false;
+    if (state.adminStatus === "closed" && isPubliclyOpenOrder(o)) return false;
+    if (state.adminStatus === "address" && !addressQueue.some((item) => item.id === o.id)) return false;
+    if (!search) return true;
+    return [o.id, o.orderNumber, o.title, o.grade, o.subject, o.district, o.publicAddress, o.address, o.requirements]
+      .some((value) => String(value || "").toLowerCase().includes(search));
+  });
+  const adminShownOrders = adminFilteredOrders.slice(0, state.adminPageSize);
 
   box.innerHTML = `
     ${!Store.isCloudMode() ? `
@@ -612,27 +669,47 @@ function renderAdminView() {
     <div class="panel">
       <h2>📋 家教单管理（展示中 ${orders.filter(isPubliclyOpenOrder).length} 条 · 已关闭 ${orders.filter((o) => !isPubliclyOpenOrder(o)).length} 条）</h2>
       <p class="admin-helper">点击“关闭展示”后，老师端看板、筛选和地图都不再显示该单；数据保留在后台，可以随时重新上架。</p>
-      <div class="admin-editor-actions"><button class="btn btn-sm" id="btnMergeSelected">合并选中的同学多科单</button></div>
+      <div class="admin-bulk-toolbar">
+        <input id="adminOrderSearch" type="search" aria-label="搜索后台家教单" placeholder="搜索单号 / 小区 / 科目 / 要求" value="${escapeHtml(state.adminQuery)}" />
+        <select id="adminOrderStatus" aria-label="按状态筛选后台家教单">
+          <option value="all" ${state.adminStatus === "all" ? "selected" : ""}>全部（${orders.length}）</option>
+          <option value="open" ${state.adminStatus === "open" ? "selected" : ""}>展示中（${orders.filter(isPubliclyOpenOrder).length}）</option>
+          <option value="closed" ${state.adminStatus === "closed" ? "selected" : ""}>已关闭（${orders.filter((o) => !isPubliclyOpenOrder(o)).length}）</option>
+          <option value="address" ${state.adminStatus === "address" ? "selected" : ""}>地址待核验（${addressQueue.length}）</option>
+        </select>
+        <button class="btn btn-sm" type="button" id="btnAdminSelectPage">选中本页</button>
+        <button class="btn btn-sm" type="button" id="btnAdminClearSelected">取消选中</button>
+      </div>
+      <div class="admin-bulk-toolbar">
+        <span id="adminSelectedCount">已选择 ${adminCheckedOrders.size} 条 · 当前筛选 ${adminFilteredOrders.length} 条</span>
+        <button class="btn btn-sm" id="btnAdminBatchClose" type="button">批量关闭展示</button>
+        <button class="btn btn-sm" id="btnAdminBatchOpen" type="button">批量重新上架</button>
+        <button class="btn btn-sm" id="btnMergeSelected" type="button">合并选中的同学多科单</button>
+      </div>
+      ${state.adminStatus === "address" ? `<p class="admin-helper">这些单只有区/镇中心示意点或无法定位，不能当作已核验小区。请点“核对地址”，对照家长确认的信息修改公开地点；没有更具体信息的继续留在区/镇中心即可。</p>` : ""}
       <div style="display:flex;flex-direction:column;gap:8px;">
-        ${orders.length ? orders.map((o) => `
+        ${adminShownOrders.length ? adminShownOrders.map((o) => `
           <div style="border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <div>
               <label style="display:inline-flex;gap:8px;align-items:center;">
-                <input type="checkbox" data-merge-id="${escapeHtml(o.id)}" style="width:auto;" aria-label="选中 ${escapeHtml(o.id)} 用于合并" />
+                <input type="checkbox" data-merge-id="${escapeHtml(o.id)}" ${adminCheckedOrders.has(o.id) ? "checked" : ""} style="width:auto;" aria-label="选中 ${escapeHtml(o.id)} 用于批量管理" />
                 <strong>${escapeHtml(o.id)}</strong>
               </label>
               · ${escapeHtml(o.title)} <span class="chip">${escapeHtml(o.salaryText)}</span>
               <span class="chip">${escapeHtml(o.studentGender)}</span><span class="chip">${escapeHtml(o.status)}</span>
+              ${addressQueue.some((item) => item.id === o.id) ? `<span class="chip">📍 区/镇中心示意</span><small style="display:block;color:var(--muted)">公开地点：${escapeHtml(o.publicAddress || o.address || o.district || "未提供")}</small>` : ""}
             </div>
             <div style="display:flex;gap:6px;">
               <button class="btn btn-sm" data-edit-order="${escapeHtml(o.id)}">编辑</button>
+              ${addressQueue.some((item) => item.id === o.id) ? `<button class="btn btn-sm" data-fix-address="${escapeHtml(o.id)}">核对地址</button>` : ""}
               ${getSubjectList(o.subject).length > 1 ? `<button class="btn btn-sm" data-split-order="${escapeHtml(o.id)}">按科目拆单</button>` : ""}
               <button class="btn btn-sm" data-toggle-status="${escapeHtml(o.id)}">${isPubliclyOpenOrder(o) ? "关闭展示" : "重新上架"}</button>
               <button class="btn btn-danger btn-sm" data-del-order="${o.id}">删除</button>
             </div>
           </div>
-        `).join("") : '<p class="admin-helper">目前还没有真实家教单。请在上面填写表单或粘贴微信聊天整理。</p>'}
+        `).join("") : '<p class="admin-helper">当前筛选条件下没有家教单。</p>'}
       </div>
+      ${adminFilteredOrders.length > adminShownOrders.length ? `<div class="admin-editor-actions"><button class="btn btn-sm" id="btnAdminLoadMore">再显示 ${Math.min(40, adminFilteredOrders.length - adminShownOrders.length)} 条（剩余 ${adminFilteredOrders.length - adminShownOrders.length} 条）</button></div>` : ""}
 
     </div>
   `;
@@ -684,6 +761,7 @@ function renderAdminView() {
       const old = orders.find((o) => o.id === state.editingOrderId);
       const [item] = await optimizeOrderAddressesWithAI([collectManualOrder(old || {})]);
       if (!item.subject || item.subject === "科目待补充") return showToast("请填写补习科目");
+      if (!confirmDuplicateRisks([item], old ? [old.id] : [])) return;
       if (old) await Store.updateOrder(old.id, item);
       else await Store.addOrders([item]);
       state.editingOrderId = null;
@@ -717,6 +795,7 @@ function renderAdminView() {
     const drafts = [...$("parsedPreview").querySelectorAll("[data-draft-text]")];
     const items = drafts.map((el) => parseFormattedOrder(el.value));
     if (items.some((o) => !o || !o.id)) return showToast("草稿字段不完整，请确认每条编号和九字段");
+    if (!confirmDuplicateRisks(items)) return;
     const publishButton = $("btnPublishDrafts");
     const publishLabel = publishButton.textContent;
     publishButton.disabled = true;
@@ -756,6 +835,65 @@ function renderAdminView() {
     $("aiSiteReply").textContent = `${res.reply}（${res.source}）`;
   };
 
+  $("adminOrderSearch").oninput = (event) => {
+    const cursor = event.target.selectionStart;
+    state.adminQuery = event.target.value;
+    state.adminPageSize = 40;
+    renderAdminView();
+    $("adminOrderSearch").focus();
+    $("adminOrderSearch").setSelectionRange(cursor, cursor);
+  };
+  $("adminOrderStatus").onchange = (event) => {
+    state.adminStatus = event.target.value;
+    state.adminPageSize = 40;
+    renderAdminView();
+  };
+  box.querySelectorAll("[data-merge-id]").forEach((input) => {
+    input.onchange = () => {
+      if (input.checked) adminCheckedOrders.add(input.dataset.mergeId);
+      else adminCheckedOrders.delete(input.dataset.mergeId);
+      $("adminSelectedCount").textContent = `已选择 ${adminCheckedOrders.size} 条 · 当前筛选 ${adminFilteredOrders.length} 条`;
+    };
+  });
+  $("btnAdminSelectPage").onclick = () => {
+    adminShownOrders.forEach((o) => adminCheckedOrders.add(o.id));
+    renderAdminView();
+  };
+  $("btnAdminClearSelected").onclick = () => { adminCheckedOrders.clear(); renderAdminView(); };
+  if ($("btnAdminLoadMore")) $("btnAdminLoadMore").onclick = () => {
+    state.adminPageSize += 40;
+    renderAdminView();
+  };
+  const batchChangeStatus = async (status) => {
+    const items = Store.getOrders().filter((o) => adminCheckedOrders.has(o.id) &&
+      (status === "招募中" ? !isPubliclyOpenOrder(o) : isPubliclyOpenOrder(o)));
+    if (!items.length) return showToast("请先选中需要变更状态的家教单");
+    if (items.length > 100) return showToast("每次最多批量处理100条，请分批选择");
+    if (!confirm(`确定将 ${items.length} 条家教单${status === "招募中" ? "重新上架" : "关闭展示"}吗？此操作可在后台恢复。`)) return;
+    $("btnAdminBatchClose").disabled = $("btnAdminBatchOpen").disabled = true;
+    try {
+      await Store.batchUpdateOrderStatus(items.map((o) => o.id), status);
+      adminCheckedOrders.clear();
+      renderAll();
+      showToast(`已批量${status === "招募中" ? "上架" : "关闭"} ${items.length} 条家教单`);
+    } catch (err) { showToast(`批量操作失败：${err.message}`); }
+    finally {
+      if ($("btnAdminBatchClose")) $("btnAdminBatchClose").disabled = false;
+      if ($("btnAdminBatchOpen")) $("btnAdminBatchOpen").disabled = false;
+    }
+  };
+  $("btnAdminBatchClose").onclick = () => batchChangeStatus("已匹配");
+  $("btnAdminBatchOpen").onclick = () => batchChangeStatus("招募中");
+  box.querySelectorAll("[data-fix-address]").forEach((btn) => {
+    btn.onclick = () => {
+      state.editingOrderId = btn.dataset.fixAddress;
+      renderAdminView();
+      $("manualAddress").focus();
+      $("manualAddress").scrollIntoView({ behavior: "smooth", block: "center" });
+      showToast("请依据家长提供的真实公开地点核对；不确定时保留区/镇中心示意");
+    };
+  });
+
   box.querySelectorAll("[data-toggle-status]").forEach((btn) => {
     btn.onclick = async () => {
       const o = Store.getOrders().find((x) => x.id === btn.dataset.toggleStatus);
@@ -785,7 +923,7 @@ function renderAdminView() {
     };
   });
   $("btnMergeSelected").onclick = async () => {
-    const ids = [...box.querySelectorAll("[data-merge-id]:checked")].map((el) => el.dataset.mergeId);
+    const ids = [...adminCheckedOrders];
     if (ids.length < 2) return showToast("请至少选中两条需要合并的家教单");
     const chosen = Store.getOrders().filter((o) => ids.includes(o.id));
     if (new Set(chosen.map((o) => `${o.grade}|${o.address}|${o.studentGender}`)).size !== 1) {
@@ -796,6 +934,7 @@ function renderAdminView() {
       const merged = mergeOrders(chosen, chosen[0].id);
       await Store.updateOrder(merged.id, merged);
       for (const o of chosen.slice(1)) await Store.deleteOrder(o.id);
+      adminCheckedOrders.clear();
       renderAll();
       showToast("合并完成，已保留主编号");
     } catch (err) { renderAll(); showToast(`合并未完全完成，请检查订单：${err.message}`); }
@@ -826,6 +965,9 @@ function renderParsedPreview() {
           <button class="btn btn-danger btn-sm" data-remove-draft="${index}">移除</button>
         </div>
       </div>
+      ${findPotentialDuplicates([o], Store.getOrders()).length
+        ? `<p class="admin-helper" style="color:#a65d07">⚠️ 可能与已有单重复：${escapeHtml(findPotentialDuplicates([o], Store.getOrders()).slice(0, 3).map((item) => item.existing.orderNumber || item.existing.id).join("、"))}；发布前请核对。</p>`
+        : ""}
       <textarea data-draft-text="${index}" aria-label="可编辑的标准家教单草稿 ${index + 1}">${escapeHtml(formatOrderText(o))}</textarea>
       <p class="admin-helper">可直接修改上面的九字段文字，确认后才会写入云端。</p>
     </div>
@@ -966,11 +1108,15 @@ function locateMe(silent = false) {
 function scheduleMapOpen() {
   if (mapOpenScheduled) return;
   mapOpenScheduled = true;
-  // 给数据和首批卡片至少一帧绘制时间，再启动地图脚本、定位文件与底图请求。
-  requestAnimationFrame(() => setTimeout(() => {
+  // 手机先保证首批卡片可交互，再在浏览器空闲时加载地图，避免 Leaflet 与首屏渲染抢主线程。
+  const launch = () => {
     mapOpenScheduled = false;
     if (state.view === "hall") void openMap();
-  }, 0));
+  };
+  requestAnimationFrame(() => {
+    if ("requestIdleCallback" in window) window.requestIdleCallback(launch, { timeout: 1800 });
+    else setTimeout(launch, 400);
+  });
 }
 
 function openMap() {
@@ -1059,6 +1205,13 @@ function initFloatingWechat(dialog) {
 
 function initControls() {
   $("btnRetryMap").onclick = () => { void openMap(); };
+  $("btnExpandMap").onclick = () => {
+    const expanded = $("mapBoard").classList.toggle("map-expanded");
+    $("btnExpandMap").textContent = expanded ? "↙ 收起地图" : "⛶ 放大地图";
+    $("btnExpandMap").setAttribute("aria-expanded", String(expanded));
+    requestAnimationFrame(() => refreshMapSize());
+    setTimeout(refreshMapSize, 220);
+  };
   document.querySelectorAll("[data-copy-wechat]").forEach((button) => {
     button.onclick = () => copyText("cheerpup012", "微信号已复制，在微信搜索添加小木同学");
   });
@@ -1088,20 +1241,31 @@ function initControls() {
   });
   SUBJECTS.forEach((s) => $("qSubject").insertAdjacentHTML("beforeend", `<option value="${s}">${s}</option>`));
   GRADES.forEach((g) => $("qGrade").insertAdjacentHTML("beforeend", `<option value="${g}">${g}</option>`));
+  loadSavedFilters();
 
   ["qSearch", "qSubject", "qGrade", "qMode", "qSort", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate"].forEach((id) => {
-    $(id).addEventListener("input", renderHall);
-    $(id).addEventListener("change", renderHall);
+    const changed = () => {
+      $("aiSelectionSummary").hidden = true;
+      saveFilters();
+      renderHall();
+    };
+    $(id).addEventListener("input", changed);
+    $(id).addEventListener("change", changed);
   });
+  $("aiPreference").onchange = saveFilters;
   $("btnClearFilters").onclick = () => {
     ["qSearch", "qSubject", "qGrade", "qMode", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate"].forEach((id) => { $(id).value = ""; });
     $("qSort").value = "recommend";
     state.onlySelected = false;
     $("onlySelected").checked = false;
+    $("aiPreference").value = "balanced";
+    $("aiSelectionSummary").hidden = true;
+    saveFilters();
     renderHall();
   };
   $("onlySelected").onchange = (event) => {
     state.onlySelected = event.target.checked;
+    saveFilters();
     renderHall();
   };
 
@@ -1116,13 +1280,26 @@ function initControls() {
   $("btnListMode").onclick = () => setBoardLayout("list");
   $("btnCardMode").onclick = () => setBoardLayout("cards");
 
-  $("btnSmartSelect").onclick = () => {
-    const candidates = sortBoardOrders(visibleBoardOrders, "recommend").slice(0, 5);
+  $("btnSmartSelect").onclick = async () => {
+    const preference = $("aiPreference").value;
+    const sortMode = preference === "commute" ? "commute" : preference === "income" ? "rate" : "recommend";
+    const candidates = sortBoardOrders(visibleBoardOrders, sortMode).slice(0, 30);
     if (!candidates.length) return showToast("当前筛选条件下没有可推荐的家教单");
+    const button = $("btnSmartSelect");
+    button.disabled = true;
+    button.textContent = "✨ GLM 正在挑选…";
+    let recommendation = null;
+    try { recommendation = await recommendOrdersWithAI(candidates, preference); }
+    catch { /* 网络或 GLM 不可用时切换本地排序 */ }
+    finally { button.disabled = false; button.textContent = "✨ AI 自动勾选"; }
+    const picks = recommendation?.picks || candidates.slice(0, 5).map((o) => ({ id: o.id, reason: "按时薪和预估路程排序" }));
     const previous = Store.getSelectedOrderIds();
-    Store.setSelectedOrderIds([...previous, ...candidates.map((order) => order.id)]);
+    Store.setSelectedOrderIds([...new Set([...previous, ...picks.map((pick) => pick.id)])]);
     renderHall();
-    showToast(`已按筛选条件、时薪和估算路程智能勾选 ${candidates.length} 条，请核对后复制`);
+    const modeLabel = recommendation ? `模型推荐（${recommendation.provider}）` : "本地智能排序（模型暂不可用）";
+    $("aiSelectionSummary").textContent = `${modeLabel}：${picks.map((pick) => `${pick.id} ${pick.reason}`).join("；")}。请核对后复制发送微信。`;
+    $("aiSelectionSummary").hidden = false;
+    showToast(`已勾选 ${picks.length} 条，${recommendation ? "GLM 推荐完成" : "已切换本地排序"}`);
   };
   $("btnMapRelocate").onclick = () => locateMe(false);
   $("btnMapSearch").onclick = async () => {

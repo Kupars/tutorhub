@@ -495,9 +495,19 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   background:var(--primary-soft); color:var(--primary); border-radius:10px;
   cursor:pointer; font-size:13px; font-weight:800; }
 .order-check.is-selected { background:#e3f8ee; border-color:#49a47b; color:#146b46; }
-.order-check:focus-within { outline:3px solid var(--accent); outline-offset:2px; }
-.order-check input { width:19px; height:19px; margin:0; accent-color:var(--primary); cursor:pointer; }
-.order-check.is-selected input { accent-color:#168453; }
+.order-check:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+.order-check-emoji { font-size:19px; line-height:1; }
+.card-freshness { background:#e6f6e9; color:#186538; border-color:#c8e9d3; }
+.ai-preference-label { display:inline-flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; }
+.ai-preference-label select { width:auto; max-width:180px; padding:8px; font-size:12px; min-height:36px; }
+.ai-selection-summary { font-size:12px; line-height:1.6; margin-top:8px; border:1px solid var(--border); border-radius:9px; padding:10px; background:var(--surface-alt); color:var(--text-subtle); }
+.map-expand-btn { flex:none; white-space:nowrap; }
+.map-panel.map-expanded #tutorMap { height:min(75vh,740px); }
+.admin-bulk-toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:12px 0; }
+.admin-bulk-toolbar input,.admin-bulk-toolbar select { width:auto; flex:1 1 135px; min-width:0; }
+.admin-bulk-toolbar button { flex:none; }
+.admin-address-queue { border:1px solid var(--border); border-radius:10px; padding:11px; margin:8px 0; }
+.admin-address-queue small { color:var(--muted); display:block; margin-top:4px; }
 .card-actions { display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin-left:auto; }
 .btn-copy-address { background:var(--primary-soft); border-color:var(--border); color:var(--primary); font-weight:750; }
 .card-location-row { display:flex; align-items:center; gap:10px; min-width:0;
@@ -668,7 +678,12 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   .usage-card p { font-size:13px; }
   .btn-smart-main { min-width:0; width:100%; }
   .cart-dock { bottom:80px; }
-  #tutorMap { height:370px; }
+  #tutorMap { height:240px; }
+  .map-panel.map-expanded #tutorMap { height:65vh; min-height:380px; }
+  .map-heading { align-items:center; }
+  .map-heading p { font-size:11px; line-height:1.5; }
+  .map-expand-btn { padding:7px 9px; font-size:12px; }
+  .ai-preference-label { width:100%; justify-content:space-between; }
   .filter-ai-row .btn-smart-main { width:100%; }
   .stats-bar { align-items:stretch; }
   .stats-actions { margin-left:auto; }
@@ -709,6 +724,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 [data-color-mode="dark"] .chip.status-open { background:#174337; color:#93e4bd; }
 [data-color-mode="dark"] .chip.teacher-gender-chip { background:#453321; border-color:#815a34; color:#ffd6a1; }
 [data-color-mode="dark"] .order-check.is-selected { background:#183f33; border-color:#4aae82; color:#9cecc7; }
+[data-color-mode="dark"] .card-freshness { background:#16412d; border-color:#246f48; color:#b2efc6; }
 [data-color-mode="dark"] .map-order-toggle.is-added { background:#173f35; color:#a5f2c8; border-color:#4aae82; }
 [data-color-mode="dark"] .btn-danger { color:#ffb3bf; border-color:#854553; background:#472332; }
 [data-color-mode="dark"] .toast { background:#d5eaff; color:#102238; }

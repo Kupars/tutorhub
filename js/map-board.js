@@ -432,6 +432,10 @@ export function moveMapTo(lat, lng, zoom = 13) {
   map?.setView([lat, lng], zoom);
 }
 
+export function refreshMapSize() {
+  map?.invalidateSize({ pan: false });
+}
+
 export function getMapCenter() {
   const center = map?.getCenter();
   return center ? { lat: Number(center.lat.toFixed(5)), lng: Number(center.lng.toFixed(5)) } : null;

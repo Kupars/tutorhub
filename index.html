@@ -25,7 +25,7 @@
         : md < 1100 + termDay(7.438) ? "autumn" : "winter";
     })();
   </script>
-  <link rel="stylesheet" href="./css/styles.css?v=25" />
+  <link rel="stylesheet" href="./css/styles.css?v=26" />
 </head>
 <body>
   <div class="startup-loading" id="startupLoading" role="status" aria-live="polite" aria-atomic="true">
@@ -121,13 +121,14 @@
           <div class="filter-switches">
             <label><input id="onlySelected" type="checkbox" /> 仅看已选单</label>
           </div>
-          <div class="filter-ai-row"><button class="btn btn-primary btn-smart-main" id="btnSmartSelect">✨ AI 自动勾选</button><span>根据当前筛选条件，按时薪与预计路程帮你挑选最多 5 条家教单</span></div>
+          <div class="filter-ai-row"><button class="btn btn-primary btn-smart-main" id="btnSmartSelect">✨ AI 自动勾选</button><label class="ai-preference-label" for="aiPreference">优先考虑 <select id="aiPreference"><option value="balanced">时薪与路程兼顾</option><option value="commute">通勤短</option><option value="income">时薪高</option></select></label><span>使用网站 GLM 模型推荐最多 5 单；不可用时自动切换本地排序。</span></div>
+          <p class="ai-selection-summary" id="aiSelectionSummary" role="status" hidden></p>
         </section>
 
       </div>
 
       <section class="map-panel" id="mapBoard">
-        <div class="map-heading"><div><h2>🗺 家教位置看板</h2><p>与筛选条件实时同步 · 红色是你的出发地，绿色是已勾选家教，橙色是尚未确认具体地址的区/镇中心示意点。悬停看提示，点击查看家教单详情；仅显示公开地址。</p></div></div>
+        <div class="map-heading"><div><h2>🗺 家教位置看板</h2><p>与筛选条件实时同步 · 红色是你的出发地，绿色是已勾选家教，橙色是尚未确认具体地址的区/镇中心示意点。悬停看提示，点击查看家教单详情；仅显示公开地址。</p></div><button class="btn btn-sm map-expand-btn" id="btnExpandMap" type="button" aria-expanded="false">⛶ 放大地图</button></div>
         <div class="map-toolbar"><div class="map-search-wrap"><input id="mapSearchInput" type="search" placeholder="搜索新位置，例如天津大学、河西区" aria-label="搜索地图地点并更新我的位置" role="combobox" aria-expanded="false" aria-controls="mapSearchSuggestions" autocomplete="off" /><div id="mapSearchSuggestions" class="map-suggestions" role="listbox" hidden></div></div><button class="btn btn-primary" id="btnMapSearch">📍 搜索位置</button><button class="btn btn-relocate" id="btnMapRelocate" type="button">◎ 重新定位当前位置</button></div>
         <div class="map-stage"><div id="tutorMap" role="application" aria-label="公开家教单分布与我所在的位置地图"></div><div class="map-loading-note" id="mapLoadingNote" role="status">🗺 地图正在单独加载，家教单已经可以浏览…<button class="btn btn-sm" id="btnRetryMap" type="button" hidden>重试地图</button></div></div>
         <p class="map-note" id="mapLocationNote">默认尝试获取当前位置；选择地图搜索候选地点后，红色位置标记、地图视角和通勤估算会同步更新。家教定位为公开地址的近似位置。</p>
@@ -191,6 +192,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=30"></script>
+  <script type="module" src="./js/app.js?v=31"></script>
 </body>
 </html>

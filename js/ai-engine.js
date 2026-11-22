@@ -28,6 +28,30 @@ async function callServerlessAI(action, payload) {
   }
 }
 
+// 老师端仅上传筛选后的公开摘要和估算通勤，不传设备定位坐标、微信、后台地址等隐私信息。
+export async function recommendOrdersWithAI(orders, preference = "balanced") {
+  const candidates = (orders || []).slice(0, 30).map((order) => ({
+    id: String(order.id).slice(0, 60),
+    grade: String(order.grade || "").slice(0, 25),
+    subject: String(order.subject || "").slice(0, 50),
+    district: String(order.district || "").slice(0, 32),
+    rate: Number(order.hourlyRate) || 0,
+    frequency: String(order.weeklyFrequency || "").slice(0, 90),
+    travelMinutes: order.commute && !order.commute.isOnline && !order.commute.approximate
+      ? Number(order.commute.transitMin) || null : null
+  }));
+  const result = await callServerlessAI("recommend_orders", { candidates, preference });
+  if (!Array.isArray(result?.picks)) return null;
+  const allowed = new Set(candidates.map((item) => item.id));
+  const ids = new Set();
+  const picks = result.picks.filter((pick) => {
+    if (!pick || !allowed.has(pick.id) || ids.has(pick.id)) return false;
+    ids.add(pick.id);
+    return true;
+  }).slice(0, 5).map((pick) => ({ id: pick.id, reason: String(pick.reason || "").slice(0, 40) }));
+  return picks.length ? { picks, provider: result.provider || "GLM" } : null;
+}
+
 function prepareDrafts(rawText, orders, existingOrders = []) {
   const reserved = [...existingOrders];
   const splitting = orders.length > 1 && /拆单|拆分|分成.*单|分别招/.test(rawText);

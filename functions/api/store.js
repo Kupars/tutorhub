@@ -159,8 +159,31 @@ export async function onRequest(context) {
       const already = existing.some((o) => o.id === body.id);
       // 飞书静态导入单使用独立内部 ID；首次编辑时新增覆盖记录，不变更公开单号。
       if (!already && !/^fs-\d{4,}$/.test(String(body.id))) return jsonResp({ ok: false, error: "找不到该家教单" }, 404);
-      const next = already ? existing.map((o) => (o.id === body.id ? { ...o, ...body.patch, id: body.id } : o))
-        : [{ ...body.patch, id: body.id }, ...existing];
+      const next = already ? existing.map((o) => (o.id === body.id ? { ...o, ...body.patch, id: body.id, updatedAt: new Date().toISOString() } : o))
+        : [{ ...body.patch, id: body.id, updatedAt: new Date().toISOString() }, ...existing];
+      await kvPut(env.TUTOR_KV, "orders", next);
+      return jsonResp({ ok: true, orders: next });
+    }
+
+    if (action === "admin_batch_status") {
+      const ids = body.ids;
+      if (!Array.isArray(ids) || !ids.length || ids.length > 100 ||
+          ids.some((id) => typeof id !== "string" || id.length > 50) ||
+          !["招募中", "已匹配"].includes(body.status)) {
+        return jsonResp({ ok: false, error: "请选择 1～100 条家教单并指定有效状态" }, 400);
+      }
+      const existing = await kvGet(env.TUTOR_KV, "orders", []);
+      const overrides = new Map((Array.isArray(body.importedOverrides) ? body.importedOverrides : [])
+        .filter((o) => o && /^fs-\d{4,}$/.test(o.id) && ids.includes(o.id))
+        .map((o) => [o.id, o]));
+      const index = new Map(existing.map((order) => [order.id, order]));
+      const now = new Date().toISOString();
+      for (const id of new Set(ids)) {
+        const original = index.get(id) || overrides.get(id);
+        if (!original) return jsonResp({ ok: false, error: `找不到家教单 ${id}，请刷新后重试` }, 404);
+        index.set(id, { ...original, id, status: body.status, updatedAt: now });
+      }
+      const next = [...index.values()];
       await kvPut(env.TUTOR_KV, "orders", next);
       return jsonResp({ ok: true, orders: next });
     }
@@ -197,7 +220,7 @@ function toPublicOrder(order) {
   const fields = ["id", "orderNumber", "title", "grade", "studentGender", "subject",
     "teacherCount", "currentScores", "district", "weeklyFrequency", "sessionsPerWeek",
     "hoursPerSession", "requirements", "salaryText", "hourlyRate", "mode", "onlineAllowed",
-    "trialTime", "urgent", "status", "createdAt", "tags", "genderPref"];
+    "trialTime", "urgent", "status", "createdAt", "updatedAt", "tags", "genderPref", "source"];
   const safe = Object.fromEntries(fields.filter((k) => order[k] !== undefined).map((k) => [k, order[k]]));
   safe.address = order.publicAddress || (order.addressVisibility === "private"
     ? (order.district || "地址请咨询小木同学") : (order.address || "地址待补充"));

@@ -245,6 +245,31 @@ export const Store = {
     writeJSON(KEYS.orders, updated);
     return updated;
   },
+  async batchUpdateOrderStatus(ids, status) {
+    const uniqueIds = [...new Set(ids)].filter(Boolean);
+    if (!uniqueIds.length) return this.getOrders();
+    if (!["招募中", "已匹配"].includes(status) || uniqueIds.length > 100) throw new Error("批量状态更新参数无效");
+    if (cloudReady) {
+      // 静态飞书单首次修改必须附带完整公开记录，防止只写入状态时丢失其他字段。
+      const importedOverrides = importedOrders.filter((o) => uniqueIds.includes(o.id));
+      const res = await apiPost({ action: "admin_batch_status", ids: uniqueIds, status, importedOverrides });
+      if (!res?.ok) throw new Error(res?.error || "批量更新失败");
+      cloudState.orders = res.orders;
+      return this.getOrders();
+    }
+    const local = readJSON(KEYS.orders, SAMPLE_ORDERS);
+    const next = [...local];
+    for (const id of uniqueIds) {
+      const index = next.findIndex((o) => o.id === id);
+      if (index >= 0) next[index] = { ...next[index], status, updatedAt: new Date().toISOString() };
+      else {
+        const imported = importedOrders.find((o) => o.id === id);
+        if (imported) next.unshift({ ...imported, status, updatedAt: new Date().toISOString() });
+      }
+    }
+    writeJSON(KEYS.orders, next);
+    return this.getOrders();
+  },
   async deleteOrder(id) {
     if (cloudReady) {
       const res = await apiPost({ action: "admin_delete_order", id });
