@@ -271,14 +271,14 @@ function renderHall() {
           ${o.status && o.status !== "待确认" ? `<span class="chip ${statusClass}">${escapeHtml(o.status)}</span>` : ""}
           ${o.urgent ? `<span class="chip urgent">🔥 急招</span>` : ""}
           ${o.onlineAllowed ? '<span class="chip">💻 可网课</span>' : ""}
-          ${schedule.dayLabel ? `<span class="chip day-chip" title="${escapeHtml(schedule.original)}">🗓 ${escapeHtml(schedule.dayLabel)}</span>` : ""}
+          <span class="chip duration-chip">⏱ 每次${escapeHtml(schedule.duration)}</span>
           ${teacherTag ? `<span class="chip teacher-gender-chip">${escapeHtml(teacherTag)}</span>` : ""}
           ${commuteHtml}
         </div>
 
         <div class="schedule-summary" aria-label="家教上课频率和每次时长">
           <div class="schedule-metric"><span class="schedule-metric-label">↻ 上课频率</span><strong>${escapeHtml(schedule.frequency)}</strong></div>
-          <div class="schedule-metric"><span class="schedule-metric-label">◷ 每次时长</span><strong>${escapeHtml(schedule.duration)}</strong></div>
+          <div class="schedule-metric schedule-metric-date" title="${escapeHtml(schedule.original)}"><span class="schedule-metric-label">🗓 上课日期</span><strong>${escapeHtml(schedule.dayLabel || "日期待协商")}</strong></div>
         </div>
 
         <div class="card-desc">
@@ -950,6 +950,9 @@ function setBoardLayout(layout) {
 }
 
 function initControls() {
+  document.querySelectorAll("[data-copy-wechat]").forEach((button) => {
+    button.onclick = () => copyText("cheerpup012", "微信号已复制，在微信搜索添加小木同学");
+  });
   try { if (localStorage.getItem(BOARD_LAYOUT_KEY) === "list") state.layout = "list"; } catch { /* private mode */ }
   setMapOrderSelectionHandlers((id) => {
     Store.toggleSelectedOrder(id);

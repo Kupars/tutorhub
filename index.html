@@ -28,7 +28,7 @@
     })();
   </script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="./css/styles.css?v=19" />
+  <link rel="stylesheet" href="./css/styles.css?v=20" />
 </head>
 <body>
   <div class="startup-loading" id="startupLoading" role="status" aria-live="polite" aria-atomic="true">
@@ -56,6 +56,11 @@
     <section id="view-hall" class="view active">
       <section class="usage-card" aria-label="家教选单使用方法">
         <div class="usage-card-copy"><span class="usage-kicker">使用方法 · 选好家教，微信联系</span><h1>筛选心仪家教，勾选后一键复制，发给南开小木同学</h1><p>筛选或在地图上挑选家教单，添加到选单清单，再把复制的内容发给「南开小木同学」微信。也可以让智能推荐帮你先挑选。</p></div>
+        <div class="wechat-contact" aria-label="联系南开小木同学">
+          <span class="wechat-contact-label">💬 微信联系小木同学</span>
+          <div class="wechat-contact-action"><strong>cheerpup012</strong><button class="btn btn-sm btn-copy-wechat" type="button" data-copy-wechat>复制微信号</button></div>
+          <small>微信搜索添加，咨询家教单</small>
+        </div>
       </section>
       <div class="announcement-inline" id="siteAnnouncement"></div>
 
@@ -158,6 +163,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=24"></script>
+  <script type="module" src="./js/app.js?v=25"></script>
 </body>
 </html>
