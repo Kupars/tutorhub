@@ -1,4 +1,5 @@
 import { formatterPrompt, siteCommandPrompt } from "../../shared/tutoring-order-formatter.js";
+import { teacherResumePrompt, sanitizeTeacherResumeResult } from "../../shared/teacher-resume-skill.js";
 // Cloudflare Pages Function: /api/ai
 // 支持完全免费的 AI 模型接口（Key 仅保存在 Cloudflare 环境变量，绝不暴露到前端）：
 // 1) 智谱 BigModel 免费模型 glm-4-flash 或 硅基流动 / DeepSeek 等 OpenAI 兼容接口（OPENAI_API_KEY + OPENAI_BASE_URL + OPENAI_MODEL）
@@ -7,7 +8,7 @@ import { formatterPrompt, siteCommandPrompt } from "../../shared/tutoring-order-
 export async function onRequestPost(context) {
   const { request, env } = context;
   try {
-    if (Number(request.headers.get("content-length") || 0) > 120000) {
+    if (Number(request.headers.get("content-length") || 0) > 1500000) {
       return jsonResp({ ok: false, error: "请求内容过长" }, 413);
     }
     const { action, payload } = await request.json();
@@ -23,6 +24,7 @@ export async function onRequestPost(context) {
     }
     const isOrderParsing = action === "parse_orders" || action === "revise_drafts";
     const prompts = isOrderParsing ? formatterPrompt(action, payload)
+      : action === "extract_teacher_resume" ? teacherResumePrompt(redactResumeText(payload?.text))
       : action === "site_command" ? siteCommandPrompt(payload)
       : { system: "你是天津家教教务助手。只输出合法 JSON 对象。", user: buildPrompt(action, payload) };
     if (!prompts.user) {
@@ -30,11 +32,16 @@ export async function onRequestPost(context) {
     }
     if (!publicRecommend && !env.TUTOR_KV)
       return jsonResp({ok:false,error:"管理员 AI 需要启用 Cloudflare KV 和管理员登录，以防滥用模型额度"},503);
+    if (action === "extract_teacher_resume") {
+      if (!String(payload?.text||"").trim() && !payload?.imageData) return jsonResp({ok:false,error:"请粘贴简历文字或上传图片"},400);
+      if (payload?.imageData && (typeof payload.imageData !== "string" || payload.imageData.length > 1250000 || !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(payload.imageData)))
+        return jsonResp({ok:false,error:"图片过大或格式不受支持，请上传压缩后的 JPG/PNG/WebP 简历"},413);
+    }
     if (env.TUTOR_KV && !publicRecommend) {
       const secret = env.AUTH_SECRET || env.ADMIN_PASSWORD || "tutor-hub-default-hmac-secret-change-me";
       const auth = await verifyAuth(request, secret);
       if (!auth) return jsonResp({ ok: false, error: "请登录后使用 AI 功能" }, 401);
-      if (["parse_orders", "revise_drafts", "site_command", "optimize_addresses", "model_probe"].includes(action) && auth.role !== "admin") {
+      if (["parse_orders", "revise_drafts", "site_command", "optimize_addresses", "model_probe", "extract_teacher_resume"].includes(action) && auth.role !== "admin") {
         return jsonResp({ ok: false, error: "仅管理员可以整理或修改家教单" }, 403);
       }
     }
@@ -56,10 +63,12 @@ export async function onRequestPost(context) {
         body: JSON.stringify({
           model,
           temperature: publicRecommend ? 0.1 : 0.15,
-          max_tokens: publicRecommend ? 850 : isOrderParsing ? 6500 : action === "site_command" ? 3200 : 2000,
+          max_tokens: publicRecommend ? 850 : isOrderParsing ? 6500 : action === "site_command" ? 3200 : action === "extract_teacher_resume" ? 550 : 2000,
           messages: [
             { role: "system", content: prompts.system },
-            { role: "user", content: prompts.user }
+            { role: "user", content: action === "extract_teacher_resume" && payload?.imageData
+              ? [{type:"text",text:prompts.user},{type:"image_url",image_url:{url:payload.imageData,detail:"high"}}]
+              : prompts.user }
           ]
         })
       });
@@ -78,7 +87,11 @@ export async function onRequestPost(context) {
         headers: { "Content-Type": "application/json" },
         signal: AbortSignal.timeout(45000),
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `${prompts.system}\n\n${prompts.user}` }] }],
+          contents: [{ parts: [{ text: `${prompts.system}\n\n${prompts.user}` },
+            ...(action === "extract_teacher_resume" && payload?.imageData ? [{inlineData:{
+              mimeType:payload.imageData.match(/^data:(image\/[^;]+);/)?.[1] || "image/jpeg",
+              data:payload.imageData.split(",")[1]
+            }}] : [])] }],
           generationConfig: { temperature: 0.2, responseMimeType: "application/json" }
         })
       });
@@ -92,6 +105,7 @@ export async function onRequestPost(context) {
     let parsed;
     try { parsed = parseModelJSON(rawText); }
     catch { throw new Error(`${provider} 返回的格式不是完整 JSON；请缩短输入或切换支持 JSON 的模型`); }
+    if (action === "extract_teacher_resume") parsed = sanitizeTeacherResumeResult(parsed);
     if (isOrderParsing) {
       if (!Array.isArray(parsed.orders) || parsed.orders.length === 0 || parsed.orders.length > 30 ||
         parsed.orders.some(o=>!o || typeof o !== "object" || Array.isArray(o)))
@@ -117,6 +131,15 @@ export async function onRequestPost(context) {
   } catch (err) {
     return jsonResp({ ok: false, error: String(err?.message || err) }, 500);
   }
+}
+
+
+function redactResumeText(text) {
+  return String(text||"").slice(0,16000)
+    .replace(/1[3-9]\d{9}/g,"[手机号已隐藏]")
+    .replace(/\b[\w.+%-]+@[\w.-]+\.[A-Za-z]{2,}\b/g,"[邮箱已隐藏]")
+    .replace(/(?:微信(?:号|ID|账号)?|vx|V信|WeChat)\s*[：:\s]*[A-Za-z0-9_-]{4,32}/gi,"[微信已隐藏]")
+    .replace(/(?:身份证(?:号|码)?\s*[：:\s]*)\d{15,18}[0-9Xx]?/g,"[身份证已隐藏]");
 }
 
 // 无登录老师端每日少量模型请求：按 Cloudflare 源 IP 做匿名哈希，限每分钟与每小时请求量。
