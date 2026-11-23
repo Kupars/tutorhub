@@ -55,7 +55,8 @@ export async function onRequestPost(context) {
     // resume analysis and public recommendations. Only model_probe can target a saved
     // non-active relay; the server never accepts arbitrary URLs or keys per AI request.
     const selected = await resolveAIProvider(env.TUTOR_KV,env,
-      !publicRecommend && action === "model_probe" ? payload?.providerId : undefined);
+      !publicRecommend && action === "model_probe" ? payload?.providerId : undefined,
+      !publicRecommend && action === "model_probe" ? payload?.model : undefined);
     let rawText = "";
     let provider = "";
 
