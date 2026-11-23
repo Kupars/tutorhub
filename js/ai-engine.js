@@ -3,6 +3,7 @@ import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText } from "./commute.js";
 import { getGenderFromText, nextOrderId, normalizeOrder, parseFormattedOrder } from "./order-format.js";
 import { normalizePublicAddress, safeOptimizedPublicAddress } from "./address-normalizer.js";
+import { extractRawOrderDrafts } from "./structured-order-extractor.js";
 
 let lastAIError = "";
 
@@ -64,6 +65,7 @@ function prepareDrafts(rawText, orders, existingOrders = []) {
     const explicit = /^#\d+(?:-\d+)?$/.test(code) &&
       (rawText.includes(code) || (/^#\d+-\d+$/.test(code) && rawText.includes(code.split("-")[0])));
     candidate.id = explicit ? code : splitting ? `${splitParent}-${index + 1}` : nextOrderId(reserved);
+    candidate.orderNumber = candidate.id;
     reserved.push(candidate);
     candidate.title = `${candidate.grade}${candidate.subject}家教`;
     return candidate;
@@ -103,102 +105,42 @@ export async function parseMessyOrders(rawText, existingOrders = []) {
   lastAIError = "";
   const remote = await callServerlessAI("parse_orders", { text: rawText });
   if (remote && Array.isArray(remote.orders) && remote.orders.length > 0) {
-    return { source: remote.provider || "AI 模型", orders: prepareDrafts(rawText, remote.orders, existingOrders) };
+    const localDrafts = extractRawOrderDrafts(rawText);
+    const safeDrafts = remote.orders.map((candidate, index) => {
+      const source = localDrafts[index];
+      if (!source || typeof candidate !== "object" || candidate == null) return source || {};
+      const reviewed = { ...candidate };
+      // 格式化助手不能把原文缺失的信息“补出来”。
+      if (source.grade !== "年级待补充") reviewed.grade = source.grade;
+      else reviewed.grade = "年级待补充";
+      if (source.subject !== "科目待补充") reviewed.subject = source.subject;
+      if (source.studentGender !== "待补充") reviewed.studentGender = source.studentGender;
+      else reviewed.studentGender = "待补充";
+      if (source.district !== "区域待补充") reviewed.district = source.district;
+      reviewed.address = safeOptimizedPublicAddress(source.address, reviewed.address, source.district);
+      reviewed.publicAddress = reviewed.address;
+      if (source.currentScores !== "成绩待补充") reviewed.currentScores = source.currentScores;
+      else if (!/成绩|分数|考试|基础|分\b|中等|较差|较好/.test(rawText)) reviewed.currentScores = "成绩待补充";
+      if (source.weeklyFrequency !== "待协商") reviewed.weeklyFrequency = source.weeklyFrequency;
+      else if (!/每周|一周|周[一二三四五六日天]|次数/.test(rawText)) reviewed.weeklyFrequency = "待协商";
+      if (!/每次|一次|单次|小时/.test(rawText)) reviewed.hoursPerSession = 2;
+      if (!/元|块|报价|薪资|时薪|课时费/.test(rawText)) reviewed.salaryText = source.salaryText;
+      if (!/要求|老师|教师|需要|耐心|经验|天大|南开|严格/.test(rawText)) reviewed.requirements = "无特殊要求";
+      if (!/试课|试讲/.test(rawText)) reviewed.trialTime = "";
+      reviewed.mode = source.mode;
+      reviewed.onlineAllowed = source.onlineAllowed;
+      // 单号仅由用户原文或本地递增器决定，模型不能自由生成。
+      reviewed.id = source.id || "";
+      return reviewed;
+    });
+    return { source: `${remote.provider || "AI 模型"}（字段已校验）`, orders: prepareDrafts(rawText, safeDrafts, existingOrders) };
   }
 
-  // 内置智能解析兜底：支持一次性粘贴多条（空行或编号分隔）
-  const blocks = rawText
-    .split(/\n\s*\n|(?=(?:^|\n)(?:\d+[.、)）]|【家教|#\d+))/)
-    .map((b) => b.trim())
-    .filter((b) => b.length >= 6);
-
-  const parsed = blocks.map((block, idx) => {
-    const subject = SUBJECTS.filter((s) => block.includes(s.split("/")[0])).join("、") || "全科";
-    const grade = GRADES.find((g) => block.includes(g)) ||
-      (block.includes("初中") ? "初二" : block.includes("高中") ? "高一" : "小学");
-
-    const mode = block.includes("线上") || block.includes("网课") || block.includes("腾讯会议")
-      ? (block.includes("上门") ? "均可" : "线上")
-      : "上门";
-
-    const salaryMatch = block.match(/\d{2,3}\s*(?:～|~|-|至)\s*\d{2,3}\s*(?:元|块)?(?:\/小时|\/时|每小时|一小时)?|\d{2,3}\s*(?:元|块|\/小时|一小时|每小时)/i);
-    const hourlyRate = Number(salaryMatch?.[0].match(/\d+/)?.[0]) || 0;
-
-    const hoursMatch = block.match(/每次\s*(\d+(?:\.\d+)?)\s*小时|(\d+(?:\.\d+)?)\s*小时\/次/);
-    const hoursPerSession = hoursMatch ? Number(hoursMatch[1] || hoursMatch[2]) : 2;
-
-    const freqMatch = block.match(/一周\s*([1-7一二三四五六七])\s*次|每周\s*([1-7一二三四五六七])\s*次/);
-    const cnNum = { "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7 };
-    const rawFreq = freqMatch ? (freqMatch[1] || freqMatch[2]) : "2";
-    const sessionsPerWeek = cnNum[rawFreq] || Number(rawFreq) || 2;
-
-    const genderPref = block.includes("女老师") || block.includes("只要女")
-      ? "女老师优先"
-      : block.includes("男老师") || block.includes("只要男")
-      ? "男老师优先"
-      : "不限";
-
-    const inferred = inferCoordsFromText(block);
-    const district = mode === "线上" ? "线上授课" : (inferred?.district || "市区");
-
-    const addrMatch = block.match(/(?:地址|地点|位置|小区|附近)[：:\s]*([^\n，,。；;]{3,28})/);
-    const cityMatch = block.match(/(?:天津市)?(?:和平区|河西区|南开区|河东区|河北区|红桥区|津南区|西青区|东丽区|北辰区|武清区|滨海新区|宝坻区|静海区|宁河区|蓟州区)[^，,。；;\n]{0,25}/);
-    const address = mode === "线上"
-      ? "线上腾讯会议"
-      : (addrMatch ? addrMatch[1].trim() : cityMatch ? cityMatch[0].trim() : `${district}（具体地址待补充）`);
-
-    const timeMatch = block.match(/(?:时间|上课时间|时段)[：:\s]*([^\n。；;]{3,35})/) ||
-      block.match(/((?:周[一二三四五六日天]|周末|寒假|暑假)[^\n，,。；;]{1,22})/);
-    const schedule = timeMatch ? timeMatch[1].trim() : "时间与家长协商";
-
-    const urgent = /急|加急|本周|明天|尽快/.test(block);
-    const tags = [];
-    if (urgent) tags.push("急招");
-    if (hourlyRate >= 160) tags.push("高薪");
-    if (mode === "线上") tags.push("线上免通勤");
-    if (block.includes("长期")) tags.push("长期稳定");
-    if (tags.length === 0) tags.push("新发布");
-
-    const studentGender = getGenderFromText(block);
-    const scoreMatch = block.match(/(?:现阶段成绩|目前成绩|成绩)[：:\s]*([^\n。；;]+)/);
-    const trialMatch = block.match(/(?:试课时间|试讲时间|试课)[：:\s]*([^\n。；;]+)/);
-    const teacherCountMatch = block.match(/(?:需要几个老师|需要老师|需要)(?:[：:\s]*)(\d+)\s*位/);
-    const weeklyFrequency = (block.match(/(?:每周|一周)[^\n。；;]{0,32}(?:次|周[一二三四五六日天]|周末)/)?.[0]) ||
-      (timeMatch ? `每周1次，${timeMatch[1].trim()}` : "待协商");
-    return normalizeOrder({
-      id: block.match(/#\d{3,7}(?:-\d+)?/)?.[0] || "",
-      title: `${grade}${subject}家教（${mode === "线上" ? "线上" : district}）`,
-      subject,
-      grade,
-      studentGender,
-      teacherCount: teacherCountMatch ? Number(teacherCountMatch[1]) : 1,
-      currentScores: scoreMatch ? scoreMatch[1].trim() : "成绩待补充",
-      mode,
-      district,
-      address,
-      lat: mode === "线上" ? null : (inferred?.lat ?? null),
-      lng: mode === "线上" ? null : (inferred?.lng ?? null),
-      hourlyRate,
-      hoursPerSession,
-      sessionsPerWeek,
-      schedule,
-      weeklyFrequency,
-      salaryText: salaryMatch ? salaryMatch[0].replace(/块/g, "元") : "",
-      trialTime: trialMatch ? trialMatch[1].trim() : "",
-      onlineAllowed: /可网课|可线上/.test(block),
-      genderPref,
-      studentInfo: block.slice(0, 140),
-      requirements: block.includes("要求") ? block.slice(block.indexOf("要求"), block.indexOf("要求") + 90) : "责任心强，有相关学科辅导经验优先。",
-      tags,
-      status: "招募中",
-      urgent,
-      createdAt: new Date().toISOString()
-    });
-  });
-
+  // 自建保守提取兜底：只提取原文有依据的信息，不再推测年级、成绩或每周上课次数。
+  // 可随时切换 Cloudflare 的 AI API；无论模型是否可用，最后都需要管理员核对草稿。
   return {
-    source: lastAIError ? `内置规则引擎（AI失败：${lastAIError.slice(0, 80)}）` : "内置规则引擎",
-    orders: prepareDrafts(rawText, parsed, existingOrders)
+    source: lastAIError ? `规则提取（模型未成功：${lastAIError.slice(0, 80)}）` : "规则提取（未启用模型）",
+    orders: prepareDrafts(rawText, extractRawOrderDrafts(rawText), existingOrders)
   };
 }
 
