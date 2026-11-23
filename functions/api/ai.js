@@ -1,3 +1,4 @@
+import {resolveAIProvider} from "../../shared/ai-provider-registry.js";
 import { formatterPrompt, siteCommandPrompt } from "../../shared/tutoring-order-formatter.js";
 import { teacherResumePrompt, sanitizeTeacherResumeResult } from "../../shared/teacher-resume-skill.js";
 // Cloudflare Pages Function: /api/ai
@@ -50,18 +51,24 @@ export async function onRequestPost(context) {
       }
     }
 
+    // One active relay/model is shared by AI order extraction, revisions, site commands,
+    // resume analysis and public recommendations. Only model_probe can target a saved
+    // non-active relay; the server never accepts arbitrary URLs or keys per AI request.
+    const selected = await resolveAIProvider(env.TUTOR_KV,env,
+      !publicRecommend && action === "model_probe" ? payload?.providerId : undefined,
+      !publicRecommend && action === "model_probe" ? payload?.model : undefined);
     let rawText = "";
     let provider = "";
 
-    if (env.OPENAI_API_KEY) {
-      const baseUrl = (env.OPENAI_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
-      const model = env.OPENAI_MODEL || "glm-4.7-flash";
-      provider = `OpenAI 兼容模型 (${model})`;
+    if (selected?.kind === "openai") {
+      const baseUrl = selected.baseUrl;
+      const model = selected.model;
+      provider = `${selected.name} (${model})`;
       const res = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${env.OPENAI_API_KEY}`
+          Authorization: `Bearer ${selected.apiKey}`
         },
         signal: AbortSignal.timeout(45000),
         body: JSON.stringify({
@@ -82,10 +89,10 @@ export async function onRequestPost(context) {
         Array.isArray(message?.content) ? message.content.map(p=>p?.text || "").join("") : "";
       if (!rawText && data?.choices?.[0]?.finish_reason === "length")
         throw new Error("模型输出达到长度限制，请一次处理更少的家教单");
-    } else if (env.GEMINI_API_KEY) {
-      const model = env.GEMINI_MODEL || "gemini-2.5-flash";
+    } else if (selected?.kind === "gemini") {
+      const model = selected.model;
       provider = `Google Gemini (${model})`;
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${selected.apiKey}`;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -102,7 +109,7 @@ export async function onRequestPost(context) {
       const data = await readAIResponse(res, provider);
       rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
     } else {
-      return jsonResp({ ok: false, error: "未配置模型 API Key。请在 Cloudflare 填写 OPENAI_API_KEY、OPENAI_BASE_URL 和 OPENAI_MODEL" }, 503);
+      return jsonResp({ ok: false, error: "没有可用的模型配置，请在后台 AI 模型管理中添加中转站，或配置 Cloudflare 环境变量" }, 503);
     }
 
     if (!String(rawText).trim()) throw new Error(`${provider} 未返回正文，请检查模型权限、余额、模型是否支持文本输出`);

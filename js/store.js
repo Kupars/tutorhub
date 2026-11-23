@@ -67,6 +67,31 @@ async function apiPost(payload) {
 }
 
 export const Store = {
+  // AI credentials live exclusively in Cloudflare KV, encrypted at rest.
+  async listAIProviders() {
+    if (!cloudReady) throw new Error("需要 Cloudflare KV 云端后台才能管理模型");
+    const data=await apiPost({action:"admin_ai_provider_list"});
+    if (!data?.ok) throw new Error(data?.error || "读取模型列表失败");
+    return data.registry;
+  },
+  async saveAIProvider(provider) {
+    if (!cloudReady) throw new Error("云端后台不可用");
+    const data=await apiPost({action:"admin_ai_provider_save",provider});
+    if (!data?.ok) throw new Error(data?.error || "保存中转站失败");
+    return data.registry;
+  },
+  async activateAIProvider(id,model) {
+    if (!cloudReady) throw new Error("云端后台不可用");
+    const data=await apiPost({action:"admin_ai_provider_activate",id,model});
+    if (!data?.ok) throw new Error(data?.error || "切换模型失败");
+    return data.registry;
+  },
+  async deleteAIProvider(id) {
+    if (!cloudReady) throw new Error("云端后台不可用");
+    const data=await apiPost({action:"admin_ai_provider_delete",id});
+    if (!data?.ok) throw new Error(data?.error || "删除中转站失败");
+    return data.registry;
+  },
   isCloudMode() {
     return cloudReady;
   },
