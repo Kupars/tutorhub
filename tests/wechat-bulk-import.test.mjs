@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { prepareBulkAIDrafts } from '../js/ai-engine.js';
 import {splitWechatMessages, redactWechatText, groupWechatMessages,
   normalizeImportDocuments, findBulkDuplicate, safeBulkUpdates} from '../js/wechat-bulk-core.js';
 
@@ -51,4 +52,38 @@ test('status updates require a matching existing ID and an explicit source refer
   assert.equal(a[0].selected,false);
   assert.equal(safeBulkUpdates([{id:'#2812',status:'招募中',sourceMessageIndex:1}],messages,existing)[0].verified,false);
   assert.equal(safeBulkUpdates([{id:'#2811',status:'已匹配',sourceMessageIndex:2}],messages,existing)[0].verified,false);
+});
+
+test('bulk draft IDs are derived only from their own cited source message',()=>{
+  const messages=[
+    {text:'#2811 招满了'},
+    {text:'#2861/高一化学生物家教\n【补习科目】化学、生物'},
+    {text:'高三数学，时薪150元'}];
+  const orders=prepareBulkAIDrafts(messages,{orders:[
+    {id:'',grade:'高一',subject:'化学、生物',sourceMessageIndices:[2]},
+    {id:'#2811',grade:'高三',subject:'数学',sourceMessageIndices:[3]}
+  ]},[{id:'#3000',orderNumber:'#3000'}]);
+  assert.equal(orders[0].id,'#2861');
+  assert.equal(orders[1].id,'#3001');
+  assert(orders.every(o=>o.status==='已匹配'));
+});
+test('AI is not allowed to create orders without traceable source references',()=>{
+  assert.throws(()=>prepareBulkAIDrafts([{text:'#2811/高一数学'}],
+    {orders:[{grade:'高一',subject:'数学'}]}),/未标记/);
+});
+test('two different source messages reusing a number are not silently merged',()=>{
+  const orders=prepareBulkAIDrafts([{text:'#2811/高一数学'},{text:'#2811/高三物理'}],
+    {orders:[
+      {id:'#2811',grade:'高一',subject:'数学',sourceMessageIndices:[1]},
+      {id:'#2811',grade:'高三',subject:'物理',sourceMessageIndices:[2]}
+    ]});
+  assert.deepEqual(orders.map(o=>o.id),['#2811','#2811']);
+});
+test('multi-subject split from one source uses child numbering',()=>{
+  const orders=prepareBulkAIDrafts([{text:'#2811/高二数学物理，分别找老师'}],
+    {orders:[
+      {grade:'高二',subject:'数学',sourceMessageIndices:[1]},
+      {grade:'高二',subject:'物理',sourceMessageIndices:[1]}
+    ]});
+  assert.deepEqual(orders.map(o=>o.id),['#2811-1','#2811-2']);
 });
