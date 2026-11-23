@@ -185,7 +185,7 @@ export function formatterPrompt(action, payload = {}) {
     }))
   };
   return {
-    system: TUTORING_ORDER_SKILL + "\n【历史单字段风格示例，仅供参考，不能复制案例中的事实】\n" +
+    system: TUTORING_ORDER_SKILL + "\n【真实历史家教单写法样例（仅供参考，不能复制案例中的事实）】\n" +
       JSON.stringify(HISTORICAL_FORMAT_EXAMPLES.slice(0,2)),
     user: JSON.stringify(base)
   };
