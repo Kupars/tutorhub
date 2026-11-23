@@ -1,7 +1,7 @@
 // Admin-only, browser-memory historical import wizard. Nothing is published automatically.
-import { readWechatFiles } from './wechat-bulk-reader.js';
+import { readWechatFiles } from './wechat-bulk-reader.js?v=2';
 import { splitWechatMessages, redactWechatText, normalizeImportDocuments,
-  groupWechatMessages, findBulkDuplicate, safeBulkUpdates, missingStructuredOrderSources } from './wechat-bulk-core.js';
+  groupWechatMessages, findBulkDuplicate, safeBulkUpdates, missingStructuredOrderSources } from './wechat-bulk-core.js?v=2';
 import { parseBulkWechatMessages } from './ai-engine.js';
 import { normalizeOrder, formatOrderText, parseFormattedOrder } from './order-format.js';
 import { checkDraftIds, missingDraftFields } from './draft-grouping.js';
