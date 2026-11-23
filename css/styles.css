@@ -820,3 +820,56 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
  .ai-draft-actions .btn { flex:1 1 auto; }
  #aiSiteCmd { min-height:70px; }
 }
+
+/* Teacher pool + per-order candidate SOP */
+.teacher-pool-panel { scroll-margin-top:120px; }
+.teacher-pool-panel h3 { font-size:1rem; margin:16px 0 10px; }
+.teacher-pool-panel h4 { font-size:.9rem; margin:14px 0 8px; }
+.teacher-pool-layout { display:grid; grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr); gap:18px; align-items:start; }
+.teacher-profile-editor, .teacher-pool-right, .teacher-application-panel, .teacher-overdue-panel {
+  min-width:0; padding:14px; border:1px solid var(--border); border-radius:14px; background:var(--surface-alt,transparent);
+}
+.teacher-profile-editor .field { min-width:0; }
+.teacher-profile-editor textarea { width:100%; }
+.teacher-profile-editor input, .teacher-profile-editor select { max-width:100%; }
+.teacher-resume-actions { display:flex; flex-wrap:wrap; align-items:center; gap:9px; margin:10px 0; }
+.teacher-resume-actions input[type=file] { max-width:100%; font-size:.82rem; width:min(260px,100%); }
+.teacher-pool-list { max-height:520px; overflow:auto; margin-top:10px; }
+.teacher-pool-item { display:flex; gap:10px; justify-content:space-between; align-items:start; padding:11px 2px; border-bottom:1px solid var(--border); }
+.teacher-pool-item > div:first-child { min-width:0; overflow-wrap:anywhere; }
+.teacher-pool-item small, .teacher-linked-item small, .teacher-match-row small, .teacher-overdue-item small {
+ display:block; font-size:.78rem; color:var(--muted); margin-top:4px; line-height:1.5;
+}
+.teacher-pool-item .chip { display:inline-block; font-size:.73rem; padding:3px 6px; margin-left:5px; }
+.teacher-pool-item-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:end; gap:6px; }
+.teacher-pool-item-actions select { width:100%; min-width:100px; max-width:136px; font-size:.8rem; padding:7px 5px; }
+.teacher-application-panel,.teacher-overdue-panel { margin-top:16px; }
+.teacher-link-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.teacher-link-form .field { display:flex; flex-direction:column; gap:5px; min-width:0; font-size:.82rem; }
+.teacher-link-form select,.teacher-link-form input { max-width:100%; width:100%; }
+.teacher-link-actions { display:flex; gap:8px; flex-wrap:wrap; grid-column:1/-1; align-items:center; }
+.teacher-linked-item,.teacher-match-row,.teacher-overdue-item { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 2px; border-bottom:1px solid var(--border); }
+.teacher-linked-item>span,.teacher-match-row>div,.teacher-overdue-item>span { flex:1; min-width:0; overflow-wrap:anywhere; }
+.teacher-match-row button,.teacher-linked-item button,.teacher-overdue-item button { flex-shrink:0; }
+.teacher-recommend-panel { margin-top:16px; border-top:1px solid var(--border); padding-top:8px; }
+.ai-family-label { display:inline-flex; align-items:center; gap:6px; font-size:.8rem; white-space:nowrap; }
+.ai-family-label input { width:auto; margin:0; }
+.teacher-publish-overlay { position:fixed; inset:0; z-index:5000; display:grid; place-items:center;
+ background:rgba(0,0,0,.58); padding:18px; }
+.teacher-publish-dialog { width:min(560px,100%); max-height:min(82vh,650px); overflow:auto; padding:22px;
+ border:1px solid var(--border); border-radius:16px; color:var(--text); background:var(--bg,#fff); box-shadow:0 16px 60px rgba(0,0,0,.27); }
+.teacher-publish-dialog h2 { margin:0 0 10px; font-size:1.15rem; }
+.teacher-publish-dialog >button { margin-top:15px; }
+.teacher-publish-item { border-top:1px solid var(--border); padding:11px 0; font-size:.88rem; }
+.teacher-publish-item p { margin:5px 0 0; color:var(--muted); line-height:1.5; }
+@media(max-width:840px) {
+ .teacher-pool-layout { grid-template-columns:1fr; }
+ .teacher-pool-list { max-height:none; }
+}
+@media(max-width:560px) {
+ .teacher-profile-editor,.teacher-pool-right,.teacher-application-panel,.teacher-overdue-panel { padding:11px; }
+ .teacher-pool-item { flex-wrap:wrap; }
+ .teacher-pool-item-actions { width:100%; justify-content:start; }
+ .teacher-link-form { grid-template-columns:1fr; }
+ .teacher-publish-dialog { padding:17px; }
+}
