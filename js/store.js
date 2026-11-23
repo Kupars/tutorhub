@@ -76,7 +76,7 @@ export const Store = {
     // 公开导入单与云端更新互不依赖，并行获取，避免手机上串行等待两次网络请求。
     const importedTask = (async () => {
       try {
-        const imported = await fetch("./data/imported-orders.json", { cache: "default" });
+        const imported = await fetch("./data/imported-orders.json?v=privacy2", { cache: "no-cache" });
         if (imported.ok) {
           const rows = await imported.json();
           importedOrders = Array.isArray(rows) ? rows : [];
