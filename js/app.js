@@ -1695,13 +1695,13 @@ function initControls() {
     renderHall();
   };
 
-  $("btnAdminEntry").onclick = () => switchView("admin");
+  $("btnAdminEntry").onclick = () => { state.adminPage = "home"; switchView("admin"); };
   $("btnBackToHall").onclick = () => switchView("hall");
   $("btnViewTutoring").onclick = () => switchView("hall");
   $("btnViewPartTime").onclick = () => switchView("parttime");
   $("btnMobileTutoring").onclick = () => switchView("hall");
   $("btnMobileMore").onclick = () => switchView("parttime");
-  $("btnMobileAdminEntry").onclick = () => switchView("admin");
+  $("btnMobileAdminEntry").onclick = () => { state.adminPage = "home"; switchView("admin"); };
   $("btnMobileAdminBack").onclick = () => switchView("hall");
   $("btnListMode").onclick = () => setBoardLayout("list");
   $("btnCardMode").onclick = () => setBoardLayout("cards");
