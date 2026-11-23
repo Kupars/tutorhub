@@ -1,3 +1,4 @@
+import { formatterPrompt, siteCommandPrompt } from "../lib/tutoring-order-formatter.js";
 // Cloudflare Pages Function: /api/ai
 // 支持完全免费的 AI 模型接口（Key 仅保存在 Cloudflare 环境变量，绝不暴露到前端）：
 // 1) 智谱 BigModel 免费模型 glm-4-flash 或 硅基流动 / DeepSeek 等 OpenAI 兼容接口（OPENAI_API_KEY + OPENAI_BASE_URL + OPENAI_MODEL）
@@ -6,7 +7,7 @@
 export async function onRequestPost(context) {
   const { request, env } = context;
   try {
-    if (Number(request.headers.get("content-length") || 0) > 32000) {
+    if (Number(request.headers.get("content-length") || 0) > 120000) {
       return jsonResp({ ok: false, error: "请求内容过长" }, 413);
     }
     const { action, payload } = await request.json();
@@ -20,15 +21,20 @@ export async function onRequestPost(context) {
       const limited = await checkRecommendRateLimit(request, env.TUTOR_KV);
       if (limited) return jsonResp({ ok: false, error: "推荐请求较频繁，请稍后再试或使用本地排序" }, 429);
     }
-    const prompt = buildPrompt(action, payload);
-    if (!prompt) {
+    const isOrderParsing = action === "parse_orders" || action === "revise_drafts";
+    const prompts = isOrderParsing ? formatterPrompt(action, payload)
+      : action === "site_command" ? siteCommandPrompt(payload)
+      : { system: "你是天津家教教务助手。只输出合法 JSON 对象。", user: buildPrompt(action, payload) };
+    if (!prompts.user) {
       return jsonResp({ ok: false, error: "Unsupported action" }, 400);
     }
+    if (!publicRecommend && !env.TUTOR_KV)
+      return jsonResp({ok:false,error:"管理员 AI 需要启用 Cloudflare KV 和管理员登录，以防滥用模型额度"},503);
     if (env.TUTOR_KV && !publicRecommend) {
       const secret = env.AUTH_SECRET || env.ADMIN_PASSWORD || "tutor-hub-default-hmac-secret-change-me";
       const auth = await verifyAuth(request, secret);
       if (!auth) return jsonResp({ ok: false, error: "请登录后使用 AI 功能" }, 401);
-      if (["parse_orders", "site_command", "optimize_addresses"].includes(action) && auth.role !== "admin") {
+      if (["parse_orders", "revise_drafts", "site_command", "optimize_addresses", "model_probe"].includes(action) && auth.role !== "admin") {
         return jsonResp({ ok: false, error: "仅管理员可以整理或修改家教单" }, 403);
       }
     }
@@ -46,19 +52,23 @@ export async function onRequestPost(context) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${env.OPENAI_API_KEY}`
         },
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(45000),
         body: JSON.stringify({
           model,
           temperature: publicRecommend ? 0.1 : 0.15,
-          max_tokens: publicRecommend ? 850 : action === "parse_orders" ? 3000 : 1400,
+          max_tokens: publicRecommend ? 850 : isOrderParsing ? 6500 : action === "site_command" ? 3200 : 2000,
           messages: [
-            { role: "system", content: "你是专业的家教教务与网站运营助手。请严格只返回合法的 JSON，不要包含 Markdown 代码块标记。" },
-            { role: "user", content: prompt }
+            { role: "system", content: prompts.system },
+            { role: "user", content: prompts.user }
           ]
         })
       });
       const data = await readAIResponse(res, provider);
-      rawText = data?.choices?.[0]?.message?.content || "";
+      const message = data?.choices?.[0]?.message;
+      rawText = typeof message?.content === "string" ? message.content :
+        Array.isArray(message?.content) ? message.content.map(p=>p?.text || "").join("") : "";
+      if (!rawText && data?.choices?.[0]?.finish_reason === "length")
+        throw new Error("模型输出达到长度限制，请一次处理更少的家教单");
     } else if (env.GEMINI_API_KEY) {
       const model = env.GEMINI_MODEL || "gemini-2.5-flash";
       provider = `Google Gemini (${model})`;
@@ -66,26 +76,31 @@ export async function onRequestPost(context) {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(45000),
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `请严格只返回合法的 JSON，不要输出多余文字。\n\n${prompt}` }] }],
+          contents: [{ parts: [{ text: `${prompts.system}\n\n${prompts.user}` }] }],
           generationConfig: { temperature: 0.2, responseMimeType: "application/json" }
         })
       });
       const data = await readAIResponse(res, provider);
       rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
     } else {
-      return jsonResp({ ok: false, error: "未配置免费 AI API Key，已自动回退本地引擎" }, 200);
+      return jsonResp({ ok: false, error: "未配置模型 API Key。请在 Cloudflare 填写 OPENAI_API_KEY、OPENAI_BASE_URL 和 OPENAI_MODEL" }, 503);
     }
 
-    const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
-    if (!cleaned) throw new Error(`${provider} 未返回正文，请检查模型权限和余额`);
+    if (!String(rawText).trim()) throw new Error(`${provider} 未返回正文，请检查模型权限、余额、模型是否支持文本输出`);
     let parsed;
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch {
-      throw new Error(`${provider} 返回格式不符合 JSON 规范，请重试或更换模型`);
+    try { parsed = parseModelJSON(rawText); }
+    catch { throw new Error(`${provider} 返回的格式不是完整 JSON；请缩短输入或切换支持 JSON 的模型`); }
+    if (isOrderParsing) {
+      if (!Array.isArray(parsed.orders) || parsed.orders.length === 0 || parsed.orders.length > 30 ||
+        parsed.orders.some(o=>!o || typeof o !== "object" || Array.isArray(o)))
+        throw new Error(`${provider} 未返回 1～30 张完整草稿，未保存任何内容。请减少单次输入的数量`);
+      parsed.groupingNotes = Array.isArray(parsed.groupingNotes) ? parsed.groupingNotes.slice(0,15).map(String) : [];
+      parsed.questions = Array.isArray(parsed.questions) ? parsed.questions.slice(0,15).map(String) : [];
     }
+    if (action === "site_command" && !Array.isArray(parsed.actions))
+      throw new Error("模型没有返回可审核的网站修改计划");
     if (publicRecommend) {
       const allowed = new Set(payload.candidates.map((item) => String(item.id)));
       const picks = [];
@@ -106,6 +121,28 @@ export async function onRequestPost(context) {
 
 // 无登录老师端每日少量模型请求：按 Cloudflare 源 IP 做匿名哈希，限每分钟与每小时请求量。
 // 不保存 IP 原文；模型密钥只存在 Cloudflare 环境变量中。
+
+// 只解析模型返回的完整 JSON 对象，兼容少数网关生成的 think 标签或代码围栏。
+export function parseModelJSON(raw) {
+  const s = String(raw || "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim()
+    .replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  try { return JSON.parse(s); } catch {}
+  const first = s.indexOf("{");
+  if (first < 0) throw new Error("No JSON");
+  let depth = 0, quoted = false, escaped = false;
+  for (let i=first;i<s.length;i++) {
+    const ch=s[i];
+    if (quoted) {
+      if (escaped) { escaped=false; continue; }
+      if (ch === "\\") { escaped=true; continue; }
+      if (ch === '"') quoted=false;
+    } else if (ch === '"') quoted=true;
+    else if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) return JSON.parse(s.slice(first,i+1));
+  }
+  throw new Error("Truncated JSON");
+}
+
 async function checkRecommendRateLimit(request, kv) {
   if (!kv) return false;
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
