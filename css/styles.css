@@ -792,3 +792,31 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
  .assignment-reminder-row button { flex-shrink:0; }
  .assignment-stats > span { flex:1 1 42%; }
 }
+
+/* AI 录单、连续对话和科目拆合：手机端优先保证操作触达与可读性。 */
+.ai-chat-panel { display:flex; flex-direction:column; gap:7px; margin:10px 0; max-height:270px; overflow-y:auto; }
+.ai-message { padding:9px 12px; border-radius:12px; background:var(--surface-alt,var(--card-bg,rgba(125,125,125,.08))); border:1px solid var(--border); white-space:pre-wrap; overflow-wrap:anywhere; font-size:.84rem; }
+.ai-message-user { margin-left:min(22%,110px); border-left:3px solid var(--primary); }
+.ai-message-assistant { margin-right:min(12%,60px); }
+.ai-message b { margin-right:6px; }
+.ai-chat-compose { display:flex; flex-direction:column; align-items:flex-start; gap:8px; padding:10px; border:1px solid var(--border); border-radius:12px; margin:12px 0; }
+.ai-chat-compose[hidden] { display:none; }
+.ai-chat-compose label { font-weight:700; font-size:.88rem; }
+.ai-chat-compose textarea { width:100%; resize:vertical; }
+#aiSiteCmd { flex:1; min-width:0; width:100%; resize:vertical; }
+.ai-group-summary { padding:11px 12px; border-radius:12px; background:rgba(100,140,185,.065); border:1px solid var(--border); font-size:.86rem; }
+.ai-group-summary p { color:var(--muted); margin:6px 0 0; }
+.ai-group-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:12px 0; }
+.ai-draft-head { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+.ai-draft-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.ai-subject-picker { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:10px; }
+.ai-subject-chip { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border:1px solid var(--border); border-radius:18px; background:var(--surface-alt,rgba(100,140,185,.07)); font-size:.82rem; cursor:pointer; }
+.ai-subject-chip:has(input:checked) { border-color:var(--primary); background:rgba(72,125,210,.13); font-weight:700; }
+.ai-subject-chip input { width:auto; margin:0; accent-color:var(--primary); }
+.ai-draft-warning { color:#a65d07 !important; }
+@media(max-width:640px) {
+ .ai-group-toolbar .btn { flex:1 1 42%; }
+ .ai-draft-actions { width:100%; }
+ .ai-draft-actions .btn { flex:1 1 auto; }
+ #aiSiteCmd { min-height:70px; }
+}
