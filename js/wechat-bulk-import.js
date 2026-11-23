@@ -33,7 +33,7 @@ function sourcesFor(batch, indices) {
 }
 function duplicateFor(item) {
   return findBulkDuplicate(item.order, [
-    ...existing(), ...state.drafts.filter(x=>x!==item && !x.published).map(x=>x.order)
+    ...existing(), ...state.drafts.slice(0, state.drafts.indexOf(item)).filter(x=>!x.published).map(x=>x.order)
   ]);
 }
 function validToPublish(item) {
@@ -161,13 +161,13 @@ function bind() {
     if (!mayReplace()) return;
     state.docs.push({name:'手动粘贴 '+(state.docs.length+1),
       messages:splitWechatMessages(state.pastedText,'手动粘贴 '+(state.docs.length+1))});
-    state.pastedText = '';
+    state.pastedText = '';state.consent=false;
     try{refreshMessages();render();}catch(error){state.error=error.message;render();}
   };
   find('bulkReset').onclick=()=>{
     if(!state.docs.length || confirm('确定清空本次尚未发布的历史导入数据？已经保存的订单不会被删除。')){
       Object.assign(state,{docs:[],messages:[],batches:[],drafts:[],updates:[],warnings:[],
-        pastedText:'',error:'',report:[],shown:30});render();
+        pastedText:'',consent:false,error:'',report:[],shown:30});render();
     }
   };
   find('bulkRun').onclick=()=>{void process(false);};
@@ -217,6 +217,7 @@ async function addFiles(files) {
     const parsed=await readWechatFiles(files);
     if(!parsed.documents.length && parsed.warnings.length)throw new Error(parsed.warnings.join('；'));
     state.docs.push(...parsed.documents);
+    state.consent=false;
     state.warnings.push(...parsed.warnings);
     refreshMessages();render();
     deps.toast('已本地读取 '+parsed.documents.length+' 份文档，共 '+state.messages.length+' 条消息');
@@ -235,7 +236,7 @@ async function process(retryOnly) {
       if(batch.messages.some(x=>redactWechatText(x.text).length>9000))continue;
       batch.status='working';batch.error='';render();
       try {
-        const redacted=batch.messages.map(x=>({...x,text:redactWechatText(x.text)}));
+        const redacted=batch.messages.map((x,n)=>({source:'本批消息 '+(n+1),text:redactWechatText(x.text)}));
         const result=await parseBulkWechatMessages(redacted,reserved());
         const before=state.drafts.length;
         for(let j=0;j<result.orders.length;j++){
