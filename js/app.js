@@ -217,6 +217,27 @@ function renderMultiFilter(id, supplied = []) {
   details.querySelector("summary").title = chosen.length ? chosen.map(x => labels.get(x) || x).join("、") : "点击勾选多个" + label;
 }
 
+function renderSelectedFilterChips() {
+  const area = $("selectedFilterChips");
+  if (!area) return;
+  const chips = [];
+  for (const id of MULTI_FILTER_IDS) {
+    const labels = new Map((MULTI_FILTER_OPTIONS[id] || []).map(option => [option.value, option.label]));
+    for (const value of selectedValues(id)) {
+      const display = labels.get(value) || value;
+      chips.push('<button type="button" data-clear-filter-id="' + escapeHtml(id) +
+        '" data-clear-filter-value="' + escapeHtml(value) + '" aria-label="移除筛选：' +
+        escapeHtml(MULTI_FILTER_LABELS[id] + display) + '">' +
+        escapeHtml(MULTI_FILTER_LABELS[id] + "：" + display) + ' ×</button>');
+    }
+  }
+  if ($("qMinRate").value) chips.push('<button type="button" data-clear-filter-id="qMinRate">时薪 ≥ ' +
+    escapeHtml($("qMinRate").value) + ' ×</button>');
+  if (state.onlySelected) chips.push('<button type="button" data-clear-filter-id="onlySelected">仅看已选单 ×</button>');
+  area.hidden = chips.length === 0;
+  area.innerHTML = chips.join("");
+}
+
 function initializeMultiFilters() {
   for (const id of MULTI_FILTER_IDS) {
     const details = $(id);
@@ -390,6 +411,7 @@ function renderHall() {
   const activeCount = countSelectedFilters(state.multiFilters, $("qMinRate").value, state.onlySelected);
   $("activeFilterCount").textContent = activeCount ? ` · 已选 ${activeCount} 项` : "";
   $("quickFilterCount").textContent = activeCount ? String(activeCount) : "";
+  renderSelectedFilterChips();
   $("btnListMode").classList.toggle("active", state.layout === "list");
   $("btnCardMode").classList.toggle("active", state.layout === "cards");
   $("btnListMode").setAttribute("aria-pressed", String(state.layout === "list"));
@@ -1610,6 +1632,22 @@ function initControls() {
   });
   initializeMultiFilters();
   loadSavedFilters();
+  $("selectedFilterChips").addEventListener("click", event => {
+    const button = event.target.closest("[data-clear-filter-id]");
+    if (!button) return;
+    const id = button.dataset.clearFilterId;
+    if (id === "onlySelected") {
+      state.onlySelected = false;
+      $("onlySelected").checked = false;
+    } else if (id === "qMinRate") {
+      $("qMinRate").value = "";
+    } else if (MULTI_FILTER_IDS.includes(id)) {
+      state.multiFilters[id] = selectedValues(id).filter(v => v !== button.dataset.clearFilterValue);
+    }
+    $("aiSelectionSummary").hidden = true;
+    saveFilters();
+    renderHall();
+  });
 
   ["qSearch", "qSort", "qMinRate"].forEach((id) => {
     const changed = () => {
