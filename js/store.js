@@ -218,7 +218,8 @@ export const Store = {
   async updateSiteConfig(patch) {
     if (cloudReady) {
       const res = await apiPost({ action: "admin_update_site", patch });
-      if (res?.ok) cloudState.siteConfig = res.siteConfig;
+      if (!res?.ok) throw new Error(res?.error || "网站设置保存失败");
+      cloudState.siteConfig = res.siteConfig;
       return cloudState.siteConfig;
     }
     const next = { ...this.getSiteConfig(), ...patch };
