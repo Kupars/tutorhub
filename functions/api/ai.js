@@ -34,6 +34,8 @@ export async function onRequestPost(context) {
     if (!publicRecommend && !env.TUTOR_KV)
       return jsonResp({ok:false,error:"管理员 AI 需要启用 Cloudflare KV 和管理员登录，以防滥用模型额度"},503);
     if (action === "extract_teacher_resume") {
+      if (payload?.consent !== true)
+        return jsonResp({ ok: false, error: "提交简历前需确认已获得适当授权，并知晓内容将发送给第三方 AI" }, 400);
       if (!String(payload?.text||"").trim() && !payload?.imageData) return jsonResp({ok:false,error:"请粘贴简历文字或上传图片"},400);
       if (payload?.imageData && (typeof payload.imageData !== "string" || payload.imageData.length > 1250000 || !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(payload.imageData)))
         return jsonResp({ok:false,error:"图片过大或格式不受支持，请上传压缩后的 JPG/PNG/WebP 简历"},413);
