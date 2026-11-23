@@ -614,7 +614,7 @@ function renderAdminView() {
       <p class="admin-helper">家长微信可以直接粘贴到下方 AI 整理区；也可以手动填表。发布时自动优化公开地址表述，不会猜测未提供的小区或门牌。</p>
       <form id="manualOrderForm">
         <div class="admin-manual-grid">
-          <div class="field"><label for="manualId">编号</label><input id="manualId" required value="${escapeHtml(state.editingOrderId || nextOrderId(orders))}" placeholder="#2992" /></div>
+          <div class="field"><label for="manualId">编号</label><input id="manualId" required value="${escapeHtml(state.editingOrderId || nextOrderId([...orders, { orderNumber: `#${Store.getOrderSequence()}` }]))}" placeholder="#2992" /></div>
           <div class="field"><label for="manualGrade">年级</label><select id="manualGrade">${GRADES.map((g) => `<option>${g}</option>`).join("")}</select></div>
           <div class="field"><label for="manualStudentGender">学生性别</label><select id="manualStudentGender"><option value="待补充">待补充</option><option value="男生">男生</option><option value="女生">女生</option></select></div>
           <div class="field wide"><label for="manualSubject">补习科目</label><input id="manualSubject" required placeholder="数学、物理" /></div>
@@ -790,7 +790,7 @@ function renderAdminView() {
     const raw = $("rawOrderInput").value.trim();
     if (!raw) return showToast("请先粘贴零散家教信息");
     showToast("正在整理家教单...");
-    const res = await parseMessyOrders(raw, Store.getOrders());
+    const res = await parseMessyOrders(raw, [...Store.getOrders(), { orderNumber: `#${Store.getOrderSequence()}` }]);
     state.parsedDraftOrders = res.orders;
     renderAdminView();
     showToast(`解析完成（${res.source}），共识别 ${res.orders.length} 条`);
@@ -821,7 +821,7 @@ function renderAdminView() {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      state.parsedDraftOrders = importOrderTable(await file.text(), Store.getOrders());
+      state.parsedDraftOrders = importOrderTable(await file.text(), [...Store.getOrders(), { orderNumber: `#${Store.getOrderSequence()}` }]);
       if (!state.parsedDraftOrders.length) throw new Error("文件中没有识别到有效家教单");
       renderAdminView();
       showToast(`已导入 ${state.parsedDraftOrders.length} 条草稿，请校对后发布`);
