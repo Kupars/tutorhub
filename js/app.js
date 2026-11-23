@@ -11,8 +11,7 @@ import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGen
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
 import { renderAssignmentAdmin, bindAssignmentAdmin } from "./admin-assignment-view.js?v=2";
-import { missingDraftFields } from "./structured-order-extractor.js?v=2";
-import { splitDraftSubjects, mergeDraftSubjects, checkDraftIds } from "./draft-grouping.js?v=1";
+import { splitDraftSubjects, mergeDraftSubjects, checkDraftIds, missingDraftFields } from "./draft-grouping.js?v=2";
 
 const state = {
   view: "hall",
