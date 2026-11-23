@@ -18,7 +18,8 @@ export function sanitizeTeacherResumeResult(result) {
   const name=String(source.teacherName||"").trim().slice(0,80);
   const school=String(source.teacherSchool||"").trim().slice(0,120);
   const gender=["男","女"].includes(source.teacherGender)?source.teacherGender:"未知";
-  const canTeach=String(source.canTeach||"").trim().slice(0,200);\n  const type=["在校生","专职老师","未知"].includes(source.teacherType)?source.teacherType:"未知";
+  const canTeach=String(source.canTeach||"").trim().slice(0,200);
+  const type=["在校生","专职老师","未知"].includes(source.teacherType)?source.teacherType:"未知";
   const confidence=["高","中","低"].includes(source.confidence)?source.confidence:"低";
   const safeName=/^(?:未知|待补充|无|不确定|没写|未提供)$/.test(name)?"":name;
   return {teacherName:safeName,teacherSchool:school,teacherGender:gender,canTeach,teacherType:type,confidence,
