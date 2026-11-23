@@ -48,29 +48,10 @@ function writeJSON(key, val) {
   localStorage.setItem(key, JSON.stringify(val));
 }
 
+// 生产环境没有本地管理员模式。管理员身份必须由云端服务端鉴权。
 function ensureLocalInit() {
-  if (!localStorage.getItem(KEYS.orders)) writeJSON(KEYS.orders, SAMPLE_ORDERS);
-  const existing = readJSON(KEYS.orders, []);
-  if (Array.isArray(existing) && existing.some((order) => LEGACY_DEMO_IDS.has(order.id))) {
-    writeJSON(KEYS.orders, existing.filter((order) => !LEGACY_DEMO_IDS.has(order.id)));
-  }
-  if (!localStorage.getItem(KEYS.site)) writeJSON(KEYS.site, DEFAULT_SITE_CONFIG);
-  if (!localStorage.getItem(KEYS.users)) {
-    writeJSON(KEYS.users, [
-      {
-        id: "admin-1",
-        email: "admin@kupars.top",
-        passwordHash: btoa("admin123456"),
-        name: "管理员",
-        wechat: "",
-        role: "admin",
-        defaultOrigin: APP_CONFIG.presetLocations[0],
-        createdAt: "2026-11-01T00:00:00Z"
-      }
-    ]);
-  }
+  // 仅保留本机筛选和位置偏好，不创建可猜测的默认管理员账号。
 }
-
 ensureLocalInit();
 
 async function apiPost(payload) {
@@ -282,8 +263,11 @@ export const Store = {
   },
 
   getOrders() {
-    const orders = cloudReady ? cloudState.orders : readJSON(KEYS.orders, SAMPLE_ORDERS);
-    const hidden = cloudReady ? cloudState.hiddenImported : readJSON(KEYS.hiddenImported, []);
+    // 云端失联时不可展示本机缓存订单或未经核实仍开放的历史单。
+    // 避免把已经关闭/设为私密的单子重新公开。
+    if (!cloudReady) return [];
+    const orders = cloudState.orders;
+    const hidden = cloudState.hiddenImported;
     const byId = new Map(importedOrders.filter((o) => !hidden.includes(o.id)).map((o) => [o.id, o]));
     for (const order of Array.isArray(orders) ? orders : []) byId.set(order.id, order);
     return [...byId.values()].filter((o) => !hidden.includes(o.id) && !LEGACY_DEMO_IDS.has(o.id)).map((raw) => {
@@ -365,7 +349,7 @@ export const Store = {
   },
 
   getCurrentUser() {
-    return readJSON(KEYS.session, null);
+    return cloudReady ? readJSON(KEYS.session, null) : null;
   },
   getTeachers() {
     if (cloudReady) return cloudState.teachers;
@@ -375,30 +359,13 @@ export const Store = {
   },
 
   async login(email, password) {
-    if (cloudReady) {
-      const res = await apiPost({ action: "login", email, password });
-      if (!res?.ok) return { ok: false, error: res?.error || "登录失败" };
-      localStorage.setItem(KEYS.token, res.token);
-      writeJSON(KEYS.session, res.user);
-      await this.syncSessionFromCloud();
-      return { ok: true, user: res.user };
-    }
-    const users = readJSON(KEYS.users, []);
-    const found = users.find(
-      (u) => (u.email.toLowerCase() === email.trim().toLowerCase() || (email.trim().toLowerCase() === "admin@tutorhub.cn" && u.role === "admin")) &&
-        u.passwordHash === btoa(password)
-    );
-    if (!found) return { ok: false, error: "邮箱或密码不正确" };
-    const safeUser = {
-      id: found.id,
-      email: found.email,
-      name: found.name,
-      wechat: found.wechat || "",
-      role: found.role,
-      defaultOrigin: found.defaultOrigin || readJSON(KEYS.origin, APP_CONFIG.presetLocations[0])
-    };
-    writeJSON(KEYS.session, safeUser);
-    return { ok: true, user: safeUser };
+    if (!cloudReady) return { ok: false, error: "安全云端服务暂不可用，不能使用本机离线管理员登录" };
+    const res = await apiPost({ action: "login", email, password });
+    if (!res?.ok) return { ok: false, error: res?.error || "登录失败" };
+    localStorage.setItem(KEYS.token, res.token);
+    writeJSON(KEYS.session, res.user);
+    await this.syncSessionFromCloud();
+    return { ok: true, user: res.user };
   },
 
   async register({ name, wechat, email, password, defaultOrigin }) {
@@ -435,8 +402,18 @@ export const Store = {
   },
 
   logout() {
+    const token = localStorage.getItem(KEYS.token);
     localStorage.removeItem(KEYS.session);
     localStorage.removeItem(KEYS.token);
+    if (token && cloudReady) {
+      // 通知服务端撤销本次会话；即使离线也先在本机退出。
+      void fetch(`${APP_CONFIG.apiBase}/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "logout" }),
+        cache: "no-store", keepalive: true
+      }).catch(() => {});
+    }
     cloudState.myResume = null;
     cloudState.teachers = [];
     cloudState.applications = [];
