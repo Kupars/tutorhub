@@ -148,7 +148,7 @@ export function bindTeacherPool(container,store,rerender,showToast) {
   container.querySelectorAll("[data-open-app]").forEach(btn=>btn.onclick=()=>reveal(btn.dataset.openApp));
   container.querySelectorAll("[data-edit-teacher]").forEach(btn=>btn.onclick=()=>{
     editingTeacherId=btn.dataset.editTeacher;
-    resumeInput="";latestExtraction="";
+    autoLinkOrderId="";resumeInput="";latestExtraction="";
     rerender();
     document.getElementById("teacherProfileEditor")?.scrollIntoView({behavior:"smooth",block:"start"});
   });
@@ -170,7 +170,7 @@ export function bindTeacherPool(container,store,rerender,showToast) {
   const teacherResume=document.getElementById("teacherResumeText");
   if(teacherResume) teacherResume.oninput=()=>{resumeInput=teacherResume.value;};
   const clear=document.getElementById("teacherResetEditor");
-  if(clear)clear.onclick=()=>{editingTeacherId="";resumeInput="";latestExtraction="";rerender();};
+  if(clear)clear.onclick=()=>{editingTeacherId="";autoLinkOrderId="";resumeInput="";latestExtraction="";rerender();};
   const extract=document.getElementById("teacherAIExtract");
   if(extract)extract.onclick=async()=>{
     const file=document.getElementById("teacherResumeFile")?.files?.[0];
