@@ -22,7 +22,8 @@ export async function onRequest(context) {
   const { request, env } = context;
 
   if (request.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders() });
+    // 浏览器中本域 fetch 不需要开放给其他网站的跨域凭据读取。
+    return new Response(null, { status: 204, headers: { "Allow": "GET, POST, OPTIONS", "Cache-Control": "no-store" } });
   }
 
   if (!env.TUTOR_KV) {
@@ -53,11 +54,20 @@ export async function onRequest(context) {
     if (request.method !== "POST") {
       return jsonResp({ ok: false, error: "Method not allowed" }, 405);
     }
-
+    const origin = request.headers.get("Origin");
+    if (origin && origin !== new URL(request.url).origin) {
+      return jsonResp({ ok: false, error: "仅允许从本站操作管理员接口" }, 403);
+    }
+    // 私人资料不允许使用默认密码或默认签名密钥；没有强配置时直接拒绝。
+    if (!env.ADMIN_PASSWORD || String(env.ADMIN_PASSWORD).length < 12 ||
+        !env.AUTH_SECRET || String(env.AUTH_SECRET).length < 32) {
+      return jsonResp({ ok: false, code: "ADMIN_SECURITY_NOT_CONFIGURED",
+        error: "后台未安全启用：请在 Cloudflare 设置至少12位管理员密码和至少32位随机 AUTH_SECRET" }, 503);
+    }
     const body = await request.json();
     const { action } = body;
-    const secret = env.AUTH_SECRET || env.ADMIN_PASSWORD || "tutor-hub-default-hmac-secret-change-me";
-    const authUser = await verifyAuthHeader(request, secret);
+    const secret = String(env.AUTH_SECRET);
+    const authUser = await verifyAuthHeader(request, secret, env.TUTOR_KV);
 
     // 老师端账号、简历与投递功能已下线；历史 KV 数据保留，不做破坏性删除。
     if (["register", "save_origin", "save_resume", "apply", "update_my_app", "admin_update_app"].includes(action)) {
@@ -69,18 +79,22 @@ export async function onRequest(context) {
     if (action === "login") {
       const { email, password } = body;
       const normEmail = (email || "").trim().toLowerCase();
-      const adminEmail = (env.ADMIN_EMAIL || "admin@tutor.kupars.top").toLowerCase();
-      const adminPass = env.ADMIN_PASSWORD || "admin123456";
-
-      if (
-        (normEmail === adminEmail || normEmail === "admin@kupars.top" || normEmail === "admin@tutorhub.cn") &&
-        password === adminPass
-      ) {
-        const adminUser = { id: "admin", email: normEmail, name: "管理员", wechat: "", role: "admin" };
+      const adminEmail = String(env.ADMIN_EMAIL || "admin@tutor.kupars.top").trim().toLowerCase();
+      const ipHash = await sha256(String(request.headers.get("CF-Connecting-IP") || "unknown"));
+      const key = "auth_failure_" + ipHash;
+      const failures = await kvGet(env.TUTOR_KV, key, { count: 0, start: 0 });
+      const now = Date.now();
+      const count = now - (Number(failures.start)||0) < 900000 ? Number(failures.count)||0 : 0;
+      if (count >= 8) return jsonResp({ ok: false, error: "登录尝试次数过多，请15分钟后再试" }, 429);
+      if (normEmail === adminEmail && typeof password === "string" && password === env.ADMIN_PASSWORD) {
+        await env.TUTOR_KV.put(key, JSON.stringify({ count: 0, start: now }), { expirationTtl: 60 });
+        const adminUser = { id: "admin", email: normEmail, name: "管理员", role: "admin" };
         const token = await signToken({ id: "admin", role: "admin", email: normEmail }, secret);
         return jsonResp({ ok: true, user: adminUser, token });
       }
-
+      await env.TUTOR_KV.put(key, JSON.stringify({
+        count: count + 1, start: count ? failures.start : now
+      }), { expirationTtl: 900 });
       return jsonResp({ ok: false, error: "管理员邮箱或密码不正确" }, 401);
     }
 
@@ -92,6 +106,13 @@ export async function onRequest(context) {
       return jsonResp({ ok: false, error: "仅管理员可以操作后台" }, 403);
     }
 
+    if (action === "logout") {
+      if (authUser.jti) {
+        await env.TUTOR_KV.put("revoked_session_" + authUser.jti,
+          "1", { expirationTtl: 7200 });
+      }
+      return jsonResp({ ok: true });
+    }
     if (action === "me") {
       return jsonResp({ ok: true, user: { id: "admin", email: authUser.email, name: "管理员", role: "admin" } });
     }
@@ -435,39 +456,52 @@ async function sha256(str) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function signToken(payload, secret) {
-  const data = btoa(unescape(encodeURIComponent(JSON.stringify({ ...payload, exp: Date.now() + 7 * 86400_000 }))));
-  const sig = await sha256(`${data}.${secret}`);
-  return `${data}.${sig}`;
+async function hmacHex(data, secret) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
+  return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function verifyAuthHeader(request, secret) {
-  const h = request.headers.get("Authorization") || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7).trim() : "";
-  if (!token || !token.includes(".")) return null;
-  const [data, sig] = token.split(".");
-  const expected = await sha256(`${data}.${secret}`);
-  if (sig !== expected) return null;
+function constantTimeHexEquals(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+  let different = 0;
+  for (let i = 0; i < a.length; i++) different |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return different === 0;
+}
+
+async function signToken(payload, secret) {
+  const data = btoa(unescape(encodeURIComponent(JSON.stringify({
+    ...payload, jti: crypto.randomUUID(), exp: Date.now() + 2 * 3600_000
+  }))));
+  const sig = await hmacHex(data, secret);
+  return data + "." + sig;
+}
+
+async function verifyAuthHeader(request, secret, kv) {
+  const authorization = request.headers.get("Authorization") || "";
+  if (!authorization.startsWith("Bearer ")) return null;
+  const token = authorization.slice(7).trim();
+  const pieces = token.split(".");
+  if (pieces.length !== 2 || pieces[0].length > 2500) return null;
+  const [data, sig] = pieces;
+  const expected = await hmacHex(data, secret);
+  if (!constantTimeHexEquals(sig, expected)) return null;
   try {
     const parsed = JSON.parse(decodeURIComponent(escape(atob(data))));
-    if (parsed.exp && parsed.exp < Date.now()) return null;
+    if (parsed.role !== "admin" || parsed.id !== "admin" ||
+        !parsed.jti || !/^[a-zA-Z0-9-]{16,80}$/.test(parsed.jti) ||
+        !Number.isFinite(parsed.exp) ||
+        parsed.exp <= Date.now() || parsed.exp > Date.now() + 2 * 3600_000 + 60000) return null;
+    if (await kv.get("revoked_session_" + parsed.jti)) return null;
     return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type,Authorization"
-  };
+  } catch { return null; }
 }
 
 function jsonResp(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...corsHeaders() }
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" }
   });
 }
