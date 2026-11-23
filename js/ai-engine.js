@@ -237,9 +237,10 @@ export async function interpretSiteCommand(commandText, currentSiteConfig, order
     const target = orders.find((o) => [o.id, o.orderNumber].some((value) =>
       String(value || "").replace(/^#/, "") === rawId));
     if (target) {
-      const rateMatch = commandText.match(/(\d{2,3})\s*(?:元|块|\/小时)?/);
+      const rateMatch = commandText.match(/(?:时薪|薪资|课时费|价格|报价)[^\n]{0,20}?(?:改为|改成|设为|调整为)?\s*(\d{2,3})\s*(?:元|块)/) ||
+        commandText.match(/(?:改为|改成|调整为|设为)\s*(\d{2,3})\s*(?:元|块)/);
       const patch = {};
-      if (/课时费|价格|薪资|改成\d+/.test(commandText) && rateMatch) {
+      if (/课时费|价格|薪资|时薪|报价|元\/小时/.test(commandText) && rateMatch) {
         patch.hourlyRate = Number(rateMatch[1]);
         patch.salaryText = `${patch.hourlyRate}元/小时（可报价）`;
         summary.push(`拟将 ${target.orderNumber || target.id} 的课时费调整为 ¥${patch.hourlyRate}/小时`);
