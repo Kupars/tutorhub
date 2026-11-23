@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=5";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=9";
-import { parseMessyOrders, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI } from "./ai-engine.js?v=2";
+import { parseMessyOrders, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=3";
 import { Store } from "./store.js";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
@@ -11,6 +11,7 @@ import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGen
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
 import { renderAssignmentAdmin, bindAssignmentAdmin } from "./admin-assignment-view.js?v=1";
+import { missingDraftFields } from "./structured-order-extractor.js";
 
 const state = {
   view: "hall",
@@ -657,12 +658,13 @@ function renderAdminView() {
     </div>
 
     <div class="panel">
-      <h2>🤖 AI 实时修改 / 更新网站</h2>
-      <p style="font-size:13px;color:var(--muted);margin-bottom:8px;">输入自然语言即可实时更新网站公告、主题配色或指定家教单价格与状态：</p>
+      <h2>🤖 AI 辅助修改（管理员确认后执行）</h2>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:8px;">当前仅支持公告、主题和指定家教单的时薪／状态。不能直接修改网页代码，也不允许 AI 自动执行操作：</p>
       <div style="display:flex;gap:8px;">
         <input id="aiSiteCmd" placeholder="例如：把公告改成寒假特惠招募中，切换成温暖橙主题，把 JJ-2026-101 课时费改成 180 元" />
         <button class="btn btn-primary" id="btnRunSiteCmd" style="white-space:nowrap;">执行更新</button>
       </div>
+      <div class="admin-editor-actions"><button class="btn btn-sm" id="btnProbeAI" type="button">检测 AI 接口是否接通</button><span class="admin-helper" id="aiProbeResult">更换模型可在 Cloudflare 环境变量设置 OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL，密钥不放网页。</span></div>
       <p id="aiSiteReply" style="font-size:13px;color:var(--primary);margin-top:8px;"></p>
     </div>
 
@@ -826,17 +828,49 @@ function renderAdminView() {
     } catch (err) { showToast(`导入失败：${err.message}`); }
   };
 
+
+  $("btnProbeAI").onclick = async () => {
+    const button = $("btnProbeAI");
+    button.disabled = true;
+    $("aiProbeResult").textContent = "正在向已配置的真实模型发送测试请求…";
+    try {
+      const result = await probeAIProvider();
+      $("aiProbeResult").textContent = result.ok
+        ? `✅ 模型调用成功：${result.provider}。这是实际接口测试，不是内置规则引擎。`
+        : `⚠️ 模型未通过检测：${result.error}。当前仍可使用保守的规则提取。`;
+    } catch (error) { $("aiProbeResult").textContent = `模型检测出错：${error.message}`; }
+    finally { button.disabled = false; }
+  };
   $("btnRunSiteCmd").onclick = async () => {
     const cmd = $("aiSiteCmd").value.trim();
     if (!cmd) return;
-    const res = await interpretSiteCommand(cmd, Store.getSiteConfig(), Store.getOrders());
-    for (const act of res.actions || []) {
-      if (act.type === "update_site") await Store.updateSiteConfig(act.patch);
-      if (act.type === "update_order") await Store.updateOrder(act.id, act.patch);
-    }
-    applySiteConfig();
-    renderAdminView();
-    $("aiSiteReply").textContent = `${res.reply}（${res.source}）`;
+    const button = $("btnRunSiteCmd");
+    button.disabled = true;
+    let reply = "";
+    try {
+      const res = await interpretSiteCommand(cmd, Store.getSiteConfig(), Store.getOrders());
+      const actions = res.actions || [];
+      if (!actions.length) { $("aiSiteReply").textContent = `${res.reply}（${res.source}）`; return; }
+      const preview = actions.map((a) => {
+        if (a.type === "update_site") return `网站设置：${JSON.stringify(a.patch)}`;
+        const matched = Store.getOrders().find((o) => o.id === a.id);
+        return `家教单 ${matched?.orderNumber || a.id}：${JSON.stringify(a.patch)}`;
+      }).join("\\n");
+      if (!confirm(`模型仅提出以下操作（${res.source}），尚未执行：\\n\\n${preview}\\n\\n确认执行吗？`)) {
+        $("aiSiteReply").textContent = "已取消，本次没有修改网站。"; return;
+      }
+      let done = 0;
+      for (const action of actions) {
+        if (action.type === "update_site") await Store.updateSiteConfig(action.patch);
+        else if (action.type === "update_order") await Store.updateOrder(action.id, action.patch);
+        done++;
+      }
+      reply = `✅ 已执行 ${done} 项已确认操作。其余网站代码修改仍需通过 GitHub 更新。`;
+      applySiteConfig();
+      renderAdminView();
+      $("aiSiteReply").textContent = reply;
+    } catch (error) { showToast(`执行失败：${error.message}`); $("aiSiteReply").textContent = `执行失败，请检查后台数据：${error.message}`; }
+    finally { button.disabled = false; }
   };
 
   $("adminOrderSearch").oninput = (event) => {
@@ -970,6 +1004,7 @@ function renderParsedPreview() {
           <button class="btn btn-danger btn-sm" data-remove-draft="${index}">移除</button>
         </div>
       </div>
+      ${missingDraftFields(o).length ? `<p class="admin-helper" style="color:#a65d07">需要向家长核实：${escapeHtml(missingDraftFields(o).join("、"))}。默认格式不代表家长已确认。</p>` : ""}
       ${findPotentialDuplicates([o], Store.getOrders()).length
         ? `<p class="admin-helper" style="color:#a65d07">⚠️ 可能与已有单重复：${escapeHtml(findPotentialDuplicates([o], Store.getOrders()).slice(0, 3).map((item) => item.existing.orderNumber || item.existing.id).join("、"))}；发布前请核对。</p>`
         : ""}
