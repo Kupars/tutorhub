@@ -1,7 +1,8 @@
 // Pure structural utilities for administrator-only historical imports.
 // These routines find message boundaries; they DO NOT parse tutoring fields.
 const clean = value => String(value == null ? '' : value).replace(/\r\n?/g, '\n').replace(/^\uFEFF/, '').trim();
-const idHeader = line => /^\s*(?:[#＃]\d{3,7}(?:-\d+)?\s*(?:[\/／、\s]|$)|(?:家教单|订单|单号)\s*[：:]\s*#?\d{3,7})/.test(line);
+const idHeader = line => /^\s*(?:[#＃]\d{3,7}(?:-\d+)?(?:[^\d-]|$)|(?:家教单|订单|单号)\s*[：:]\s*#?\d{3,7})/.test(line);
+const senderHeader = line => /^[·•]\s*\S.{0,100}$/.test(line);
 const timeHeader = line => /^\s*(?:\[?\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}(?:日)?[\sT]+\d{1,2}:\d{2}(?:\:\d{2})?\]?|(?:周[一二三四五六日天])?\s*\d{1,2}:\d{2}\s+\S{1,36}\s*[:：])/.test(line);
 const standardStart = line => /^\s*【(?:年级性别|学生年级|年级)】/.test(line);
 export function splitWechatMessages(input, source = '粘贴内容') {
@@ -21,12 +22,42 @@ export function splitWechatMessages(input, source = '粘贴内容') {
     if (/^(?:={5,}|[-—]{6,})\s*$/.test(trimmed)) { flush(); continue; }
     if (!trimmed) { current.push(''); blanks++; continue; }
     const priorText = current.some(s => s.trim());
-    const header = idHeader(trimmed) || timeHeader(trimmed) ||
+    // WeChat's "merged forward to other apps" format is:
+    // ·Sender / 2026年11月23日 15:09 / #1234/... / nine fields.
+    // Keep these lines in ONE message. The previous implementation broke every
+    // message into metadata + a record and doubled the AI request count.
+    const nextLine = lines[index + 1]?.trim() || '';
+    const newSender = senderHeader(trimmed) && timeHeader(nextLine);
+    const hasExistingOrder = current.some(s => idHeader(s.trim()) ||
+      /^【(?:补习科目|薪资)】/.test(s.trim()));
+    const senderOnly = current.filter(s => s.trim()).every(s => senderHeader(s.trim()));
+    const header = newSender ||
+      (timeHeader(trimmed) && !senderOnly) ||
+      (idHeader(trimmed) && hasExistingOrder) ||
       (standardStart(trimmed) && current.some(s => /【(?:年级性别|补习科目|薪资)】/.test(s)));
     if (priorText && (header || blanks >= 2)) flush();
     current.push(line); blanks = 0;
   }
   flush();
+  return result;
+}
+// Structural completeness check ONLY: do not turn the source into orders locally.
+// The model must return one mapped draft for every numbered, nine-field demand.
+export function missingStructuredOrderSources(messages, orders) {
+  const result = [];
+  for (let i = 0; i < messages.length; i++) {
+    const raw = String(messages[i]?.text || '');
+    if (!/【年级性别】/.test(raw) || !/【补习科目】/.test(raw)) continue;
+    const ids = [...new Set([...raw.matchAll(/^\s*[#＃](\d{3,7}(?:-\d+)?)/gm)]
+      .map(match => '#' + match[1]))];
+    for (const id of ids) {
+      const matched = (orders || []).some(order =>
+        Array.isArray(order?.sourceMessageIndices) && order.sourceMessageIndices.includes(i + 1) &&
+        (String(order.id || order.orderNumber) === id ||
+         String(order.id || order.orderNumber).startsWith(id + '-')));
+      if (!matched) result.push({sourceIndex:i+1, id});
+    }
+  }
   return result;
 }
 export function redactWechatText(input) {
