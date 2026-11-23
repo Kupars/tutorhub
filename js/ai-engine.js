@@ -3,8 +3,8 @@ import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText } from "./commute.js";
 import { getGenderFromText, nextOrderId, normalizeOrder, parseFormattedOrder } from "./order-format.js";
 import { normalizePublicAddress, safeOptimizedPublicAddress } from "./address-normalizer.js";
-import { extractRawOrderDrafts } from "./structured-order-extractor.js";
-import { guardSiteActions } from "./ai-command-guard.js";
+import { extractRawOrderDrafts } from "./structured-order-extractor.js?v=2";
+import { guardSiteActions } from "./ai-command-guard.js?v=2";
 
 let lastAIError = "";
 
