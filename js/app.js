@@ -504,6 +504,7 @@ function fillManualOrder(order) {
   $("manualSalary").value = o.salaryText;
   $("manualRequirements").value = o.requirements;
   $("manualTrial").value = o.trialTime;
+  $("manualPublishedAt").value = o.publishedAt ? String(o.publishedAt).slice(0, 10) : "";
   $("manualNotes").value = o.notes;
   $("manualOnline").checked = o.onlineAllowed;
   $("manualUrgent").checked = o.urgent;
@@ -531,6 +532,7 @@ function collectManualOrder(original = {}) {
     hourlyRate: 0,
     requirements: $("manualRequirements").value.trim(),
     trialTime: $("manualTrial").value.trim(),
+    publishedAt: $("manualPublishedAt").value ? new Date(`${$("manualPublishedAt").value}T00:00:00+08:00`).toISOString() : (original.publishedAt || ""),
     notes: $("manualNotes").value.trim(),
     onlineAllowed: $("manualOnline").checked,
     urgent: $("manualUrgent").checked,
@@ -627,6 +629,7 @@ function renderAdminView() {
           <div class="field"><label for="manualSalary">薪资（元/小时）</label><input id="manualSalary" placeholder="110～120元/小时（可报价）" /></div>
           <div class="field full"><label for="manualRequirements">对老师要求</label><textarea id="manualRequirements" rows="2" placeholder="无特殊要求"></textarea></div>
           <div class="field wide"><label for="manualTrial">试课时间（可选）</label><input id="manualTrial" placeholder="仅填写家长明确提供的试课时间" /></div>
+          <div class="field"><label for="manualPublishedAt">真实招募开始日期（可选）</label><input id="manualPublishedAt" type="date" title="历史导入单日期未知时，请人工确认后填写；用于超时提醒，不会把导入日期当发单日期" /></div>
           <div class="field"><label for="manualNotes">其他说明（可选）</label><input id="manualNotes" placeholder="只写真实信息" /></div>
         </div>
         <div class="admin-editor-actions">
