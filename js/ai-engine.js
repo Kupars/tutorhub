@@ -129,7 +129,14 @@ export async function optimizeOrderAddressesWithAI(orders) {
 // 外部模型解析站点/订单修改指令；只返回供管理员确认的安全白名单操作。
 // 不允许回退到内置解析器，更不允许直接执行模型返回的任意代码。
 export async function interpretSiteCommand(commandText,currentSiteConfig,orders,history=[]) {
-  const summaries=(Array.isArray(orders)?orders:[]).slice(0,220).map(o=>({
+  // 不把每次查询都附上全部历史单：只有指令涉及的单号才传入对应公开摘要。
+  const userContext=[...history.filter(h=>h?.role==="user").map(h=>h.content),commandText].join("\n");
+  const orderNumbers=new Set([...userContext.matchAll(/#\d{3,7}(?:-\d+)?/g)].map(m=>m[0]));
+  const pool=Array.isArray(orders)?orders:[];
+  const relevant=orderNumbers.size ? pool.filter(o=>orderNumbers.has(String(o.orderNumber||"")) ||
+    orderNumbers.has(String(o.id||""))) :
+    /家教单|订单|单号|改.*单|那个单|时薪|科目|学生|上课/.test(commandText) ? pool.slice(0,25) : [];
+  const summaries=relevant.slice(0,60).map(o=>({
     id:o.id,orderNumber:o.orderNumber,title:o.title,grade:o.grade,subject:o.subject,
     publicAddress:o.publicAddress,status:o.status,salaryText:o.salaryText,
     weeklyFrequency:o.weeklyFrequency,requirements:o.requirements
@@ -137,7 +144,6 @@ export async function interpretSiteCommand(commandText,currentSiteConfig,orders,
   const remote=await callServerlessAI("site_command",{
     command:commandText,history,siteConfig:currentSiteConfig,orders:summaries
   });
-  const userContext=[...history.filter(h=>h?.role==="user").map(h=>h.content),commandText].join("\n");
   const checked=guardSiteActions(remote,userContext,orders);
   return {source:remote.provider || "外部模型 API",reply:String(remote.reply || ""),
     questions:Array.isArray(remote.questions)?remote.questions:[],...checked};
