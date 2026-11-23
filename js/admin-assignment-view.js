@@ -86,6 +86,7 @@ export function bindAssignmentAdmin(container, store, rerender, showToast) {
     event.preventDefault();
     const submit = form.querySelector('button[type="submit"]');
     submit.disabled = true;
+    const markMatched = document.getElementById("assignmentCloseOrder").checked;
     try {
       await store.saveAssignment({
         orderId: activeOrderId,
@@ -93,11 +94,11 @@ export function bindAssignmentAdmin(container, store, rerender, showToast) {
         teacherName: document.getElementById("assignmentName").value.trim(),
         teacherContact: document.getElementById("assignmentContact").value.trim(),
         note: document.getElementById("assignmentNote").value.trim(),
-        markMatched: document.getElementById("assignmentCloseOrder").checked
+        markMatched
       });
       editingAssignmentId = "";
       rerender();
-      showToast("老师接单记录已保存" + (document.getElementById("assignmentCloseOrder")?.checked ? "，订单已下架" : ""));
+      showToast("老师接单记录已保存" + (markMatched ? "，订单已下架" : ""));
     } catch (error) { showToast("保存失败：" + error.message); }
     finally { submit.disabled = false; }
   };
