@@ -170,7 +170,7 @@ export async function onRequest(context) {
         teacherName: name, teacherContact: contact, note,
         assignedAt: matched?.assignedAt || now, updatedAt: now,
         district: String(order.district || "").slice(0, 50),
-        publicAddress: String(order.publicAddress || order.address || "").slice(0, 220),
+        publicAddress: String(order.publicAddress || (order.addressVisibility === "private" ? order.district : order.address) || "").slice(0, 220),
         subject: String(order.subject || "").slice(0, 90)
       };
       const nextAssignments = [entry, ...assignments.filter((a) => a.id !== entry.id)];
