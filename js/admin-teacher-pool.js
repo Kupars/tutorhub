@@ -78,6 +78,14 @@ export function renderTeacherPool(orders,profiles,applications,legacyAssignments
         </div>
       </div>
     </div>
+    ${legacyAssignments.length?`<details class="teacher-legacy-panel">
+      <summary>历史已接单老师记录（${legacyAssignments.length} 条，旧版数据已保留）</summary>
+      <p class="admin-helper">可参考旧版记录建立老师档案。以前接过单不代表现在有空，所以导入后默认为「待确认」，不会直接进入推荐。</p>
+      ${legacyAssignments.slice(0,60).map(entry=>`<div class="teacher-legacy-row">
+        <span><strong>${h(entry.teacherName)}</strong> · ${h(entry.subject||"科目未知")} · ${h(entry.district||"地区未知")}</span>
+        <button class="btn btn-sm" type="button" data-prefill-legacy="${h(entry.id)}">建立储备档案</button>
+      </div>`).join("")}
+    </details>`:""}
     <div class="teacher-application-panel" id="teacherApplicationPanel">
       <h3>${active?"投递老师 · "+showOrderName(active):"关联投递老师：请从下方家教单点击「登记投递」"}</h3>
       ${active?`
@@ -146,6 +154,18 @@ export function bindTeacherPool(container,store,rerender,showToast) {
     document.getElementById("teacherApplicationPanel")?.scrollIntoView({behavior:"smooth",block:"start"});
   };
   container.querySelectorAll("[data-open-app]").forEach(btn=>btn.onclick=()=>reveal(btn.dataset.openApp));
+  container.querySelectorAll("[data-prefill-legacy]").forEach(btn=>btn.onclick=()=>{
+    const item=store.getAssignments().find(x=>x.id===btn.dataset.prefillLegacy);
+    if(!item)return;
+    editingTeacherId="";autoLinkOrderId="";
+    resumeInput="";latestExtraction="从旧版记录预填；需人工核对当前可教科目和空闲状态。";
+    rerender();
+    document.getElementById("teacherName").value=item.teacherName||"";
+    document.getElementById("teacherContact").value=item.teacherContact||"";
+    document.getElementById("teacherCanTeach").value=item.subject||"";
+    document.getElementById("teacherAvailability").value="待确认";
+    document.getElementById("teacherProfileEditor")?.scrollIntoView({behavior:"smooth",block:"start"});
+  });
   container.querySelectorAll("[data-edit-teacher]").forEach(btn=>btn.onclick=()=>{
     editingTeacherId=btn.dataset.editTeacher;
     autoLinkOrderId="";resumeInput="";latestExtraction="";
