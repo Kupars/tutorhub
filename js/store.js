@@ -26,6 +26,7 @@ let cloudState = {
   orders: SAMPLE_ORDERS,
   hiddenImported: [],
   partTimePosts: [],
+  assignments: [],
   teachers: [],
   applications: [],
   myResume: null
@@ -138,6 +139,7 @@ export const Store = {
         if (meRes.user.role === "admin") {
           const adm = await apiPost({ action: "admin_data" });
           if (adm?.ok) {
+            cloudState.assignments = Array.isArray(adm.assignments) ? adm.assignments : [];
             cloudState.teachers = adm.teachers || [];
             cloudState.applications = adm.applications || [];
             if (Array.isArray(adm.orders)) cloudState.orders = adm.orders;
@@ -149,10 +151,32 @@ export const Store = {
       } else {
         localStorage.removeItem(KEYS.token);
         localStorage.removeItem(KEYS.session);
+        cloudState.assignments = [];
       }
     } catch {
       // ignore
     }
+  },
+
+  getAssignments() {
+    return this.getCurrentUser()?.role === "admin" && cloudReady ? cloudState.assignments : [];
+  },
+  async saveAssignment(record) {
+    if (!cloudReady) throw new Error("老师接单记录需要 Cloudflare KV 云端存储，当前未连接");
+    if (this.getCurrentUser()?.role !== "admin") throw new Error("只有管理员可以登记接单老师");
+    const importedOverride = importedOrders.find((o) => o.id === record.orderId);
+    const res = await apiPost({ action: "admin_save_assignment", ...record, importedOverride });
+    if (!res?.ok) throw new Error(res?.error || "老师接单记录保存失败");
+    cloudState.assignments = res.assignments;
+    if (Array.isArray(res.orders)) cloudState.orders = res.orders;
+    return cloudState.assignments;
+  },
+  async deleteAssignment(assignmentId) {
+    if (!cloudReady || this.getCurrentUser()?.role !== "admin") throw new Error("仅云端管理员可以删除匹配记录");
+    const res = await apiPost({ action: "admin_delete_assignment", assignmentId });
+    if (!res?.ok) throw new Error(res?.error || "删除失败");
+    cloudState.assignments = res.assignments;
+    return cloudState.assignments;
   },
 
   getSiteConfig() {
@@ -364,6 +388,7 @@ export const Store = {
     cloudState.myResume = null;
     cloudState.teachers = [];
     cloudState.applications = [];
+    cloudState.assignments = [];
   },
 
   getResume(userId) {
