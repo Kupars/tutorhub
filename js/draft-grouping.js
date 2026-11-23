@@ -104,3 +104,27 @@ export function missingDraftFields(order) {
   if(!order?.currentScores||/待补充/.test(order.currentScores))missing.push("成绩");
   return missing;
 }
+
+/**
+ * 将管理员确认同属一组来源需求的数张独立草稿编为 #主号-1、#主号-2。
+ * 不合并不同学生、不依赖同一个代理曾经发来的不同需求；历史已发布单号不会被重新编号。
+ */
+export function groupDraftsUnderParent(drafts,indices,existingOrders=[]) {
+  const list=Array.isArray(drafts)?drafts:[];
+  const selected=[...new Set(indices||[])].map(Number).filter(i=>Number.isInteger(i)&&i>=0&&i<list.length).sort((a,b)=>a-b);
+  if(selected.length<2)throw new Error("请先勾选至少两条属于同一来源需求的草稿");
+  const first=list[selected[0]];
+  const id=text(first.orderNumber||first.id);
+  const root=/^#\d{3,7}(?:-\d+)?$/.test(id)?rootId(id):
+    nextOrderId([...existingOrders,...list]);
+  const used=new Set([...existingOrders,...list.filter((_,i)=>!selected.includes(i))]
+    .map(o=>text(o.orderNumber||o.id)));
+  const replacements=new Map();
+  for(let n=0;n<selected.length;n++){
+    const next=newSuffix(root,used);
+    const original=list[selected[n]];
+    replacements.set(selected[n],{...original,id:next,orderNumber:next,
+      groupingDecision:"管理员编组",groupingReason:"同一来源需求的独立子单，分别保留原科目、学生及授课条件"});
+  }
+  return list.map((o,i)=>replacements.get(i)||o);
+}
