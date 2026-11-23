@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { extractRawOrderDrafts, missingDraftFields } from "../js/structured-order-extractor.js";
+import { splitDraftSubjects, mergeDraftSubjects, missingDraftFields } from "../js/draft-grouping.js";
+import { formatterPrompt, HISTORICAL_FORMAT_EXAMPLES } from "../functions/lib/tutoring-order-formatter.js";
 import { ageOfOpenOrder, recommendPastTeachers } from "../js/assignment-utils.js";
 import { guardSiteActions } from "../js/ai-command-guard.js";
 import { onRequest } from "../functions/api/store.js";
@@ -24,23 +25,35 @@ const call = async (env, action, body={}, authenticated=true) => {
   return {status:response.status, data:await response.json()};
 };
 
-test("兜底提取保留年级科目真实地点、周日和时薪，不把上课时刻当价格", () => {
-  const [a] = extractRawOrderDrafts("天津市津南区富力桃园，高一生物，周日9:00-11:00，120元一小时，女生");
-  assert.equal(a.grade, "高一");
-  assert.equal(a.subject, "生物");
-  assert.match(a.address, /津南区富力桃园/);
-  assert.match(a.weeklyFrequency, /周日/);
-  assert.equal(a.hourlyRate, 120);
-  assert.equal(a.studentGender, "女生");
+
+test("每次外部 API 的模型指令包含真实旧单风格、拆单合并和九字段规则", () => {
+  assert(HISTORICAL_FORMAT_EXAMPLES.length>=6);
+  const prompt=formatterPrompt("parse_orders",{text:"高二两名学生分别需要数学和物理"});
+  assert.match(prompt.system,/一名老师带多科/);
+  assert.match(prompt.system,/学生性别/);
+  assert.match(prompt.system,/不能复制案例/);
+  assert.match(prompt.user,/两名学生/);
 });
-test("不杜撰未知年级、成绩、学生性别和具体小区", () => {
-  const [order] = extractRawOrderDrafts("想找个老师，时间另商量，天津市南开区，老师有耐心即可");
-  assert.equal(order.grade, "年级待补充");
-  assert.equal(order.currentScores, "成绩待补充");
-  assert.equal(order.studentGender, "待补充");
-  assert(missingDraftFields(order).includes("年级"));
-  assert.equal(order.address, "天津市南开区");
+test("缺失字段只用于提醒，不再由内置解析器捏造事实", () => {
+  const missing=missingDraftFields({grade:"年级待补充",subject:"数学",
+    studentGender:"待补充",address:"地址待补充",weeklyFrequency:"待协商",currentScores:"成绩待补充"});
+  assert(missing.includes("学生性别"));
+  assert(missing.includes("补课地址"));
+  assert(missing.includes("成绩"));
 });
+test("管理员按科目拆两科又合并，保留剩余科目和各科成绩", () => {
+  const drafts=[{id:"#2992",orderNumber:"#2992",grade:"高二",studentGender:"女生",
+    subject:"数学、物理、化学",currentScores:"数学60分，物理70分，化学80分",
+    address:"天津市津南区富力桃园",publicAddress:"天津市津南区富力桃园"}];
+  const split=splitDraftSubjects(drafts,["0::数学","0::化学"]);
+  assert.deepEqual(split.map(x=>x.subject),["数学","化学","物理"]);
+  assert.deepEqual(split.map(x=>x.currentScores),["数学60分","化学80分","物理70分"]);
+  const merged=mergeDraftSubjects(split,["0::数学","1::化学"],true);
+  assert.equal(merged[0].subject,"数学、化学");
+  assert.equal(merged[1].subject,"物理");
+  assert.equal(drafts[0].subject,"数学、物理、化学");
+});
+
 test("历史批量导入不误判超时；真实新单可按发布时间提示", () => {
   const now = Date.parse("2026-12-10T12:00:00Z");
   assert.equal(ageOfOpenOrder({source:"feishu-public-orders",createdAt:"2026-11-22T00:00:00Z",status:"待确认"},now).kind,"unknown");
