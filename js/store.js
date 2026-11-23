@@ -27,6 +27,8 @@ let cloudState = {
   hiddenImported: [],
   partTimePosts: [],
   assignments: [],
+  teacherProfiles: [],
+  teacherApplications: [],
   orderSequence: 2991,
   teachers: [],
   applications: [],
@@ -141,6 +143,8 @@ export const Store = {
           const adm = await apiPost({ action: "admin_data" });
           if (adm?.ok) {
             cloudState.assignments = Array.isArray(adm.assignments) ? adm.assignments : [];
+            cloudState.teacherProfiles = Array.isArray(adm.teacherProfiles) ? adm.teacherProfiles : [];
+            cloudState.teacherApplications = Array.isArray(adm.teacherApplications) ? adm.teacherApplications : [];
             cloudState.orderSequence = Number(adm.orderSequence) || 2991;
             cloudState.teachers = adm.teachers || [];
             cloudState.applications = adm.applications || [];
@@ -154,12 +158,53 @@ export const Store = {
         localStorage.removeItem(KEYS.token);
         localStorage.removeItem(KEYS.session);
         cloudState.assignments = [];
+        cloudState.teacherProfiles = [];
+        cloudState.teacherApplications = [];
       }
     } catch {
       // ignore
     }
   },
 
+  getTeacherProfiles() {
+    return cloudReady && this.getCurrentUser()?.role==="admin" ? cloudState.teacherProfiles : [];
+  },
+  getTeacherApplications() {
+    return cloudReady && this.getCurrentUser()?.role==="admin" ? cloudState.teacherApplications : [];
+  },
+  async saveTeacherProfile(profile) {
+    if(!cloudReady || this.getCurrentUser()?.role!=="admin")throw new Error("老师档案只允许云端管理员编辑");
+    const response=await apiPost({action:"admin_save_teacher_profile",profile});
+    if(!response?.ok)throw new Error(response?.error||"老师档案保存失败");
+    cloudState.teacherProfiles=response.teacherProfiles;
+    return response.profileId;
+  },
+  async setTeacherAvailability(teacherId,availability) {
+    if(!cloudReady || this.getCurrentUser()?.role!=="admin")throw new Error("请先登录云端管理员");
+    const response=await apiPost({action:"admin_set_teacher_availability",teacherId,availability});
+    if(!response?.ok)throw new Error(response?.error||"状态更新失败");
+    cloudState.teacherProfiles=response.teacherProfiles;
+  },
+  async deleteTeacherProfile(teacherId) {
+    if(!cloudReady || this.getCurrentUser()?.role!=="admin")throw new Error("请先登录云端管理员");
+    const response=await apiPost({action:"admin_delete_teacher_profile",teacherId});
+    if(!response?.ok)throw new Error(response?.error||"删除失败");
+    cloudState.teacherProfiles=response.teacherProfiles;
+    cloudState.teacherApplications=response.teacherApplications;
+  },
+  async saveTeacherApplication(record) {
+    if(!cloudReady || this.getCurrentUser()?.role!=="admin")throw new Error("仅云端管理员可关联投递记录");
+    const importedOverride=importedOrders.find(o=>o.id===record.orderId);
+    const response=await apiPost({action:"admin_save_teacher_application",...record,importedOverride});
+    if(!response?.ok)throw new Error(response?.error||"投递记录保存失败");
+    cloudState.teacherApplications=response.teacherApplications;
+  },
+  async deleteTeacherApplication(applicationId) {
+    if(!cloudReady || this.getCurrentUser()?.role!=="admin")throw new Error("仅云端管理员可移除投递");
+    const response=await apiPost({action:"admin_delete_teacher_application",applicationId});
+    if(!response?.ok)throw new Error(response?.error||"删除投递记录失败");
+    cloudState.teacherApplications=response.teacherApplications;
+  },
   getOrderSequence() {
     return cloudReady ? (cloudState.orderSequence || 2991) : 2991;
   },
@@ -396,6 +441,8 @@ export const Store = {
     cloudState.teachers = [];
     cloudState.applications = [];
     cloudState.assignments = [];
+    cloudState.teacherProfiles = [];
+    cloudState.teacherApplications = [];
   },
 
   getResume(userId) {
