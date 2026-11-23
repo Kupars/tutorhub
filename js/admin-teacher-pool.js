@@ -149,6 +149,10 @@ async function fileToResumeData(file) {
   return {imageData:data};
 }
 
+export function selectTeacherApplication(orderId) {
+  activeOrderId=String(orderId || "");
+}
+
 export function bindTeacherPool(container,store,rerender,showToast) {
   const reveal=(id)=>{
     activeOrderId=id;
