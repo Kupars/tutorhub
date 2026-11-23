@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { splitDraftSubjects, mergeDraftSubjects, missingDraftFields } from "../js/draft-grouping.js";
-import { formatterPrompt, HISTORICAL_FORMAT_EXAMPLES } from "../functions/lib/tutoring-order-formatter.js";
+import { formatterPrompt, HISTORICAL_FORMAT_EXAMPLES } from "../shared/tutoring-order-formatter.js";
 import { ageOfOpenOrder, recommendPastTeachers } from "../js/assignment-utils.js";
 import { guardSiteActions } from "../js/ai-command-guard.js";
 import { onRequest } from "../functions/api/store.js";
