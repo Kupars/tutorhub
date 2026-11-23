@@ -12,6 +12,9 @@ permissions:
 
 jobs:
   deploy-github-pages:
+    # Opt in only after enabling GitHub Pages > Build and deployment > GitHub Actions.
+    # Cloudflare Pages remains the primary host and can deploy via its Git integration.
+    if: ${{ vars.ENABLE_GITHUB_PAGES == 'true' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -27,13 +30,13 @@ jobs:
 
   deploy-cloudflare-pages:
     runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
       - name: Deploy to Cloudflare Pages
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
