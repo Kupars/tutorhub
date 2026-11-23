@@ -1,8 +1,8 @@
 // Admin-only, browser-memory historical import wizard. Nothing is published automatically.
 import { readWechatFiles } from './wechat-bulk-reader.js?v=2';
 import { splitWechatMessages, redactWechatText, normalizeImportDocuments,
-  groupWechatMessages, findBulkDuplicate, safeBulkUpdates, missingStructuredOrderSources } from './wechat-bulk-core.js?v=2';
-import { parseBulkWechatMessages } from './ai-engine.js';
+  groupWechatMessages, findBulkDuplicate, safeBulkUpdates, bulkAuditProblems } from './wechat-bulk-core.js?v=3';
+import { parseBulkWechatMessages } from './ai-engine.js?v=9';
 import { normalizeOrder, formatOrderText, parseFormattedOrder } from './order-format.js';
 import { checkDraftIds, missingDraftFields } from './draft-grouping.js';
 
@@ -100,7 +100,7 @@ function render() {
       Math.round(activeBatches.filter(b=>b.status==='done').length/activeBatches.length*100):0)+'%"></div></div>'+
     (failures.length?'<details><summary>查看失败原因</summary><ol>'+failures.slice(0,25).map(b=>
       '<li>'+esc(b.messages.map(x=>x.source).slice(0,2).join('、'))+'：'+esc(b.error)+'</li>').join('')+'</ol></details>':'')+
-    '<p class="bulk-mini">带编号需求已覆盖 '+coveredRecords+' / '+numberedRecords+' 条；若 AI 漏识别，系统会自动拆小批次重新调用，不把部分结果当作完整成功。单批最多10条消息/9000字符。</p>'+
+    '<p class="bulk-mini">带编号需求已覆盖 '+coveredRecords+' / '+numberedRecords+' 条；若 AI 漏识别，系统会自动拆小批次重新调用，不把部分结果当作完整成功。单批最多5条消息/6000字符。</p>'+
     '</section></div>'+
     '<section class="bulk-panel bulk-review"><div class="bulk-review-heading"><div><h3>③ 审核草稿与去重</h3>'+
     '<p>'+state.drafts.length+' 张草稿 · '+state.drafts.filter(x=>duplicateFor(x)).length+' 条疑似重复 · '+
@@ -238,15 +238,14 @@ async function process(retryOnly) {
       const batch=state.batches[i];
       if(state.stopping)break;
       if(retryOnly ? batch.status!=='failed' : batch.status!=='pending')continue;
-      if(batch.messages.some(x=>redactWechatText(x.text).length>9000))continue;
+      if(batch.messages.some(x=>redactWechatText(x.text).length>6000))continue;
       batch.status='working';batch.error='';render();
       try {
         const redacted=batch.messages.map((x,n)=>({source:'本批消息 '+(n+1),text:redactWechatText(x.text)}));
         const result=await parseBulkWechatMessages(redacted,reserved());
-        const missing=missingStructuredOrderSources(redacted,result.orders);
-        if(missing.length){
-          const error=new Error('AI 漏识别 ' + missing.length + ' 条：' +
-            missing.slice(0,6).map(x=>x.id+'（消息'+x.sourceIndex+'）').join('、'));
+        const problems=bulkAuditProblems(redacted,result);
+        if(problems.length){
+          const error=new Error('本批 AI 结果不完整：'+problems.slice(0,4).join('；'));
           error.code='AI_INCOMPLETE_BATCH';throw error;
         }
         // Stage the complete validated batch before committing any draft.
@@ -274,7 +273,9 @@ async function process(retryOnly) {
         batch.status='done';
         batch.created=staged.length;
       }catch(error){
-        if(error.code==='AI_INCOMPLETE_BATCH' && batch.messages.length>1){
+        const retryable = error.code==='AI_INCOMPLETE_BATCH' ||
+          /完整 JSON|返回.*草稿|未返回 orders|未标记.*来源|输出达到长度限制|一批超过最多/.test(String(error.message || ''));
+        if(retryable && batch.messages.length>1){
           const midpoint=Math.ceil(batch.messages.length/2);
           const children=[batch.messages.slice(0,midpoint),batch.messages.slice(midpoint)]
             .filter(xs=>xs.length).map(messages=>({messages,status:'pending',error:''}));
