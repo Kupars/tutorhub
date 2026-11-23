@@ -23,7 +23,7 @@ function parseAddress(block, district) {
   const stated = capture(block, /(?:【补课地址】|(?:补课地址|地址|地点|上课地点|授课地点)\s*[：:])\s*([^\n；;]{2,130})/);
   if (stated) return stated.replace(/[，,](?:每周|每次|工资|薪资|老师|要求|时间)[\s\S]*$/,"").trim();
   const match = block.match(new RegExp(`(?:天津市)?(?:${D})[^\\n，,。；;]{0,40}`));
-  return match ? match[0].trim() : (district ? `天津市${district}` : "地址待补充");
+  return match ? match[0].trim() : (district && district !== "区域待补充" ? `天津市${district}` : "地址待补充");
 }
 
 function parseWeekly(block) {
@@ -48,7 +48,7 @@ function parseScores(block) {
 function parseSalary(block) {
   const labeled = capture(block, /(?:【薪资】|(?:薪资|课时费|时薪|工资|报价)\s*[：:])\s*([^\n；;]+)/);
   if (labeled) return labeled;
-  const rate = block.match(/\d{2,3}\s*(?:～|~|—|-|至|到)\s*\d{2,3}\s*(?:元|块)?\s*(?:\/小时|\/时|每小时|一小时|元\/小时)?|\d{2,3}\s*(?:元|块)?\s*(?:\/小时|元\/小时|每小时|一小时|元一小时)/);
+  const rate = block.match(/\d{2,3}\s*(?:～|~|—|-|至|到)\s*\d{2,3}\s*(?:元|块)\s*(?:\/小时|\/时|每小时|一小时)?|\d{2,3}\s*(?:元|块)?\s*(?:\/小时|元\/小时|每小时|一小时|元一小时)/);
   return trim(rate?.[0]); // 无法确认时交给年级默认薪资，不误把成绩当时薪
 }
 
