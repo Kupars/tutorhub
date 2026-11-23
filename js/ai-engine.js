@@ -126,34 +126,6 @@ export async function optimizeOrderAddressesWithAI(orders) {
   return result;
 }
 
-// 2. AI 简历优化与针对性自荐信生成
-export async function optimizeResumeWithAI(resume, targetOrder = null) {
-  const remote = await callServerlessAI("optimize_resume", { resume, targetOrder });
-  if (remote) return { source: remote.provider || "AI 模型", ...remote };
-
-  const subjectsText = (resume.subjects || []).join("、") || "数理化/英语";
-  const schoolText = [resume.school, resume.major, resume.gradeLevel].filter(Boolean).join(" · ") || "重点高校在读";
-
-  const optimizedHighlights = resume.highlights
-    ? `【核心优势】${schoolText}，擅长${subjectsText}。${resume.highlights.replace(/^[，,。\s]+/, "")}，能够快速定位学生薄弱环节并制定阶梯式提分计划。`
-    : `【核心优势】${schoolText}，主攻${subjectsText}方向，逻辑清晰、善于拆解高频考点与压轴题模型。`;
-
-  const optimizedExperience = resume.experience
-    ? `【教学成果与方法】${resume.experience.trim()}。授课坚持“课前诊断—课中讲练—课后错题闭环”，每节课后向家长同步学习进度与作业反馈。`
-    : "【教学方法】注重夯实基础概念与思维引导，结合校内进度整理专属错题本与期中期末专项突破讲义。";
-
-  const pitch = targetOrder
-    ? `家长您好！我是${resume.name || "应聘老师"}（${schoolText}），看到【${targetOrder.title}】非常匹配我的教学方向。我擅长${subjectsText}，${resume.highlights ? resume.highlights.slice(0, 50) : "教学耐心细致、注重方法总结"}。授课时间可配合「${targetOrder.schedule}」，期待先安排一次试讲，帮孩子梳理薄弱板块！`
-    : `您好，我是${resume.name || "家教老师"}（${schoolText}），擅长${subjectsText}辅导，责任心强、善于因材施教，欢迎联系沟通试讲！`;
-
-  return {
-    source: "内置简历优化模板（配置免费 AI Key 后启用大模型深度润色）",
-    highlights: optimizedHighlights,
-    experience: optimizedExperience,
-    pitch
-  };
-}
-
 // 外部模型解析站点/订单修改指令；只返回供管理员确认的安全白名单操作。
 // 不允许回退到内置解析器，更不允许直接执行模型返回的任意代码。
 export async function interpretSiteCommand(commandText,currentSiteConfig,orders,history=[]) {
