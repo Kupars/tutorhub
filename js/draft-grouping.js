@@ -91,3 +91,16 @@ export function checkDraftIds(drafts,existingOrders) {
   }
   return issues;
 }
+
+
+// 这里只做字段缺失校验，不参与从自然语言提取；所有 AI 提取必须调用远程 API。
+export function missingDraftFields(order) {
+  const missing=[];
+  if(!order?.grade||/待补充/.test(order.grade))missing.push("年级");
+  if(!order?.subject||/待补充/.test(order.subject))missing.push("科目");
+  if(!order?.studentGender||order.studentGender==="待补充")missing.push("学生性别");
+  if(!order?.address||/待补充/.test(order.address))missing.push("补课地址");
+  if(!order?.weeklyFrequency||order.weeklyFrequency==="待协商")missing.push("上课频率");
+  if(!order?.currentScores||/待补充/.test(order.currentScores))missing.push("成绩");
+  return missing;
+}
