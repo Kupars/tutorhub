@@ -161,16 +161,7 @@ export async function parseBulkWechatMessages(messages, existingOrders = []) {
   }));
   const result = await callServerlessAI("bulk_parse_orders", {messages:payload});
   if (!Array.isArray(result.orders)) throw new Error("模型未返回 orders 数组");
-  const combined = payload.map(m=>m.text).join("\n\n");
-  const prepared = result.orders.length ? prepareAIDrafts(combined,result,existingOrders) : [];
-  const orders = prepared.map((draft,index)=>({
-    ...draft,
-    source:"wechat-history",
-    status:"已匹配",
-    sourceMessageIndices:Array.isArray(result.orders[index]?.sourceMessageIndices)
-      ? result.orders[index].sourceMessageIndices.filter(n=>Number.isInteger(n)&&n>=1&&n<=payload.length)
-      : []
-  }));
+  const orders = prepareBulkAIDrafts(payload, result, existingOrders);
   return {
     orders,
     updates:Array.isArray(result.updates)?result.updates:[],
@@ -178,4 +169,48 @@ export async function parseBulkWechatMessages(messages, existingOrders = []) {
     groupingNotes:Array.isArray(result.groupingNotes)?result.groupingNotes:[],
     provider:String(result.provider || "已配置的模型 API")
   };
+}
+
+
+// Historical import cannot reuse the generic single-chat ID allocator: a batch may
+// contain unrelated IDs (including status-only messages), so IDs must be traced to
+// the exact source message(s) that the model cited.
+export function prepareBulkAIDrafts(messages, parsed, existingOrders = []) {
+  const rawOrders = Array.isArray(parsed?.orders) ? parsed.orders : [];
+  if (rawOrders.length > 30) throw new Error("一批超过最多 30 张草稿，请缩小导入批次");
+  const mapped = rawOrders.map((raw, index) => {
+    const indices = [...new Set(Array.isArray(raw?.sourceMessageIndices)
+      ? raw.sourceMessageIndices.filter(n => Number.isInteger(n) && n >= 1 && n <= messages.length) : [])];
+    if (!indices.length) throw new Error("AI 未标记第 " + (index+1) + " 张单的来源消息，已拒绝跨消息猜测单号");
+    const text = indices.map(n => String(messages[n-1].text || "")).join("\n");
+    const ids = [...new Set([...text.matchAll(/#\d{3,7}(?:-\d+)?/g)].map(m=>m[0]))];
+    const proposed = String(raw?.id || "").trim();
+    let id = "";
+    if (/^#\d{3,7}(?:-\d+)?$/.test(proposed) && ids.includes(proposed)) id = proposed;
+    else if (ids.length === 1) id = ids[0];
+    // An unsupported or invented model ID is discarded, never applied to a different message.
+    return {raw,indices,id};
+  });
+  const countBySourceId = new Map();
+  for (const m of mapped) {
+    if (!m.id || m.indices.length !== 1) continue;
+    const key = m.indices[0] + "|" + m.id;
+    countBySourceId.set(key,(countBySourceId.get(key) || 0)+1);
+  }
+  const splits = new Map();
+  const reserved = [...existingOrders];
+  return mapped.map(({raw,indices,id})=>{
+    const key = indices.length === 1 ? indices[0] + "|" + id : "";
+    if (id && (countBySourceId.get(key) || 0) > 1 && !/-\d+$/.test(id)) {
+      // A single source message asks for more than one independent teacher.
+      const n = (splits.get(key) || 0) + 1;
+      splits.set(key,n);
+      id += "-" + n;
+    }
+    if (!id) id = nextOrderId(reserved);
+    const order = normalizeOrder({...raw,id,orderNumber:id,
+      source:"wechat-history",status:"已匹配",sourceMessageIndices:indices});
+    reserved.push(order);
+    return order;
+  });
 }
