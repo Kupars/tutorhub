@@ -69,27 +69,42 @@ test("CSV 文件中的带逗号字段和中文表头被正确导入", () => {
   assert.equal(records[0].address, "天津市津南区富力桃园");
 });
 
-test("输入已有格式的旧单不调用网络，也不随意修改编号", async () => {
-  const text = "#2911/高三英语家教\n【年级性别】高三，男孩\n【补习科目】英语\n【需要几个老师】1位\n【现阶段成绩】90分\n【补课地址】天津市河西区\n【一周几次】每周1次，周末\n【每次几小时】2小时\n【对老师要求】有耐心\n【薪资】130元/小时（可报价）";
-  const result = await parseMessyOrders(text, [{ id: "#2999" }]);
-  assert.equal(result.orders[0].id, "#2911");
-  assert.equal(result.orders[0].currentScores, "90分");
+
+test("已有标准单也必须调用真实 API，不再走内置格式识别快捷路径", async () => {
+  const originalFetch=globalThis.fetch,originalStorage=globalThis.localStorage;
+  let called=false;
+  globalThis.localStorage={getItem:()=> "fake-admin-session"};
+  globalThis.fetch=async (_url,options) => {
+    called=true;
+    assert.equal(JSON.parse(options.body).action,"parse_orders");
+    return new Response(JSON.stringify({ok:true,result:{provider:"mock-model",
+      orders:[{id:"#2911",grade:"高三",studentGender:"男生",subject:"英语",
+        currentScores:"90分",address:"天津市河西区",weeklyFrequency:"每周1次，周末",
+        hoursPerSession:2,salaryText:"130元/小时（可报价）",requirements:"有耐心"}]}}),{status:200});
+  };
+  try {
+    const old="#2911/高三英语家教\n【年级性别】高三，男孩\n【补习科目】英语";
+    const parsed=await parseMessyOrders(old,[{id:"#2999"}]);
+    assert(called);
+    assert.equal(parsed.orders[0].id,"#2911");
+    assert.equal(parsed.orders[0].currentScores,"90分");
+  } finally {globalThis.fetch=originalFetch;globalThis.localStorage=originalStorage;}
 });
 
 test("科目按多个分隔符筛选并去重", () => {
   assert.deepEqual(getSubjectList("数学, 物理、数学+化学"), ["数学", "物理", "化学"]);
 });
 
-test("AI 失效时的规则解析仍保留多科、学生性别和真实薪资区间", async () => {
-  const raw = "#2861 高一男孩，需要女老师，补习化学、生物，天津市津南区富力桃园，每周1次，周日，110～120元/小时";
-  const result = await parseMessyOrders(raw);
-  assert.equal(result.orders.length, 1);
-  assert.equal(result.orders[0].id, "#2861");
-  assert.equal(result.orders[0].studentGender, "男生");
-  assert.equal(result.orders[0].genderPref, "女老师优先");
-  assert.equal(result.orders[0].subject, "化学、生物");
-  assert.equal(result.orders[0].salaryText, "110～120元/小时（可报价）");
+
+test("AI API 不可用时明确失败，不再产生伪装成 AI 的内置解析草稿", async () => {
+  const originalFetch=globalThis.fetch,originalStorage=globalThis.localStorage;
+  globalThis.localStorage={getItem:()=>""};
+  globalThis.fetch=async()=>new Response(JSON.stringify({ok:false,error:"上游模型不可用"}),{status:503});
+  try {
+    await assert.rejects(()=>parseMessyOrders("高一男生，天津津南区数学，每周1次"),/上游模型不可用/);
+  } finally {globalThis.fetch=originalFetch;globalThis.localStorage=originalStorage;}
 });
+
 test("旧版误解析的整段家教单可以恢复九字段，不改原始编号及数据", () => {
   const raw = {
     id: "JJ-2026-4738", grade: "小学", subject: "数学", salary: 60,
