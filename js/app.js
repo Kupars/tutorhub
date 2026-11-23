@@ -918,40 +918,52 @@ function renderAdminView() {
       const result = await probeAIProvider();
       $("aiProbeResult").textContent = result.ok
         ? `✅ 模型调用成功：${result.provider}。这是实际接口测试，不是内置规则引擎。`
-        : `⚠️ 模型未通过检测：${result.error}。当前仍可使用保守的规则提取。`;
+        : `⚠️ 模型未通过检测：${result.error}。已禁用内置解析器，请修复 API 后重试。`;
     } catch (error) { $("aiProbeResult").textContent = `模型检测出错：${error.message}`; }
     finally { button.disabled = false; }
   };
+
   $("btnRunSiteCmd").onclick = async () => {
-    const cmd = $("aiSiteCmd").value.trim();
-    if (!cmd) return;
-    const button = $("btnRunSiteCmd");
-    button.disabled = true;
-    let reply = "";
+    const command=$("aiSiteCmd").value.trim();
+    if(!command)return showToast("请输入要修改的网站设置或家教单内容");
+    state.aiSiteInput=command;
+    const button=$("btnRunSiteCmd");
+    button.disabled=true;button.textContent="正在调用 AI 分析…";
     try {
-      const res = await interpretSiteCommand(cmd, Store.getSiteConfig(), Store.getOrders());
-      const actions = res.actions || [];
-      if (!actions.length) { $("aiSiteReply").textContent = `${res.reply}（${res.source}）`; return; }
-      const preview = actions.map((a) => {
-        if (a.type === "update_site") return `网站设置：${JSON.stringify(a.patch)}`;
-        const matched = Store.getOrders().find((o) => o.id === a.id);
-        return `家教单 ${matched?.orderNumber || a.id}：${JSON.stringify(a.patch)}`;
-      }).join("\\n");
-      if (!confirm(`模型仅提出以下操作（${res.source}），尚未执行：\\n\\n${preview}\\n\\n确认执行吗？`)) {
-        $("aiSiteReply").textContent = "已取消，本次没有修改网站。"; return;
+      const result=await interpretSiteCommand(command,Store.getSiteConfig(),Store.getOrders(),state.aiSiteHistory);
+      const actions=result.actions||[];
+      const details=actions.map(action=>{
+        if(action.type==="update_site")return "网站设置："+JSON.stringify(action.patch);
+        const order=Store.getOrders().find(x=>x.id===action.id);
+        return "家教单 "+(order?.orderNumber||action.id)+"："+JSON.stringify(action.patch);
+      }).join("\n");
+      let status="未执行任何操作";
+      if(actions.length){
+        const approved=confirm("下面是 AI 提议，尚未修改：\n\n"+details+
+          "\n\n这些操作均经安全白名单过滤。确认修改吗？");
+        if(approved){
+          let count=0;
+          for(const action of actions){
+            if(action.type==="update_site")await Store.updateSiteConfig(action.patch);
+            else if(action.type==="update_order")await Store.updateOrder(action.id,action.patch);
+            count++;
+          }
+          status="已确认并执行 "+count+" 项修改";
+        }else status="管理员取消，本次未修改";
       }
-      let done = 0;
-      for (const action of actions) {
-        if (action.type === "update_site") await Store.updateSiteConfig(action.patch);
-        else if (action.type === "update_order") await Store.updateOrder(action.id, action.patch);
-        done++;
-      }
-      reply = `✅ 已执行 ${done} 项已确认操作。其余网站代码修改仍需通过 GitHub 更新。`;
-      applySiteConfig();
-      renderAdminView();
-      $("aiSiteReply").textContent = reply;
-    } catch (error) { showToast(`执行失败：${error.message}`); $("aiSiteReply").textContent = `执行失败，请检查后台数据：${error.message}`; }
-    finally { button.disabled = false; }
+      const response=[result.reply,status,
+        ...(result.questions||[]),...(result.discarded||[]).map(x=>"未通过校验："+x)].filter(Boolean).join("；");
+      state.aiSiteHistory.push({role:"user",content:command},{role:"assistant",content:response});
+      state.aiSiteHistory=state.aiSiteHistory.slice(-12);
+      state.aiSiteReply=response;
+      state.aiSiteInput="";
+      applySiteConfig();renderAdminView();
+      showToast(status);
+    }catch(error){
+      state.aiSiteReply="AI 修改失败："+error.message;
+      $("aiSiteReply").textContent=state.aiSiteReply;
+      showToast(state.aiSiteReply);
+    }finally{button.disabled=false;button.textContent="生成修改预览";}
   };
 
   $("adminOrderSearch").oninput = (event) => {
@@ -1459,19 +1471,27 @@ function initControls() {
     if (!candidates.length) return showToast("当前筛选条件下没有可推荐的家教单");
     const button = $("btnSmartSelect");
     button.disabled = true;
-    button.textContent = "✨ GLM 正在挑选…";
-    let recommendation = null;
-    try { recommendation = await recommendOrdersWithAI(candidates, preference); }
-    catch { /* 网络或 GLM 不可用时切换本地排序 */ }
-    finally { button.disabled = false; button.textContent = "✨ AI 自动勾选"; }
-    const picks = recommendation?.picks || candidates.slice(0, 5).map((o) => ({ id: o.id, reason: "按时薪和预估路程排序" }));
-    const previous = Store.getSelectedOrderIds();
-    Store.setSelectedOrderIds([...new Set([...previous, ...picks.map((pick) => pick.id)])]);
-    renderHall();
-    const modeLabel = recommendation ? `模型推荐（${recommendation.provider}）` : "本地智能排序（模型暂不可用）";
-    $("aiSelectionSummary").textContent = `${modeLabel}：${picks.map((pick) => `${pick.id} ${pick.reason}`).join("；")}。请核对后复制发送微信。`;
-    $("aiSelectionSummary").hidden = false;
-    showToast(`已勾选 ${picks.length} 条，${recommendation ? "GLM 推荐完成" : "已切换本地排序"}`);
+    button.textContent = "✨ AI 模型正在挑选…";
+
+    let recommendation;
+    try {
+      recommendation=await recommendOrdersWithAI(candidates,preference);
+      if(!recommendation?.picks?.length)throw new Error("模型没有返回有效候选单");
+      const picks=recommendation.picks;
+      const previous=Store.getSelectedOrderIds();
+      Store.setSelectedOrderIds([...new Set([...previous,...picks.map(p=>p.id)])]);
+      renderHall();
+      $("aiSelectionSummary").textContent="模型推荐（"+recommendation.provider+"）："+
+        picks.map(p=>p.id+" "+p.reason).join("；")+"。请核对后复制发送微信。";
+      $("aiSelectionSummary").hidden=false;
+      showToast("已按模型建议勾选 "+picks.length+" 条");
+    }catch(error){
+      $("aiSelectionSummary").textContent="AI 调用失败："+error.message+"。未改变原选单，请检查 API 设置。";
+      $("aiSelectionSummary").hidden=false;
+      showToast("AI 推荐失败，请检查 API");
+    }finally{
+      button.disabled=false;button.textContent="✨ AI 自动勾选";
+    }
   };
   $("btnMapRelocate").onclick = () => locateMe(false);
   $("btnMapSearch").onclick = async () => {
