@@ -11,11 +11,12 @@ export async function onRequestPost(context) {
     if (Number(request.headers.get("content-length") || 0) > 1500000) {
       return jsonResp({ ok: false, error: "请求内容过长" }, 413);
     }
+    const origin = request.headers.get("Origin");
+    if (origin && origin !== new URL(request.url).origin)
+      return jsonResp({ ok: false, error: "AI 只允许本站调用" }, 403);
     const { action, payload } = await request.json();
     const publicRecommend = action === "recommend_orders";
     if (publicRecommend) {
-      const origin = request.headers.get("Origin");
-      if (origin && origin !== new URL(request.url).origin) return jsonResp({ ok: false, error: "不允许跨站调用" }, 403);
       if (!Array.isArray(payload?.candidates) || payload.candidates.length < 1 || payload.candidates.length > 30) {
         return jsonResp({ ok: false, error: "请提供 1～30 条候选家教单" }, 400);
       }
@@ -37,10 +38,12 @@ export async function onRequestPost(context) {
       if (payload?.imageData && (typeof payload.imageData !== "string" || payload.imageData.length > 1250000 || !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(payload.imageData)))
         return jsonResp({ok:false,error:"图片过大或格式不受支持，请上传压缩后的 JPG/PNG/WebP 简历"},413);
     }
-    if (env.TUTOR_KV && !publicRecommend) {
-      const secret = env.AUTH_SECRET || env.ADMIN_PASSWORD || "tutor-hub-default-hmac-secret-change-me";
-      const auth = await verifyAuth(request, secret);
-      if (!auth) return jsonResp({ ok: false, error: "请登录后使用 AI 功能" }, 401);
+    if (!publicRecommend) {
+      if (!env.ADMIN_PASSWORD || String(env.ADMIN_PASSWORD).length < 12 ||
+          !env.AUTH_SECRET || String(env.AUTH_SECRET).length < 32)
+        return jsonResp({ ok: false, error: "管理员安全密钥未配置，AI 私人资料处理已暂停" }, 503);
+      const auth = await verifyAuth(request, String(env.AUTH_SECRET), env.TUTOR_KV);
+      if (!auth) return jsonResp({ ok: false, error: "请重新登录后使用 AI 功能" }, 401);
       if (["parse_orders", "revise_drafts", "site_command", "optimize_addresses", "model_probe", "extract_teacher_resume"].includes(action) && auth.role !== "admin") {
         return jsonResp({ ok: false, error: "仅管理员可以整理或修改家教单" }, 403);
       }
@@ -192,17 +195,29 @@ async function readAIResponse(response, provider) {
   return data;
 }
 
-async function verifyAuth(request, secret) {
-  const token = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-  const [content, signature] = token.split(".");
-  if (!content || !signature) return null;
-  const bytes = new TextEncoder().encode(`${content}.${secret}`);
-  const hash = await crypto.subtle.digest("SHA-256", bytes);
-  const expected = [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  if (expected !== signature) return null;
+async function verifyAuth(request, secret, kv) {
+  const authorization = request.headers.get("Authorization") || "";
+  if (!authorization.startsWith("Bearer ")) return null;
+  const parts = authorization.slice(7).trim().split(".");
+  if (parts.length !== 2 || parts[0].length > 2500) return null;
+  const [encoded, signature] = parts;
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(encoded));
+  const expected = [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2, "0")).join("");
+  if (signature.length !== expected.length) return null;
+  let mismatch = 0;
+  for(let i = 0; i < expected.length; i++) mismatch |= signature.charCodeAt(i) ^ expected.charCodeAt(i);
+  if (mismatch !== 0) return null;
   try {
-    const claims = JSON.parse(decodeURIComponent(escape(atob(content))));
-    return claims.exp && claims.exp < Date.now() ? null : claims;
+    const claims = JSON.parse(decodeURIComponent(escape(atob(encoded))));
+    if (claims.role !== "admin" || claims.id !== "admin" ||
+        !claims.jti || !/^[A-Za-z0-9-]{16,80}$/.test(claims.jti) ||
+        !Number.isFinite(claims.exp) || claims.exp <= Date.now() ||
+        claims.exp > Date.now() + 2 * 3600_000 + 60000) return null;
+    if (await kv.get("revoked_session_" + claims.jti)) return null;
+    return claims;
   } catch { return null; }
 }
 
@@ -241,7 +256,7 @@ function jsonResp(body, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Access-Control-Allow-Origin": "*"
+      "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"
     }
   });
 }
