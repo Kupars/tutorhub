@@ -40,7 +40,7 @@ const state = {
 let teacherPoolModulePromise=null;
 function loadTeacherPoolModule() {
   // 只在打开管理后台时下载老师档案和推荐模块，不影响普通老师的首屏加载。
-  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=5")
+  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=6")
     .catch(err=>{teacherPoolModulePromise=null;throw err;});
   return teacherPoolModulePromise;
 }
@@ -922,6 +922,17 @@ function renderAdminView() {
   });
   $("btnAdminHome")?.addEventListener("click", () => navigateAdminPage("home"));
   $("adminPageSwitcher")?.addEventListener("change", event => navigateAdminPage(event.target.value));
+  box.querySelectorAll("[data-open-app]").forEach(button => {
+    button.onclick = async () => {
+      try {
+        const module = await loadTeacherPoolModule();
+        module.selectTeacherApplication(button.dataset.openApp);
+        state.adminPage = "teachers";
+        renderAdminView();
+        $("view-admin")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (err) { showToast("打开老师投递页面失败：" + err.message); }
+    };
+  });
   $("rawOrderInput").value = state.aiRawText;
   $("aiSiteCmd").value = state.aiSiteInput;
   $("aiSiteReply").textContent = state.aiSiteReply;
