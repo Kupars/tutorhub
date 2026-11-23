@@ -10,6 +10,7 @@ import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacher
 import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=6";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
+import { renderAssignmentAdmin, bindAssignmentAdmin } from "./admin-assignment-view.js?v=1";
 
 const state = {
   view: "hall",
@@ -666,6 +667,8 @@ function renderAdminView() {
     </div>
 
 
+    ${renderAssignmentAdmin(orders, Store.getAssignments(), Store.isCloudMode())}
+
     <div class="panel">
       <h2>📋 家教单管理（展示中 ${orders.filter(isPubliclyOpenOrder).length} 条 · 已关闭 ${orders.filter((o) => !isPubliclyOpenOrder(o)).length} 条）</h2>
       <p class="admin-helper">点击“关闭展示”后，老师端看板、筛选和地图都不再显示该单；数据保留在后台，可以随时重新上架。</p>
@@ -701,6 +704,7 @@ function renderAdminView() {
             </div>
             <div style="display:flex;gap:6px;">
               <button class="btn btn-sm" data-edit-order="${escapeHtml(o.id)}">编辑</button>
+              <button class="btn btn-sm" data-open-assignment="${escapeHtml(o.id)}">登记老师</button>
               ${addressQueue.some((item) => item.id === o.id) ? `<button class="btn btn-sm" data-fix-address="${escapeHtml(o.id)}">核对地址</button>` : ""}
               ${getSubjectList(o.subject).length > 1 ? `<button class="btn btn-sm" data-split-order="${escapeHtml(o.id)}">按科目拆单</button>` : ""}
               <button class="btn btn-sm" data-toggle-status="${escapeHtml(o.id)}">${isPubliclyOpenOrder(o) ? "关闭展示" : "重新上架"}</button>
@@ -949,6 +953,7 @@ function renderAdminView() {
       } catch (err) { showToast(`删除失败：${err.message}`); }
     };
   });
+  bindAssignmentAdmin(box, Store, renderAll, showToast);
 }
 
 function renderParsedPreview() {
