@@ -1,5 +1,5 @@
 // Administrator-only model management. API keys are never cached or echoed back.
-import { probeAIProvider } from "./ai-engine.js";
+import { probeAIProvider } from "./ai-engine.js?v=8";
 let root, Store, toast, registry, editingId=null, notice="", busy=false;
 const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 function activeLabel(){
