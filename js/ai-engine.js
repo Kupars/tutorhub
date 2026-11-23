@@ -59,7 +59,7 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
   const reserved = [...existingOrders];
   const explicitIds = [...String(rawText || "").matchAll(/#\d{3,7}(?:-\d+)?/g)].map(m=>m[0]);
   const mainId = explicitIds.length === 1 ? explicitIds[0].replace(/-\d+$/, "") : "";
-  const explicitSplit = rawOrders.length > 1 && mainId && /拆单|拆分|分成.*单|分别招|单科|各科.*老师/.test(rawText);
+  const explicitSplit = rawOrders.length > 1 && mainId && (/拆单|拆分|分成.*单|分别招|单科|每科.*老师|各科.*老师|各.*一位老师/.test(rawText) || rawOrders.some(o=>o.groupingDecision==="拆单"));
   const prev = Array.isArray(previousDrafts) ? previousDrafts : [];
   return rawOrders.map((raw,index)=>{
     const candidate = normalizeOrder(raw || {});
@@ -68,7 +68,7 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
     const canonical = /^#\d{3,7}(?:-\d+)?$/.test(stated) &&
       (explicitIds.includes(stated) || prev.some(o=>o.id === stated));
     let id = canonical ? stated : /^#\d{3,7}(?:-\d+)?$/.test(prevId) ? prevId : "";
-    if (!id && explicitSplit) id = `${mainId}-${index+1}`;
+    if (explicitSplit && !/^#\d{3,7}-\d+$/.test(stated)) id = `${mainId}-${index+1}`;
     if (!id && explicitIds[index] && !reserved.some(o=>o.id===explicitIds[index])) id = explicitIds[index];
     if (!id) id = nextOrderId(reserved);
     if (reserved.some(o=>o.id===id || o.orderNumber===id)) {
