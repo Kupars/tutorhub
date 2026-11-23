@@ -10,6 +10,7 @@ import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacher
 import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=6";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
+import { MULTI_FILTER_LABELS, MULTI_FILTER_OPTIONS, matchesMultiFilters, normalizeMultiSelection, countSelectedFilters } from "./multi-filter.js?v=1";
 
 import { splitDraftSubjects, mergeDraftSubjects, groupDraftsUnderParent, checkDraftIds, missingDraftFields } from "./draft-grouping.js?v=4";
 
@@ -17,6 +18,7 @@ const state = {
   view: "hall",
   layout: "cards",
   onlySelected: false,
+  multiFilters: {},
   parsedDraftOrders: [],
   aiRawText: "",
   aiDraftHistory: [],
@@ -70,7 +72,8 @@ const BOARD_LAYOUT_KEY = "tutorhub_board_layout_v2";
 const COLOR_MODE_KEY = "tutorhub_color_mode_v1";
 const FILTERS_KEY = "tutorhub_filters_v1";
 const PERSISTED_FILTER_IDS = ["qSearch", "qSubject", "qGrade", "qMode", "qSort", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate", "aiPreference"];
-let savedFilters = null;
+const MULTI_FILTER_IDS = Object.keys(MULTI_FILTER_LABELS);
+
 let mapCandidates = [];
 let mapSearchVersion = 0;
 let mapSearchTimer = null;
@@ -149,23 +152,96 @@ function escapeHtml(str) {
     .replaceAll('"', "&quot;");
 }
 
+
+function selectedValues(id) {
+  return normalizeMultiSelection(state.multiFilters[id]);
+}
+
 function saveFilters() {
-  const values = Object.fromEntries(PERSISTED_FILTER_IDS.map((id) => [id, $(id)?.value || ""]));
+  const values = Object.fromEntries(PERSISTED_FILTER_IDS.map(id =>
+    [id, MULTI_FILTER_IDS.includes(id) ? selectedValues(id) : ($(id)?.value || "")]));
   values.onlySelected = state.onlySelected;
   try { localStorage.setItem(FILTERS_KEY, JSON.stringify(values)); } catch { /* 无痕模式 */ }
 }
 
 function loadSavedFilters() {
-  try { savedFilters = JSON.parse(localStorage.getItem(FILTERS_KEY) || "null"); } catch { savedFilters = null; }
-  if (!savedFilters || typeof savedFilters !== "object") return;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(FILTERS_KEY) || "null"); } catch { /* 无痕模式 */ }
+  if (!saved || typeof saved !== "object") return;
   for (const id of PERSISTED_FILTER_IDS) {
-    if (id === "qSubject" || id === "qDistrict") continue; // 必须等动态选项加载完毕。
+    if (MULTI_FILTER_IDS.includes(id)) {
+      // 兼容旧版只保存一个选项的本地配置：转换为数组即可使用。
+      state.multiFilters[id] = normalizeMultiSelection(saved[id]);
+      continue;
+    }
     const el = $(id);
-    if (el && typeof savedFilters[id] === "string" && [...(el.options || [])].some((o) => o.value === savedFilters[id])) el.value = savedFilters[id];
-    else if (id === "qSearch" || id === "qMinRate") el.value = savedFilters[id] || "";
+    if (!el) continue;
+    if (id === "qSearch" || id === "qMinRate") {
+      el.value = typeof saved[id] === "string" ? saved[id] : "";
+    } else if (typeof saved[id] === "string" && [...(el.options || [])].some(o => o.value === saved[id])) {
+      el.value = saved[id];
+    }
   }
-  state.onlySelected = savedFilters.onlySelected === true;
+  state.onlySelected = saved.onlySelected === true;
   $("onlySelected").checked = state.onlySelected;
+}
+
+function renderMultiFilter(id, supplied = []) {
+  const details = $(id);
+  if (!details) return;
+  const label = MULTI_FILTER_LABELS[id];
+  const chosen = selectedValues(id);
+  const optionList = [...new Set([...supplied.map(item => typeof item === "string" ? item : item.value), ...chosen])];
+  const labels = new Map((MULTI_FILTER_OPTIONS[id] || []).map(item => [item.value, item.label]));
+  const options = optionList.map(value => ({ value, label: labels.get(value) || value }));
+  const list = details.querySelector(".multi-filter-items");
+  const signature = JSON.stringify(options);
+  if (list.dataset.signature !== signature) {
+    list.innerHTML = options.length
+      ? options.map(option => '<label class="multi-filter-option"><input type="checkbox" value="' +
+          escapeHtml(option.value) + '" /><span>' + escapeHtml(option.label) + '</span></label>').join("")
+      : '<p class="multi-filter-empty">暂无可选条件</p>';
+    list.dataset.signature = signature;
+  }
+  const selectedSet = new Set(chosen);
+  list.querySelectorAll('input[type="checkbox"]').forEach(input => {
+    input.checked = selectedSet.has(input.value);
+  });
+  const shortLabel = chosen.length === 1 ? (labels.get(chosen[0]) || chosen[0]) : "";
+  details.querySelector(".multi-filter-summary").textContent = chosen.length === 0 ? label
+    : chosen.length === 1 ? label + "：" + shortLabel
+    : label + " · " + chosen.length + "项";
+  details.classList.toggle("has-selected", chosen.length > 0);
+  details.querySelector("summary").title = chosen.length ? chosen.map(x => labels.get(x) || x).join("、") : "点击勾选多个" + label;
+}
+
+function initializeMultiFilters() {
+  for (const id of MULTI_FILTER_IDS) {
+    const details = $(id);
+    if (!details) continue;
+    details.addEventListener("toggle", () => {
+      if (details.open) document.querySelectorAll(".multi-filter[open]").forEach(other => {
+        if (other !== details) other.open = false;
+      });
+    });
+    details.addEventListener("change", event => {
+      if (!(event.target instanceof HTMLInputElement) || event.target.type !== "checkbox") return;
+      state.multiFilters[id] = [...details.querySelectorAll('input[type="checkbox"]:checked')].map(input => input.value);
+      $("aiSelectionSummary").hidden = true;
+      saveFilters();
+      renderHall();
+    });
+    details.addEventListener("click", event => {
+      const button = event.target.closest("[data-multi-action]");
+      if (!button) return;
+      event.preventDefault();
+      const values = [...details.querySelectorAll('input[type="checkbox"]')].map(input => input.value);
+      state.multiFilters[id] = button.dataset.multiAction === "all" ? values : [];
+      $("aiSelectionSummary").hidden = true;
+      saveFilters();
+      renderHall();
+    });
+  }
 }
 
 async function copyText(text, successMsg = "已复制") {
@@ -241,28 +317,29 @@ function switchView(viewName) {
 
 // ---------------- 视图 1：招募大厅 ----------------
 function renderHall() {
-  const subjectSelect = $("qSubject");
-  const selectedSubject = subjectSelect.value || (savedFilters?.qSubject || "");
-  const subjects = [...SUBJECTS, "作业辅导", "陪读", "道法"];
-  subjectSelect.innerHTML = '<option value="">科目</option>' +
-    subjects.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
-  subjectSelect.value = subjects.includes(selectedSubject) ? selectedSubject : "";
-  const districtSelect = $("qDistrict");
-  const selectedDistrict = districtSelect.value || (savedFilters?.qDistrict || "");
-  const districts = [...new Set(Store.getOrders().filter(isPubliclyOpenOrder).map((o) => canonicalDistrict(o.district)).filter((d) => d && d !== "区域待补充"))].sort();
-  districtSelect.innerHTML = '<option value="">区域</option>' +
-    districts.map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join("");
-  districtSelect.value = districts.includes(selectedDistrict) ? selectedDistrict : "";
-  savedFilters = null;
+  const publicOrders = Store.getOrders().filter(isPubliclyOpenOrder);
+  const subjects = [...new Set([...SUBJECTS, "作业辅导", "陪读", "道法",
+    ...publicOrders.flatMap(order => getSubjectList(order.subject))
+      .filter(value => value.length <= 8)])];
+  const grades = [...new Set([...GRADES, ...publicOrders.map(order => order.grade)
+    .filter(value => typeof value === "string" && value && value.length <= 10)])];
+  const districts = [...new Set(publicOrders.map(order => canonicalDistrict(order.district))
+    .filter(value => value && value !== "区域待补充"))].sort();
+  renderMultiFilter("qSubject", subjects);
+  renderMultiFilter("qGrade", grades);
+  renderMultiFilter("qDistrict", districts);
+  for (const id of ["qMode", "qStudentGender", "qTeacherGender", "qTime"]) {
+    renderMultiFilter(id, MULTI_FILTER_OPTIONS[id] || []);
+  }
   const q = $("qSearch").value.trim().toLowerCase();
-  const subject = $("qSubject").value;
-  const grade = $("qGrade").value;
-  const mode = $("qMode").value;
+
+
+
   const sort = $("qSort").value;
-  const studentGender = $("qStudentGender").value;
-  const teacherGender = $("qTeacherGender").value;
-  const district = $("qDistrict").value;
-  const time = $("qTime").value;
+
+
+
+
   const minRate = Number($("qMinRate").value) || 0;
   const origin = Store.getOrigin();
   const selected = Store.getSelectedOrderIds();
@@ -276,17 +353,8 @@ function renderHall() {
   items = items.filter((o) => {
     if (!isPubliclyOpenOrder(o)) return false;
     if (state.onlySelected && !o.selected) return false;
-    if (subject && o.subject !== subject && !getSubjectList(o.subject).includes(subject) && !o.subject.includes(subject)) return false;
-    if (grade && o.grade !== grade && !o.grade.includes(grade) && !(grade === "小学" && /[一二三四五六1-6]年级/.test(o.grade))) return false;
-    if (mode && o.mode !== mode) return false;
-    if (studentGender && o.studentGender !== studentGender) return false;
-    const teacherPref = teacherGenderRequirement(o);
-    if (teacherGender === "不限" && teacherPref !== "不限") return false;
-    if (["男生", "女生"].includes(teacherGender) && teacherPref !== teacherGender) return false;
-    if (district && canonicalDistrict(o.district) !== district) return false;
+    if (!matchesMultiFilters(o, state.multiFilters)) return false;
     if (minRate && o.hourlyRate < minRate) return false;
-    if (time === "weekend" && !/周末|周六|周日|周天/.test(o.weeklyFrequency || o.schedule || "")) return false;
-    if (time === "weekday" && !/周中|周一|周二|周三|周四|周五/.test(o.weeklyFrequency || o.schedule || "")) return false;
     if (q) {
       const hay = [o.id, o.orderNumber, o.title, o.subject, o.grade, o.studentGender, o.teacherCount,
         o.currentScores, o.weeklyFrequency, o.trialTime, o.salaryText, o.district, o.address,
@@ -317,8 +385,7 @@ function renderHall() {
   }
 
   $("resultStats").textContent = `共匹配 ${items.length} 条家教单（当前出发地址：${origin.name}）`;
-  const advancedIds = ["qSubject", "qGrade", "qMode", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate"];
-  const activeCount = advancedIds.filter((id) => $(id).value).length + Number(state.onlySelected);
+  const activeCount = countSelectedFilters(state.multiFilters, $("qMinRate").value, state.onlySelected);
   $("activeFilterCount").textContent = activeCount ? ` · 已选 ${activeCount} 项` : "";
   $("quickFilterCount").textContent = activeCount ? String(activeCount) : "";
   $("btnListMode").classList.toggle("active", state.layout === "list");
@@ -1456,10 +1523,16 @@ function initControls() {
   $("btnToggleFilters").onclick = () => setAdvancedFiltersOpen($("advancedFilters").hidden);
   $("btnCloseFilters").onclick = () => setAdvancedFiltersOpen(false);
   document.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest(".multi-filter")) {
+      document.querySelectorAll(".multi-filter[open]").forEach(details => { details.open = false; });
+    }
     if (!$("advancedFilters").hidden && !$("searchPanel").contains(event.target)) setAdvancedFiltersOpen(false);
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !$("advancedFilters").hidden) setAdvancedFiltersOpen(false);
+    if (event.key === "Escape") {
+      document.querySelectorAll(".multi-filter[open]").forEach(details => { details.open = false; });
+      if (!$("advancedFilters").hidden) setAdvancedFiltersOpen(false);
+    }
   });
   try { if (localStorage.getItem(BOARD_LAYOUT_KEY) === "list") state.layout = "list"; } catch { /* private mode */ }
   setMapOrderSelectionHandlers((id) => {
@@ -1470,11 +1543,10 @@ function initControls() {
   document.addEventListener("tutorhub-geocodes-updated", () => {
     if (state.view === "hall") renderHall();
   });
-  SUBJECTS.forEach((s) => $("qSubject").insertAdjacentHTML("beforeend", `<option value="${s}">${s}</option>`));
-  GRADES.forEach((g) => $("qGrade").insertAdjacentHTML("beforeend", `<option value="${g}">${g}</option>`));
+  initializeMultiFilters();
   loadSavedFilters();
 
-  ["qSearch", "qSubject", "qGrade", "qMode", "qSort", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate"].forEach((id) => {
+  ["qSearch", "qSort", "qMinRate"].forEach((id) => {
     const changed = () => {
       $("aiSelectionSummary").hidden = true;
       saveFilters();
@@ -1485,7 +1557,8 @@ function initControls() {
   });
   $("aiPreference").onchange = saveFilters;
   $("btnClearFilters").onclick = () => {
-    ["qSearch", "qSubject", "qGrade", "qMode", "qStudentGender", "qTeacherGender", "qDistrict", "qTime", "qMinRate"].forEach((id) => { $(id).value = ""; });
+    ["qSearch", "qMinRate"].forEach(id => { $(id).value = ""; });
+    for (const id of MULTI_FILTER_IDS) state.multiFilters[id] = [];
     $("qSort").value = "recommend";
     state.onlySelected = false;
     $("onlySelected").checked = false;
