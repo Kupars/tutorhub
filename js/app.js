@@ -10,7 +10,7 @@ import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacher
 import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=6";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
-import { renderTeacherPool, bindTeacherPool, presentTeacherMatches } from "./admin-teacher-pool.js?v=1";
+import { renderTeacherPool, bindTeacherPool, presentTeacherMatches } from "./admin-teacher-pool.js?v=2";
 import { splitDraftSubjects, mergeDraftSubjects, groupDraftsUnderParent, checkDraftIds, missingDraftFields } from "./draft-grouping.js?v=4";
 
 const state = {
