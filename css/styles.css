@@ -873,3 +873,12 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
  .teacher-link-form { grid-template-columns:1fr; }
  .teacher-publish-dialog { padding:17px; }
 }
+
+/* Preserve and inspect older administrator-entered matched-teacher records. */
+.teacher-legacy-panel { margin-top:15px; padding:11px 14px; border:1px dashed var(--border); border-radius:12px; }
+.teacher-legacy-panel summary { cursor:pointer; font-size:.86rem; font-weight:650; }
+.teacher-legacy-row { display:flex; align-items:center; justify-content:space-between; gap:10px;
+  border-bottom:1px solid var(--border); padding:10px 0; font-size:.84rem; }
+.teacher-legacy-row span { min-width:0; overflow-wrap:anywhere; }
+.teacher-legacy-row button { flex-shrink:0; }
+@media(max-width:560px) { .teacher-legacy-row { flex-wrap:wrap; } }
