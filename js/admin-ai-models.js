@@ -67,9 +67,9 @@ function bind(){
     void operation(()=>Store.activateAIProvider(id,model),'已启用模型：'+model);
   });
   root.querySelectorAll('[data-test]').forEach(b=>b.onclick=()=>{
-    const id=b.dataset.test,profile=registry.profiles.find(p=>p.id===id);
-    void operation(async()=>{const result=await probeAIProvider(id);if(!result.ok)throw new Error(result.error);},
-      '模型连接成功：'+profile.name+' / '+profile.selectedModel);
+    const id=b.dataset.test,profile=registry.profiles.find(p=>p.id===id),model=chosenModel(id);
+    void operation(async()=>{const result=await probeAIProvider(id,model);if(!result.ok)throw new Error(result.error);},
+      '模型连接成功：'+profile.name+' / '+model);
   });
   root.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
     editingId=b.dataset.edit;notice='';render();root.querySelector('#aiRelayName')?.focus();
