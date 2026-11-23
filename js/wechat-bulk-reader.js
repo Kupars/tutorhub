@@ -72,6 +72,9 @@ function zipEntries(buffer) {
     const name = decode(data.subarray(offset+46,offset+46+nameLength));
     offset += 46 + nameLength + extraLength + commentLength;
     if (name.endsWith('/') || name.startsWith('__MACOSX/') || name.split('/').some(p=>p==='..')) continue;
+    // Ignore media and ZIP metadata without inflating them or counting them against the text budget.
+    if (!supported.test(name) && name !== 'word/document.xml' &&
+        name !== 'xl/sharedStrings.xml' && !/^xl\/worksheets\/sheet\d+\.xml$/.test(name)) continue;
     if (flags & 1) throw new Error('加密 ZIP 暂不支持，请先解密');
     if (method !== 0 && method !== 8) continue;
     if (local+30 > data.length || view.getUint32(local,true) !== 0x04034b50) throw new Error('ZIP 条目损坏');
