@@ -47,7 +47,7 @@ export async function onRequest(context) {
       const publiclyOpen = realOrders.filter(isPubliclyOpenOrder);
       const closedIds = realOrders.filter((order) => !isPubliclyOpenOrder(order)).map((order) => order.id);
       const publicHidden = [...new Set([...hiddenImported, ...closedIds])];
-      return jsonResp({ ok: true, cloud: true, siteConfig, orders: publiclyOpen.map(toPublicOrder), hiddenImported: publicHidden,
+      return jsonResp({ ok: true, cloud: true, siteConfig: toPublicSiteConfig(siteConfig), orders: publiclyOpen.map(toPublicOrder), hiddenImported: publicHidden,
         partTimePosts: partTimePosts.map(toPublicPartTime) });
     }
 
@@ -386,7 +386,13 @@ export async function onRequest(context) {
 
     if (action === "admin_update_site") {
       const cur = await kvGet(env.TUTOR_KV, "site_config", DEFAULT_SITE);
-      const next = { ...cur, ...body.patch };
+      const patch = body.patch && typeof body.patch === "object" && !Array.isArray(body.patch) ? body.patch : {};
+      const allowed = ["siteName", "subtitle", "announcement", "theme", "contactWechat", "heroTitle", "heroDescription"];
+      const safePatch = Object.fromEntries(allowed.filter(k => typeof patch[k] === "string" && patch[k].length <= 600)
+        .map(k => [k, patch[k]]));
+      if (!Object.keys(safePatch).length)
+        return jsonResp({ ok: false, error: "网站设置仅允许更新公开展示的文本与主题" }, 400);
+      const next = { ...cur, ...safePatch };
       await kvPut(env.TUTOR_KV, "site_config", next);
       return jsonResp({ ok: true, siteConfig: next });
     }
@@ -395,6 +401,27 @@ export async function onRequest(context) {
   } catch (err) {
     return jsonResp({ ok: false, error: String(err?.message || err) }, 500);
   }
+}
+
+
+// 公开接口只允许读取经过审核的显示字段。误存入 siteConfig 的后台属性、密钥或老师资料不能对外透传。
+function toPublicSiteConfig(config = {}) {
+  const keys = ["siteName", "subtitle", "announcement", "theme", "contactWechat", "heroTitle", "heroDescription"];
+  return Object.fromEntries(keys.filter(k => typeof config[k] === "string")
+    .map(k => [k, stripPublicPersonalData(config[k]).slice(0, 600)]));
+}
+function stripPublicPersonalData(input) {
+  return String(input ?? "")
+    .replace(/1[3-9]\d{9}/g, "[联系方式请咨询管理员]")
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[邮箱已隐藏]")
+    .replace(/(?:微信号?|联系微信|WeChat|VX|联系(?:电话|方式)|手机号|电话)\s*[：:=\-]?\s*[A-Za-z0-9_+\-]{5,32}/gi,
+      "[联系方式请咨询管理员]");
+}
+function publicLocation(input) {
+  return stripPublicPersonalData(input)
+    .replace(/\d{1,4}\s*(?:号楼|栋|幢)\s*(?:\d{1,4}\s*单元)?\s*(?:\d{1,4}\s*(?:室|户))?/g, "附近")
+    .replace(/\d{1,3}\s*单元\s*\d{1,4}\s*(?:室|户)/g, "附近")
+    .replace(/(?:房间|门牌|房号|室号)\s*[：:]?\s*\d+[A-Za-z-]*/g, "[具体门牌已隐藏]");
 }
 
 // 无权限的 GET 只提供允许公开展示的字段；精确坐标和后台内部地址不出现在响应里。
@@ -433,12 +460,21 @@ function toPublicOrder(order) {
       safe.publicAddress = safe.address;
     }
   }
+  for (const key of ["title", "currentScores", "requirements", "salaryText", "trialTime", "weeklyFrequency"]) {
+    if (typeof safe[key] === "string") safe[key] = stripPublicPersonalData(safe[key]);
+  }
+  safe.address = publicLocation(safe.address);
+  safe.publicAddress = safe.address;
   return safe;
 }
 
 function toPublicPartTime(post) {
-  return { id: post.id, title: post.title, time: post.time, location: post.location,
-    content: post.content, createdAt: post.createdAt };
+  return { id: post.id,
+    title: stripPublicPersonalData(post.title),
+    time: stripPublicPersonalData(post.time),
+    location: publicLocation(post.location),
+    content: stripPublicPersonalData(post.content),
+    createdAt: post.createdAt };
 }
 
 async function kvGet(kv, key, fallback) {
