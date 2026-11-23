@@ -41,9 +41,8 @@ export async function onRequestPost(context) {
         return jsonResp({ok:false,error:"图片过大或格式不受支持，请上传压缩后的 JPG/PNG/WebP 简历"},413);
     }
     if (!publicRecommend) {
-      if (!env.ADMIN_PASSWORD || String(env.ADMIN_PASSWORD).length < 12 ||
-          !env.AUTH_SECRET || String(env.AUTH_SECRET).length < 32)
-        return jsonResp({ ok: false, error: "管理员安全密钥未配置，AI 私人资料处理已暂停" }, 503);
+      if (!String(env.ADMIN_PASSWORD ?? "").trim() || !String(env.AUTH_SECRET ?? "").trim())
+        return jsonResp({ ok: false, error: "管理员凭据未配置：请设置 ADMIN_PASSWORD 和 AUTH_SECRET（不限制字符长度）" }, 503);
       const auth = await verifyAuth(request, String(env.AUTH_SECRET), env.TUTOR_KV);
       if (!auth) return jsonResp({ ok: false, error: "请重新登录后使用 AI 功能" }, 401);
       if (["parse_orders", "revise_drafts", "bulk_parse_orders", "site_command", "optimize_addresses", "model_probe", "extract_teacher_resume"].includes(action) && auth.role !== "admin") {
