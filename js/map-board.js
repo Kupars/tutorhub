@@ -92,10 +92,15 @@ function loadLeaflet() {
       stylesheet.id = "leaflet-map-styles";
       stylesheet.rel = "stylesheet";
       stylesheet.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      // 固定官方 Leaflet 1.9.4 SRI，禁止被篡改的第三方脚本运行。
+      stylesheet.integrity = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=";
+      stylesheet.crossOrigin = "anonymous";
       document.head.append(stylesheet);
     }
     const script = document.createElement("script");
     script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.integrity = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=";
+    script.crossOrigin = "anonymous";
     script.onload = () => globalThis.L ? resolve(globalThis.L) : reject(new Error("地图脚本不可用"));
     script.onerror = () => reject(new Error("地图服务加载失败，请检查网络"));
     document.head.append(script);
