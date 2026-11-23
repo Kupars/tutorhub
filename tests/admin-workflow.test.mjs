@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { splitDraftSubjects, mergeDraftSubjects, missingDraftFields } from "../js/draft-grouping.js";
 import { formatterPrompt, HISTORICAL_FORMAT_EXAMPLES } from "../shared/tutoring-order-formatter.js";
 import { ageOfOpenOrder, recommendPastTeachers } from "../js/assignment-utils.js";
@@ -13,8 +13,8 @@ const envFixture = () => {
     AUTH_SECRET: "unique-test-secret-for-assignments", ADMIN_PASSWORD: "secure-test-password" };
 };
 const tokenFor = (secret) => {
-  const base = Buffer.from(JSON.stringify({ id:"admin", role:"admin", exp:Date.now()+3600_000 })).toString("base64");
-  return base + "." + createHash("sha256").update(base+"."+secret).digest("hex");
+  const base = Buffer.from(JSON.stringify({ id:"admin", role:"admin", jti:"test-session-admin-1234567", exp:Date.now()+3600_000 })).toString("base64");
+  return base + "." + createHmac("sha256",secret).update(base).digest("hex");
 };
 const call = async (env, action, body={}, authenticated=true) => {
   const response = await onRequest({ env, request: new Request("https://test.pages.dev/api/store", {
