@@ -1115,12 +1115,13 @@ function renderParsedPreview() {
     <div class="ai-group-toolbar">
       <button class="btn btn-sm" type="button" id="btnSplitSelectedSubjects">拆分所选科目</button>
       <button class="btn btn-sm" type="button" id="btnMergeSelectedSubjects">合并所选科目</button>
+      <button class="btn btn-sm" type="button" id="btnGroupRelatedDrafts">将选中草稿编为同一主单号</button>
       <button class="btn btn-sm" type="button" id="btnClearSubjectSelections">取消勾选</button>
       <span class="admin-helper">当前勾选 <strong id="selectedSubjectCount">${state.selectedDraftSubjects.size}</strong> 个科目</span>
     </div>
     ${drafts.map((o,index)=>`
       <div class="order-draft">
-        <div class="ai-draft-head"><strong>草稿 ${index+1} · ${escapeHtml(o.orderNumber||o.id)} · ${escapeHtml(o.grade)}</strong>
+        <div class="ai-draft-head"><label class="ai-family-label"><input type="checkbox" data-group-family="${index}" ${state.selectedDraftFamilies.has(index)?"checked":""} />编为一组</label><strong>草稿 ${index+1} · ${escapeHtml(o.orderNumber||o.id)} · ${escapeHtml(o.grade)}</strong>
           <div class="ai-draft-actions">
             <button class="btn btn-sm" type="button" data-split-draft="${index}">全部按单科拆分</button>
             <button class="btn btn-sm" type="button" data-copy-draft="${index}">复制</button>
@@ -1142,6 +1143,19 @@ function renderParsedPreview() {
       </div>`).join("")}
   `;
   wrap.querySelectorAll("[data-draft-text]").forEach(el=>el.onchange=syncDraftTextareas);
+  wrap.querySelectorAll("[data-group-family]").forEach(box=>box.onchange=()=>{
+    const i=Number(box.dataset.groupFamily);
+    if(box.checked)state.selectedDraftFamilies.add(i);else state.selectedDraftFamilies.delete(i);
+  });
+  $("btnGroupRelatedDrafts").onclick=()=>{
+    syncDraftTextareas();
+    if(state.selectedDraftFamilies.size<2)return showToast("请选择至少两条同来源需求的草稿");
+    if(!confirm("确认这几条草稿属于同一组家长需求吗？\n仅改变显示编号为 #主单号-1、-2 等，不会把不同学生合并为同一条单。"))return;
+    try{
+      state.parsedDraftOrders=groupDraftsUnderParent(state.parsedDraftOrders,[...state.selectedDraftFamilies],Store.getOrders());
+      state.selectedDraftFamilies.clear();renderAdminView();showToast("已按同一主编号编组，独立需求和科目未改变");
+    }catch(err){showToast("编组失败："+err.message);}
+  };
   wrap.querySelectorAll("[data-subject-key]").forEach(box=>{
     box.onchange=()=>{
       if(box.checked)state.selectedDraftSubjects.add(box.dataset.subjectKey);
@@ -1149,12 +1163,12 @@ function renderParsedPreview() {
       $("selectedSubjectCount").textContent=String(state.selectedDraftSubjects.size);
     };
   });
-  $("btnClearSubjectSelections").onclick=()=>{state.selectedDraftSubjects.clear();renderParsedPreview();};
+  $("btnClearSubjectSelections").onclick=()=>{state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();renderParsedPreview();};
   $("btnSplitSelectedSubjects").onclick=()=>{
     syncDraftTextareas();
     if(!state.selectedDraftSubjects.size)return showToast("请先勾选要拆开的科目");
     state.parsedDraftOrders=splitDraftSubjects(state.parsedDraftOrders,[...state.selectedDraftSubjects]);
-    state.selectedDraftSubjects.clear();renderAdminView();
+    state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();renderAdminView();
     showToast("已拆分科目，未勾选的科目仍保留");
   };
   $("btnMergeSelectedSubjects").onclick=()=>{
@@ -1164,7 +1178,7 @@ function renderParsedPreview() {
     if(!confirm("请确认这些科目来自同一名学生、希望由一位老师授课。确认合并吗？"))return;
     try{
       state.parsedDraftOrders=mergeDraftSubjects(state.parsedDraftOrders,keys,true);
-      state.selectedDraftSubjects.clear();renderAdminView();
+      state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();renderAdminView();
       showToast("已合并选定科目，其余科目保留");
     }catch(err){showToast("合并失败："+err.message);}
   };
