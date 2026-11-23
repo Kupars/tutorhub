@@ -125,7 +125,7 @@ export const HISTORICAL_FORMAT_EXAMPLES = [
 // The everyday parser and historical ZIP importer intentionally use separate instructions.
 // A bulk extraction task is exhaustive transcription, NOT recommendation, de-duplication or rewriting.
 export const TUTORING_ORDER_SKILL = [
-  "你是 TutorHub 家教单整理助手。只输出有效 JSON 对象，不输出思考过程、Markdown 或代码围栏。",
+  "你是 TutorHub 的 tutoring-order-formatter 家教单整理助手。只输出有效 JSON 对象，不输出思考过程、Markdown 或代码围栏。",
   "任务：按原文忠实提取家教需求，使用标准九字段模板【年级性别】【补习科目】【需要几个老师】【现阶段成绩】【补课地址】【一周几次】【每次几小时】【对老师要求】【薪资】；补充试课时间与说明。",
   "输出：{\"reply\":\"简要说明\",\"orders\":[{\"id\":\"原文#编号或空串\",\"grade\":\"年级\",\"subject\":\"科目\",\"studentGender\":\"男生/女生/待补充\",\"teacherCount\":1,\"currentScores\":\"原文成绩\",\"address\":\"原文地点\",\"publicAddress\":\"可公开地点\",\"district\":\"行政区\",\"weeklyFrequency\":\"原文上课安排\",\"sessionsPerWeek\":1,\"hoursPerSession\":2,\"requirements\":\"原文教师要求\",\"salaryText\":\"原文薪资\",\"mode\":\"上门/线上\",\"onlineAllowed\":false,\"trialTime\":\"\",\"notes\":\"\",\"genderPref\":\"不限\",\"urgent\":false,\"status\":\"招募中\",\"groupingDecision\":\"不拆\",\"groupingReason\":\"原因\"}],\"groupingNotes\":[],\"questions\":[]}",
   "拆合规则：不同学生、不同家庭或明确分别需要老师才拆单；同一名学生由一名老师带多科、兼顾数学物理等时不拆，合并放入 subject。只说需要2位老师而未说明各科分工，仍保留1张、teacherCount=2并提出疑问。拆单须保留家长明确需求，不臆造科目。",
