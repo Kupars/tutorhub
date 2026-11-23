@@ -61,6 +61,22 @@ function hydrateWechatBulkImport() {
     if(target)target.textContent="批量导入模块加载失败："+error.message;
   });
 }
+let aiModelsModulePromise=null;
+function hydrateAIModelManager() {
+  if(state.adminPage!=="aiModels" || Store.getCurrentUser()?.role!=="admin")return;
+  const slot=document.getElementById("aiModelManagerSlot");
+  if(!slot)return;
+  if(!aiModelsModulePromise)aiModelsModulePromise=import("./admin-ai-models.js?v=1")
+    .catch(error=>{aiModelsModulePromise=null;throw error;});
+  void aiModelsModulePromise.then(module=>{
+    const target=document.getElementById("aiModelManagerSlot");
+    if(!target || state.adminPage!=="aiModels" || Store.getCurrentUser()?.role!=="admin")return;
+    module.mountAIModelManager(target,{Store,toast:showToast});
+  }).catch(error=>{
+    const target=document.getElementById("aiModelManagerSlot");
+    if(target)target.textContent="AI 模型管理加载失败："+error.message;
+  });
+}
 function hydrateTeacherPool() {
   if (state.adminPage !== "teachers") return;
   const container=$("adminContainer");
@@ -721,6 +737,7 @@ const ADMIN_PAGES = {
   bulkImport: { name: "微信历史批量导入", icon: "📥" },
   teachers: { name: "老师档案与匹配", icon: "👩‍🏫" },
   aiSite: { name: "AI 修改网站与订单", icon: "🤖" },
+  aiModels: { name: "AI 模型管理", icon: "🧠" },
   parttime: { name: "其他兼职", icon: "💼" }
 };
 
@@ -768,6 +785,7 @@ function renderAdminView() {
     {id:"manual", detail:"按九字段模板手动新建或编辑家教单", metric:"规范录入"},
     {id:"teachers", detail:"老师档案、历史接单记录、投递与推荐匹配", metric:"管理员专用"},
     {id:"aiSite", detail:"通过对话预览并确认修改网站设置和已有订单", metric:"修改前确认"},
+    {id:"aiModels", detail:"添加多个中转站、保存模型名称、测试 API 并全站切换", metric:"统一模型设置"},
     {id:"parttime", detail:"发布、编辑和管理兼职招募信息", metric:`${Store.getPartTimePosts().length} 条兼职`}
   ];
 
@@ -881,6 +899,8 @@ function renderAdminView() {
       <div id="parsedPreview" style="margin-top:12px;"></div>
     </div>
 
+    <section class="admin-module-page" data-admin-page="aiModels" ${openedPage==="aiModels"?"":"hidden"}><div id="aiModelManagerSlot" class="panel"><p class="admin-helper">正在加载模型管理…</p></div></section>
+
     <div class="panel admin-module-page" data-admin-page="aiSite" ${openedPage==="aiSite"?"":"hidden"}>
       <h2>🤖 AI 辅助修改（管理员确认后执行）</h2>
       <p style="font-size:13px;color:var(--muted);margin-bottom:8px;">支持连续对话修改现有单的科目、时薪、时间、要求、状态及首页标题、公告、配色。每次先预览、再确认；网页代码和新功能仍需通过 GitHub 修改：</p>
@@ -888,7 +908,7 @@ function renderAdminView() {
         <textarea id="aiSiteCmd" rows="2" placeholder="例如：把 #2517 的时薪改为150元。下一条还可以说：把刚才那单的时间改到周日"></textarea>
         <button class="btn btn-primary" id="btnRunSiteCmd" style="white-space:nowrap;">生成修改预览</button>
       </div>
-      <div class="admin-editor-actions"><button class="btn btn-sm" id="btnProbeAI" type="button">检测 AI 接口是否接通</button><span class="admin-helper" id="aiProbeResult">更换模型可在 Cloudflare 环境变量设置 OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL，密钥不放网页。</span></div>
+      <div class="admin-editor-actions"><button class="btn btn-sm" id="btnProbeAI" type="button">检测 AI 接口是否接通</button><span class="admin-helper" id="aiProbeResult">请到「AI 模型管理」添加中转站并切换模型；Cloudflare 环境变量仍可作为备用设置。</span></div>
       <div class="ai-chat-panel" id="aiSiteHistory" aria-live="polite"></div><p id="aiSiteReply" style="font-size:13px;color:var(--primary);margin-top:8px;"></p>
     </div>
 
@@ -1308,6 +1328,7 @@ function renderAdminView() {
   });
   hydrateTeacherPool();
   hydrateWechatBulkImport();
+  hydrateAIModelManager();
 }
 
 
