@@ -20,9 +20,9 @@ export async function callServerlessAI(action, payload = {}) {
   return data.result;
 }
 
-export async function probeAIProvider(providerId) {
+export async function probeAIProvider(providerId, model) {
   try {
-    const response = await callServerlessAI("model_probe", providerId ? {providerId} : {});
+    const response = await callServerlessAI("model_probe", providerId ? {providerId, ...(model ? {model} : {})} : {});
     return response?.health === "ok" ? { ok:true, provider:response.provider || "已配置的模型" } :
       { ok:false, error:"模型接口有响应，但未返回预期检测字段" };
   } catch (err) { return { ok:false, error:err.message }; }
