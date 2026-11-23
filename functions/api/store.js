@@ -116,7 +116,7 @@ export async function onRequest(context) {
         siteConfig,
         hiddenImported,
         partTimePosts,
-        assignments,
+        assignments: env.AUTH_SECRET && env.ADMIN_PASSWORD ? assignments : [],
         orderSequence: Math.max(2991, Number(sequence) || 0, ...orders.map((o) => Number(String(o.orderNumber || o.id).match(/^#?(\d{3,7})/)?.[1]) || 0))
       });
     }
@@ -146,6 +146,7 @@ export async function onRequest(context) {
     // 教师姓名和联系信息只保存在独立的管理员 KV 记录中，绝不随公开 GET 输出。
     // 由管理员手动登记；无教师自助注册、无位置追踪。
     if (action === "admin_save_assignment") {
+      if (!env.AUTH_SECRET || !env.ADMIN_PASSWORD) return jsonResp({ ok: false, error: "保存老师个人信息前，请在 Cloudflare 配置强密码 ADMIN_PASSWORD 和独立随机 AUTH_SECRET" }, 503);
       const orderId = String(body.orderId || "").trim();
       const name = String(body.teacherName || "").trim();
       const contact = String(body.teacherContact || "").trim();
@@ -183,6 +184,7 @@ export async function onRequest(context) {
       return jsonResp({ ok: true, assignments: nextAssignments, orders: nextOrders });
     }
     if (action === "admin_delete_assignment") {
+      if (!env.AUTH_SECRET || !env.ADMIN_PASSWORD) return jsonResp({ ok: false, error: "缺少安全管理员密钥，无法操作私人记录" }, 503);
       const assignments = await kvGet(env.TUTOR_KV, "teacher_assignments", []);
       const next = assignments.filter((a) => a.id !== body.assignmentId);
       if (next.length === assignments.length) return jsonResp({ ok: false, error: "该匹配记录不存在" }, 404);
