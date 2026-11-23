@@ -61,32 +61,63 @@
           </select>
         </div>
         <div class="quick-filter-bar" role="group" aria-label="常用家教筛选条件">
-          <div class="quick-filter-options">
-            <select id="qSubject" aria-label="筛选科目"><option value="">科目</option></select>
-            <select id="qGrade" aria-label="筛选年级"><option value="">年级</option></select>
-            <select id="qDistrict" aria-label="筛选区域"><option value="">区域</option></select>
-            <select id="qMode" aria-label="筛选授课方式">
-              <option value="">方式</option><option value="线上">线上</option>
-              <option value="上门">上门</option><option value="均可">均可</option>
-            </select>
+          <div class="quick-filter-options" aria-label="可多选的常用筛选">
+            <details class="multi-filter" id="qSubject" data-filter-label="科目">
+              <summary aria-label="筛选科目，可多选"><span class="multi-filter-summary">科目</span></summary>
+              <div class="multi-filter-menu" role="group" aria-label="科目多选">
+                <div class="multi-filter-actions"><span>可勾选多项</span><button type="button" data-multi-action="all">全选</button><button type="button" data-multi-action="clear">清空</button></div>
+                <div class="multi-filter-items" data-multi-options="qSubject"></div>
+              </div>
+            </details>
+            <details class="multi-filter" id="qGrade" data-filter-label="年级">
+              <summary aria-label="筛选年级，可多选"><span class="multi-filter-summary">年级</span></summary>
+              <div class="multi-filter-menu" role="group" aria-label="年级多选">
+                <div class="multi-filter-actions"><span>可勾选多项</span><button type="button" data-multi-action="all">全选</button><button type="button" data-multi-action="clear">清空</button></div>
+                <div class="multi-filter-items" data-multi-options="qGrade"></div>
+              </div>
+            </details>
+            <details class="multi-filter" id="qDistrict" data-filter-label="区域">
+              <summary aria-label="筛选区域，可多选"><span class="multi-filter-summary">区域</span></summary>
+              <div class="multi-filter-menu" role="group" aria-label="区域多选">
+                <div class="multi-filter-actions"><span>可勾选多项</span><button type="button" data-multi-action="all">全选</button><button type="button" data-multi-action="clear">清空</button></div>
+                <div class="multi-filter-items" data-multi-options="qDistrict"></div>
+              </div>
+            </details>
+            <details class="multi-filter" id="qMode" data-filter-label="方式">
+              <summary aria-label="筛选方式，可多选"><span class="multi-filter-summary">方式</span></summary>
+              <div class="multi-filter-menu" role="group" aria-label="方式多选">
+                <div class="multi-filter-actions"><span>可勾选多项</span><button type="button" data-multi-action="all">全选</button><button type="button" data-multi-action="clear">清空</button></div>
+                <div class="multi-filter-items" data-multi-options="qMode"></div>
+              </div>
+            </details>
           </div>
           <button class="btn btn-primary quick-filter-toggle" type="button" id="btnToggleFilters" aria-controls="advancedFilters" aria-expanded="false">☰ 更多筛选<span id="quickFilterCount"></span></button>
         </div>
 
         <section class="advanced-filters" id="advancedFilters" aria-label="更多筛选条件" hidden>
           <div class="advanced-filters-heading"><h2>更多筛选 <span id="activeFilterCount"></span></h2><button class="btn btn-sm" id="btnCloseFilters" type="button">收起 ✕</button></div>
-          <div class="search-row search-row-extra">
-            <select id="qStudentGender" aria-label="学生性别">
-              <option value="">学生性别（全部）</option><option value="男生">男生</option>
-              <option value="女生">女生</option><option value="待补充">性别待补充</option>
-            </select>
-            <select id="qTeacherGender" aria-label="老师性别要求">
-              <option value="">老师性别（全部）</option><option value="男生">男老师优先</option>
-              <option value="女生">女老师优先</option><option value="不限">不限性别</option>
-            </select>
-            <select id="qTime" aria-label="补课时间">
-              <option value="">上课时间（全部）</option><option value="weekend">周末</option><option value="weekday">周中</option>
-            </select>
+          <div class="search-row search-row-extra" aria-label="可多选的详细条件">
+            <details class="multi-filter" id="qStudentGender" data-filter-label="学生性别">
+              <summary aria-label="筛选学生性别，可多选"><span class="multi-filter-summary">学生性别</span></summary>
+              <div class="multi-filter-menu" role="group" aria-label="学生性别多选">
+                <div class="multi-filter-actions"><span>可勾选多项</span><button type="button" data-multi-action="all">全选</button><button type="button" data-multi-action="clear">清空</button></div>
+                <div class="multi-filter-items" data-multi-options="qStudentGender"></div>
+              </div>
+            </details>
+            <details class="multi-filter" id="qTeacherGender" data-filter-label="老师性别">
+              <summary aria-label="筛选老师性别，可多选"><span class="multi-filter-summary">老师性别</span></summary>
+              <div class="multi-filter-menu" role="group" aria-label="老师性别多选">
+                <div class="multi-filter-actions"><span>可勾选多项</span><button type="button" data-multi-action="all">全选</button><button type="button" data-multi-action="clear">清空</button></div>
+                <div class="multi-filter-items" data-multi-options="qTeacherGender"></div>
+              </div>
+            </details>
+            <details class="multi-filter" id="qTime" data-filter-label="上课时间">
+              <summary aria-label="筛选上课时间，可多选"><span class="multi-filter-summary">上课时间</span></summary>
+              <div class="multi-filter-menu" role="group" aria-label="上课时间多选">
+                <div class="multi-filter-actions"><span>可勾选多项</span><button type="button" data-multi-action="all">全选</button><button type="button" data-multi-action="clear">清空</button></div>
+                <div class="multi-filter-items" data-multi-options="qTime"></div>
+              </div>
+            </details>
             <input id="qMinRate" type="number" min="0" placeholder="最低时薪（元）" aria-label="最低时薪" />
             <button class="btn btn-sm" id="btnClearFilters">清空筛选</button>
           </div>
