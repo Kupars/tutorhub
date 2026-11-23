@@ -44,7 +44,7 @@ test("前台多选控件存在全选、清空和可移除筛选标签",()=>{
   }
   assert.match(html,/id="selectedFilterChips"/);
   assert.match(js,/renderSelectedFilterChips/);
-  assert.match(js,/data-multi-action="all"/);
+  assert.match(html,/data-multi-action="all"/);
   assert.match(js,/normalizeMultiSelection\(saved\[id\]\)/);
 });
 test("后台主页只显示工作台，进入一个功能模块后可以返回和切换",()=>{
