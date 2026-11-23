@@ -34,7 +34,8 @@ const state = {
   editingPartTimeId: null,
   adminQuery: "",
   adminStatus: "all",
-  adminPageSize: 40
+  adminPageSize: 40,
+  adminPage: "home"
 };
 let teacherPoolModulePromise=null;
 function loadTeacherPoolModule() {
@@ -44,6 +45,7 @@ function loadTeacherPoolModule() {
   return teacherPoolModulePromise;
 }
 function hydrateTeacherPool() {
+  if (state.adminPage !== "teachers") return;
   const container=$("adminContainer");
   if(!container?.querySelector("#teacherPoolSlot"))return;
   void loadTeacherPoolModule().then(module=>{
@@ -666,6 +668,23 @@ function confirmDuplicateRisks(incoming, excludingIds = []) {
   return confirm(`发现 ${duplicates.length} 组可能重复的家教单：\n${overview}\n\n同地点可能是不同学生。请先核对家长需求，确认不是重复发布再继续。`);
 }
 
+const ADMIN_PAGES = {
+  home: { name: "工作台首页", icon: "🏠" },
+  orders: { name: "家教单管理", icon: "📋" },
+  manual: { name: "手动录单", icon: "✍️" },
+  aiOrders: { name: "AI 智能录单", icon: "✨" },
+  teachers: { name: "老师档案与匹配", icon: "👩‍🏫" },
+  aiSite: { name: "AI 修改网站与订单", icon: "🤖" },
+  parttime: { name: "其他兼职", icon: "💼" }
+};
+
+function navigateAdminPage(page) {
+  if (!Object.hasOwn(ADMIN_PAGES, page)) return;
+  state.adminPage = page;
+  renderAdminView();
+  $("view-admin")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function renderAdminView() {
   const user = Store.getCurrentUser();
   const box = $("adminContainer");
@@ -694,9 +713,47 @@ function renderAdminView() {
   });
   const adminShownOrders = adminFilteredOrders.slice(0, state.adminPageSize);
 
+  const openedPage = Object.hasOwn(ADMIN_PAGES, state.adminPage) ? state.adminPage : "home";
+  const activeLabel = ADMIN_PAGES[openedPage].name;
+  const moduleCards = [
+    {id:"orders", detail:"统一搜索、筛选、编辑、上架及批量处理", metric:`${orders.length} 条家教单`},
+    {id:"aiOrders", detail:"一次识别多条微信需求，AI 对话修改并自由拆合科目", metric:`${state.parsedDraftOrders.length} 条待发布草稿`},
+    {id:"manual", detail:"按九字段模板手动新建或编辑家教单", metric:"规范录入"},
+    {id:"teachers", detail:"老师档案、历史接单记录、投递与推荐匹配", metric:"管理员专用"},
+    {id:"aiSite", detail:"通过对话预览并确认修改网站设置和已有订单", metric:"修改前确认"},
+    {id:"parttime", detail:"发布、编辑和管理兼职招募信息", metric:`${Store.getPartTimePosts().length} 条兼职`}
+  ];
+
   box.innerHTML = `
+    <div class="admin-workspace-top">
+      <div class="admin-workspace-crumb">
+        ${openedPage === "home" ? "" : '<button class="btn btn-sm admin-home-button" id="btnAdminHome" type="button">← 工作台</button>'}
+        <strong>${ADMIN_PAGES[openedPage].icon} ${activeLabel}</strong>
+      </div>
+      ${openedPage === "home" ? '<span class="admin-workspace-label">选择一个模块进入管理</span>' :
+        `<select id="adminPageSwitcher" aria-label="切换后台模块">
+          ${Object.entries(ADMIN_PAGES).map(([key, info]) =>
+            `<option value="${key}" ${openedPage===key?"selected":""}>${info.icon} ${info.name}</option>`).join("")}
+        </select>`}
+    </div>
+    <section class="admin-dashboard" data-admin-page="home" ${openedPage==="home"?"":"hidden"}>
+      <div class="admin-dashboard-hero"><h2>管理工作台</h2><p>请选择需要办理的业务。每次只打开一个功能页面，减少滚动和误操作。</p></div>
+      <div class="admin-dashboard-stats">
+        <span><strong>${orders.filter(isPubliclyOpenOrder).length}</strong> 招募中</span>
+        <span><strong>${orders.length - orders.filter(isPubliclyOpenOrder).length}</strong> 已关闭</span>
+        <span><strong>${state.parsedDraftOrders.length}</strong> 待发布草稿</span>
+      </div>
+      <div class="admin-module-grid">
+        ${moduleCards.map(item => `<button type="button" class="admin-module-card" data-admin-go="${item.id}">
+          <span class="admin-module-icon">${ADMIN_PAGES[item.id].icon}</span>
+          <span class="admin-module-main"><strong>${ADMIN_PAGES[item.id].name}</strong>
+            <small>${item.detail}</small><em>${item.metric}</em></span>
+          <span class="admin-module-arrow" aria-hidden="true">›</span>
+        </button>`).join("")}
+      </div>
+    </section>
     ${!Store.isCloudMode() ? `
-      <div class="panel" style="border-color:#f59e0b;background:#fffbeb;">
+      <div class="panel" data-admin-page="home" style="border-color:#f59e0b;background:#fffbeb;" ${openedPage === "home" ? "" : "hidden"}>
         <strong>提示：尚未绑定 Cloudflare KV 云端存储</strong>
         <p style="font-size:13px;color:#92400e;margin-top:4px;">
           当前数据仅保存在本机浏览器。在 Cloudflare Pages 后台 <strong>Settings → Bindings → Add → KV Namespace</strong> 中绑定变量名 <code>TUTOR_KV</code> 并重新部署后，即可自动开启多人云端同步。
@@ -704,7 +761,7 @@ function renderAdminView() {
       </div>
     ` : ""}
 
-    <div class="panel">
+    <div class="panel admin-module-page" data-admin-page="parttime" ${openedPage==="parttime"?"":"hidden"}>
       <h2>💼 其他兼职 · ${state.editingPartTimeId ? "修改信息" : "发布信息"}</h2>
       <p class="admin-helper">兼职单独显示在“其他兼职”页面，不会混入家教需求或选单清单。</p>
       <form id="partTimeForm" class="parttime-admin-form">
@@ -720,7 +777,7 @@ function renderAdminView() {
       `).join("")}</div>
     </div>
 
-    <div class="panel">
+    <div class="panel admin-module-page" data-admin-page="manual" ${openedPage==="manual"?"":"hidden"}>
       <h2>✍️ ${state.editingOrderId ? "编辑已有家教单" : "新增家教单"} <span class="chip">九字段标准模板</span></h2>
       <p class="admin-helper">家长微信可以直接粘贴到下方 AI 整理区；也可以手动填表。发布时自动优化公开地址表述，不会猜测未提供的小区或门牌。</p>
       <form id="manualOrderForm">
@@ -753,7 +810,7 @@ function renderAdminView() {
       </form>
     </div>
 
-    <div class="panel">
+    <div class="panel admin-module-page" data-admin-page="aiOrders" ${openedPage==="aiOrders"?"":"hidden"}>
       <h2>✨ AI 零散信息一键整理成家教单</h2>
       <p style="font-size:13px;color:var(--muted);margin-bottom:8px;">直接粘贴微信聊天、飞书表格复制内容或旧单（多条以空行分隔），AI 自动整理成九字段，先预览编辑，再确认发布：</p>
       <textarea id="rawOrderInput" rows="4" placeholder="示例：急招！南开区天大附近高二女生找数学老师，每周六上午2小时，160元一小时，要求985理工科有耐心，最好女老师"></textarea>
@@ -775,7 +832,7 @@ function renderAdminView() {
       <div id="parsedPreview" style="margin-top:12px;"></div>
     </div>
 
-    <div class="panel">
+    <div class="panel admin-module-page" data-admin-page="aiSite" ${openedPage==="aiSite"?"":"hidden"}>
       <h2>🤖 AI 辅助修改（管理员确认后执行）</h2>
       <p style="font-size:13px;color:var(--muted);margin-bottom:8px;">支持连续对话修改现有单的科目、时薪、时间、要求、状态及首页标题、公告、配色。每次先预览、再确认；网页代码和新功能仍需通过 GitHub 修改：</p>
       <div style="display:flex;gap:8px;">
@@ -787,9 +844,9 @@ function renderAdminView() {
     </div>
 
 
-    <div id="teacherPoolSlot" class="panel"><p class="admin-helper">正在加载老师档案库…</p></div>
+    <section class="admin-module-page" data-admin-page="teachers" ${openedPage==="teachers"?"":"hidden"}><div id="teacherPoolSlot" class="panel"><p class="admin-helper">正在加载老师档案库…</p></div></section>
 
-    <div class="panel">
+    <div class="panel admin-module-page" data-admin-page="orders" ${openedPage==="orders"?"":"hidden"}>
       <h2>📋 家教单管理（展示中 ${orders.filter(isPubliclyOpenOrder).length} 条 · 已关闭 ${orders.filter((o) => !isPubliclyOpenOrder(o)).length} 条）</h2>
       <p class="admin-helper">点击“关闭展示”后，老师端看板、筛选和地图都不再显示该单；数据保留在后台，可以随时重新上架。</p>
       <div class="admin-bulk-toolbar">
@@ -838,6 +895,11 @@ function renderAdminView() {
     </div>
   `;
 
+  box.querySelectorAll("[data-admin-go]").forEach(button => {
+    button.onclick = () => navigateAdminPage(button.dataset.adminGo);
+  });
+  $("btnAdminHome")?.addEventListener("click", () => navigateAdminPage("home"));
+  $("adminPageSwitcher")?.addEventListener("change", event => navigateAdminPage(event.target.value));
   $("rawOrderInput").value = state.aiRawText;
   $("aiSiteCmd").value = state.aiSiteInput;
   $("aiSiteReply").textContent = state.aiSiteReply;
@@ -1118,6 +1180,7 @@ function renderAdminView() {
   box.querySelectorAll("[data-fix-address]").forEach((btn) => {
     btn.onclick = () => {
       state.editingOrderId = btn.dataset.fixAddress;
+      state.adminPage = "manual";
       renderAdminView();
       $("manualAddress").focus();
       $("manualAddress").scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1139,6 +1202,7 @@ function renderAdminView() {
   box.querySelectorAll("[data-edit-order]").forEach((btn) => {
     btn.onclick = () => {
       state.editingOrderId = btn.dataset.editOrder;
+      state.adminPage = "manual";
       renderAdminView();
       $("manualOrderForm").scrollIntoView({ behavior: "smooth", block: "start" });
     };
@@ -1148,6 +1212,7 @@ function renderAdminView() {
       const item = Store.getOrders().find((o) => o.id === btn.dataset.splitOrder);
       if (!item) return;
       state.parsedDraftOrders = splitOrderBySubject(item);
+      state.adminPage = "aiOrders";
       renderAdminView();
       $("parsedPreview").scrollIntoView({ behavior: "smooth", block: "start" });
       showToast("已生成子编号草稿；发布后原单保留，可手动下架");
