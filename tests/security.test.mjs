@@ -32,7 +32,7 @@ async function login(env) {
   const r=await callStore(env,{action:"login",email:env.ADMIN_EMAIL,password:env.ADMIN_PASSWORD});
   assert.equal(r.status,200);return r.data.token;
 }
-test("缺少强密码/随机密钥时，公开 GET 保持可用但管理员操作一律关闭",async()=>{
+test("缺少管理员密码/签名密钥时，公开 GET 保持可用但管理员操作一律关闭",async()=>{
   const env=fixture({ADMIN_PASSWORD:"",AUTH_SECRET:""});
   const get=await storeEndpoint({env,request:new Request("https://example.pages.dev/api/store")});
   assert.equal(get.status,200);
@@ -40,6 +40,32 @@ test("缺少强密码/随机密钥时，公开 GET 保持可用但管理员操�
   const auth=await callStore(env,{action:"login",email:"admin@security-test.invalid",password:"admin123456"});
   assert.equal(auth.status,503);
   assert.equal(auth.data.code,"ADMIN_SECURITY_NOT_CONFIGURED");
+});
+test("不再限制凭据字符长度，仍要求正确密码并签发可验证管理员令牌",async()=>{
+  const env=fixture({ADMIN_PASSWORD:"short",AUTH_SECRET:"key"});
+  const wrong=await callStore(env,{action:"login",email:env.ADMIN_EMAIL,password:"wrong"});
+  assert.equal(wrong.status,401);
+  const token=await login(env);
+  assert.equal((await callStore(env,{action:"admin_data"},token)).status,200);
+  const noToken=await callStore(env,{action:"admin_data"});
+  assert.equal(noToken.status,401);
+});
+test("AI 管理接口同样接受短凭据但仍强制校验登录身份",async()=>{
+  const env=fixture({ADMIN_PASSWORD:"short",AUTH_SECRET:"key"});
+  const token=await login(env);
+  const makeRequest=(authorized)=>new Request("https://example.pages.dev/api/ai",{
+    method:"POST",headers:{"Content-Type":"application/json",...(authorized?{Authorization:"Bearer "+token}:{})},
+    body:JSON.stringify({action:"model_probe",payload:{}})
+  });
+  const unauth=await aiEndpoint({env,request:makeRequest(false)});
+  assert.equal(unauth.status,401);
+  const original=globalThis.fetch;
+  globalThis.fetch=async()=>new Response(JSON.stringify({choices:[{message:{content:'{"health":"ok"}'}}]}),{status:200});
+  try{
+    const authorized=await aiEndpoint({env,request:makeRequest(true)});
+    assert.equal(authorized.status,200);
+    assert.equal((await authorized.json()).result.health,"ok");
+  }finally{globalThis.fetch=original;}
 });
 test("仅指定管理员邮箱与强密码可登录，旧默认口令不可登录",async()=>{
   const env=fixture();
