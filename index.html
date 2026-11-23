@@ -25,7 +25,7 @@
         : md < 1100 + termDay(7.438) ? "autumn" : "winter";
     })();
   </script>
-  <link rel="stylesheet" href="./css/styles.css?v=27" />
+  <link rel="stylesheet" href="./css/styles.css?v=28" />
 </head>
 <body>
   <div class="startup-loading" id="startupLoading" role="status" aria-live="polite" aria-atomic="true">
@@ -121,7 +121,7 @@
           <div class="filter-switches">
             <label><input id="onlySelected" type="checkbox" /> 仅看已选单</label>
           </div>
-          <div class="filter-ai-row"><button class="btn btn-primary btn-smart-main" id="btnSmartSelect">✨ AI 自动勾选</button><label class="ai-preference-label" for="aiPreference">优先考虑 <select id="aiPreference"><option value="balanced">时薪与路程兼顾</option><option value="commute">通勤短</option><option value="income">时薪高</option></select></label><span>使用网站 GLM 模型推荐最多 5 单；不可用时自动切换本地排序。</span></div>
+          <div class="filter-ai-row"><button class="btn btn-primary btn-smart-main" id="btnSmartSelect">✨ AI 自动勾选</button><label class="ai-preference-label" for="aiPreference">优先考虑 <select id="aiPreference"><option value="balanced">时薪与路程兼顾</option><option value="commute">通勤短</option><option value="income">时薪高</option></select></label><span>使用当前配置的外部 AI API 推荐最多 5 单；调用失败会明确提示，不会假装模型推荐成功。</span></div>
           <p class="ai-selection-summary" id="aiSelectionSummary" role="status" hidden></p>
         </section>
 
@@ -192,6 +192,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=36"></script>
+  <script type="module" src="./js/app.js?v=37"></script>
 </body>
 </html>
