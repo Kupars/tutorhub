@@ -3,7 +3,12 @@ export const TEACHER_AVAILABILITIES = ["可接单","已接满","暂不接单","�
 export const TEACHER_GENDERS = ["男","女","未知"];
 const trim=v=>String(v??"").trim();
 const location=v=>trim(v).replace(/天津市|天津|[\s，,。·()（）]/g,"").toLowerCase();
-export const subjectTokens=v=>[...new Set(trim(v).split(/[、，,＋+\/和\s]+/).map(s=>s.trim()).filter(Boolean))];
+export const subjectTokens=v=>{
+  const raw=trim(v);
+  const recognized=[...raw.matchAll(/数学|物理|化学|英语|语文|生物|地理|历史|政治|科学|编程|信息技术|计算机|全科|陪读|作业辅导|体育|音乐|美术|德语|法语|日语/g)].map(m=>m[0]);
+  if(/数理化/.test(raw))recognized.push("数学","物理","化学");
+  return [...new Set(recognized.length?recognized:raw.split(/[、，,＋+\/和\s]+/).map(s=>s.trim()).filter(Boolean))];
+};
 export const districtTokens=v=>[...new Set(trim(v).split(/[、，,;；\/\s]+/).map(s=>s.trim()).filter(Boolean))];
 
 export function wantedTeacherGender(order) {
