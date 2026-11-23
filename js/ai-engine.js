@@ -4,8 +4,16 @@ import { inferCoordsFromText } from "./commute.js";
 import { getGenderFromText, nextOrderId, normalizeOrder, parseFormattedOrder } from "./order-format.js";
 import { normalizePublicAddress, safeOptimizedPublicAddress } from "./address-normalizer.js";
 import { extractRawOrderDrafts } from "./structured-order-extractor.js";
+import { guardSiteActions } from "./ai-command-guard.js";
 
 let lastAIError = "";
+
+export async function probeAIProvider() {
+  lastAIError = "";
+  const result = await callServerlessAI("model_probe", {});
+  return result?.health === "ok" ? { ok: true, provider: result.provider || "已接入模型" } :
+    { ok: false, error: lastAIError || "上游模型未返回预期测试结果" };
+}
 
 async function callServerlessAI(action, payload) {
   try {
@@ -104,7 +112,7 @@ export async function parseMessyOrders(rawText, existingOrders = []) {
   }
   lastAIError = "";
   const remote = await callServerlessAI("parse_orders", { text: rawText });
-  if (remote && Array.isArray(remote.orders) && remote.orders.length > 0) {
+  if (remote && Array.isArray(remote.orders) && remote.orders.length > 0 && remote.orders.length === extractRawOrderDrafts(rawText).length) {
     const localDrafts = extractRawOrderDrafts(rawText);
     const safeDrafts = remote.orders.map((candidate, index) => {
       const source = localDrafts[index];
@@ -179,7 +187,16 @@ export async function interpretSiteCommand(commandText, currentSiteConfig, order
     siteConfig: currentSiteConfig,
     orders: orders.map((o) => ({ id: o.id, title: o.title, hourlyRate: o.hourlyRate, status: o.status }))
   });
-  if (remote && remote.actions) return { source: remote.provider || "AI 站点管家", ...remote };
+  if (remote && Array.isArray(remote.actions)) {
+    const checked = guardSiteActions(remote, commandText, orders);
+    return {
+      source: remote.provider || "AI 指令解析",
+      ...checked,
+      reply: checked.actions.length
+        ? "识别到可执行操作，请管理员核对预览后确认。"
+        : "模型返回的操作未通过安全校验，未做任何更改。可以尝试明确单号、时薪和目标状态。"
+    };
+  }
 
   const actions = [];
   const summary = [];
@@ -217,23 +234,25 @@ export async function interpretSiteCommand(commandText, currentSiteConfig, order
   const idMatch = commandText.match(/(JJ-\d{4}-\d+|#?\d{3,4})/i);
   if (idMatch) {
     const rawId = idMatch[1].replace("#", "");
-    const target = orders.find((o) => o.id.toLowerCase().includes(rawId.toLowerCase()));
+    const target = orders.find((o) => [o.id, o.orderNumber].some((value) =>
+      String(value || "").replace(/^#/, "") === rawId));
     if (target) {
       const rateMatch = commandText.match(/(\d{2,3})\s*(?:元|块|\/小时)?/);
       const patch = {};
       if (/课时费|价格|薪资|改成\d+/.test(commandText) && rateMatch) {
         patch.hourlyRate = Number(rateMatch[1]);
-        summary.push(`已将 ${target.id} 的课时费调整为 ¥${patch.hourlyRate}/小时`);
+        patch.salaryText = `${patch.hourlyRate}元/小时（可报价）`;
+        summary.push(`拟将 ${target.orderNumber || target.id} 的课时费调整为 ¥${patch.hourlyRate}/小时`);
       }
       if (/下架|已结束|关闭/.test(commandText)) {
         patch.status = "已结束";
-        summary.push(`已将 ${target.id} 状态改为「已结束」`);
+        summary.push(`拟将 ${target.orderNumber || target.id} 状态改为「已结束」`);
       } else if (/已匹配|已满|招满/.test(commandText)) {
         patch.status = "已匹配";
-        summary.push(`已将 ${target.id} 状态改为「已匹配」`);
+        summary.push(`拟将 ${target.orderNumber || target.id} 状态改为「已匹配」`);
       } else if (/重新上架|招募中|开启/.test(commandText)) {
         patch.status = "招募中";
-        summary.push(`已将 ${target.id} 状态恢复为「招募中」`);
+        summary.push(`拟将 ${target.orderNumber || target.id} 状态恢复为「招募中」`);
       }
       if (Object.keys(patch).length > 0) {
         actions.push({ type: "update_order", id: target.id, patch });
@@ -249,9 +268,10 @@ export async function interpretSiteCommand(commandText, currentSiteConfig, order
     };
   }
 
+  const checked = guardSiteActions({ actions }, commandText, orders);
   return {
-    source: "内置指令解析器（接入免费 AI Key 后支持更复杂自然语言改站）",
-    actions,
-    reply: summary.join("；") + "。"
+    source: "本地安全指令解析器",
+    ...checked,
+    reply: checked.actions.length ? summary.join("；") + "。请确认后执行。" : "暂未识别到安全可执行的操作。"
   };
 }
