@@ -1,6 +1,6 @@
 import { callServerlessAI } from "./ai-engine.js?v=7";
 import { ageOfOpenOrder } from "./assignment-utils.js";
-import { recommendTeacherProfiles, TEACHER_AVAILABILITIES, TEACHER_GENDERS, wantedTeacherGender } from "./teacher-profile-utils.js";
+import { recommendTeacherProfiles, TEACHER_AVAILABILITIES, TEACHER_GENDERS, wantedTeacherGender } from "./teacher-profile-utils.js?v=2";
 
 let activeOrderId="";
 let editingTeacherId="";
