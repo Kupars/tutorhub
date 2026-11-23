@@ -75,10 +75,16 @@ export function extractRawOrderDrafts(source) {
     const orderId = trim(block.match(/#\d{3,7}(?:-\d+)?/)?.[0]);
     const trialTime = capture(block, /(?:【试课时间】|试课时间[：:])\s*([^\n；;]+)/);
     const salaryText = parseSalary(block);
+    // 家长单独说“女生/男生”时可识别；若仅出现“女老师/男老师”不能推成学生性别。
+    let studentGender = getGenderFromText(block);
+    if (studentGender === "待补充") {
+      if (/(?:^|[，,；;\\s])女生(?:[，,。；;\\s]|$)/.test(block) && !/女老师|女教师/.test(block)) studentGender = "女生";
+      else if (/(?:^|[，,；;\\s])男生(?:[，,。；;\\s]|$)/.test(block) && !/男老师|男教师/.test(block)) studentGender = "男生";
+    }
     return normalizeOrder({
       id: orderId, grade, subject: subject.join("、") || "科目待补充",
       title: `${grade}${subject.join("、") || "科目待补充"}家教`,
-      studentGender: getGenderFromText(block), teacherCount: Number(explicitTeachers) || 1,
+      studentGender, teacherCount: Number(explicitTeachers) || 1,
       currentScores: parseScores(block), district, address: mode === "线上" ? "线上授课" : parseAddress(block,district),
       mode, weeklyFrequency, sessionsPerWeek: freq ? freqNumber(freq[1]) : 0,
       hoursPerSession: hours, requirements, salaryText,
