@@ -816,37 +816,88 @@ function renderAdminView() {
 
   renderParsedPreview();
 
+
   $("btnParseOrders").onclick = async () => {
     const raw = $("rawOrderInput").value.trim();
-    if (!raw) return showToast("请先粘贴零散家教信息");
-    showToast("正在整理家教单...");
-    const res = await parseMessyOrders(raw, [...Store.getOrders(), { orderNumber: `#${Store.getOrderSequence()}` }]);
-    state.parsedDraftOrders = res.orders;
-    renderAdminView();
-    showToast(`解析完成（${res.source}），共识别 ${res.orders.length} 条`);
-  };
-
-  $("btnPublishDrafts").onclick = async () => {
-    if (!state.parsedDraftOrders.length) return;
-    const drafts = [...$("parsedPreview").querySelectorAll("[data-draft-text]")];
-    const items = drafts.map((el) => parseFormattedOrder(el.value));
-    if (items.some((o) => !o || !o.id)) return showToast("草稿字段不完整，请确认每条编号和九字段");
-    if (!confirmDuplicateRisks(items)) return;
-    const publishButton = $("btnPublishDrafts");
-    const publishLabel = publishButton.textContent;
-    publishButton.disabled = true;
-    publishButton.textContent = "正在优化地址并发布…";
+    if (!raw) return showToast("请先粘贴家长提供的零散信息");
+    state.aiRawText = raw;
+    const button = $("btnParseOrders");
+    button.disabled = true;
+    button.textContent = "正在调用模型整理多条单子…";
     try {
-      await Store.addOrders(await optimizeOrderAddressesWithAI(items));
-      const n = items.length;
-      state.parsedDraftOrders = [];
-      renderAll();
-      showToast(`已发布 ${n} 条家教单到招募大厅`);
-    } catch (err) { showToast(`发布失败：${err.message}`); }
-    finally { publishButton.disabled = false; publishButton.textContent = publishLabel; }
+      const result = await parseMessyOrders(raw,
+        [...Store.getOrders(), {orderNumber:"#"+Store.getOrderSequence()}], state.aiDraftHistory);
+      state.parsedDraftOrders = result.orders;
+      state.aiDraftReply = result.reply;
+      state.aiDraftGroupingNotes = result.groupingNotes;
+      state.aiDraftQuestions = result.questions;
+      state.selectedDraftSubjects.clear();
+      state.aiDraftHistory = [{role:"user",content:raw},{role:"assistant",content:result.reply || "草稿已提取"}];
+      renderAdminView();
+      showToast("AI 已生成 "+result.orders.length+" 条草稿，请核对再发布");
+    } catch(error) {
+      showToast("AI 整理失败："+error.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = "🪄 AI 自动整理成单";
+    }
   };
-  $("btnCopyDrafts").onclick = () => copyText([...$("parsedPreview").querySelectorAll("[data-draft-text]")]
-    .map((el) => el.value.trim()).join("\n\n"), "已复制全部草稿");
+  const followUpButton = $("btnReviseDrafts");
+  if (followUpButton) followUpButton.onclick = async () => {
+    const message = $("aiDraftFollowUp").value.trim();
+    if (!message) return showToast("请先输入想修改的内容");
+    syncDraftTextareas();
+    followUpButton.disabled = true;
+    followUpButton.textContent = "AI 正在修改草稿…";
+    try {
+      const result = await reviseDraftsWithAI(message,state.parsedDraftOrders,
+        state.aiDraftHistory,[...Store.getOrders(),{orderNumber:"#"+Store.getOrderSequence()}]);
+      state.parsedDraftOrders = result.orders;
+      state.aiDraftGroupingNotes = result.groupingNotes;
+      state.aiDraftQuestions = result.questions;
+      state.aiDraftReply = result.reply;
+      state.aiDraftHistory.push({role:"user",content:message},{role:"assistant",content:result.reply || "草稿已更新"});
+      state.aiDraftHistory = state.aiDraftHistory.slice(-12);
+      state.selectedDraftSubjects.clear();
+      renderAdminView();
+      showToast("AI 已更新 "+result.orders.length+" 条草稿");
+    } catch(error) {
+      showToast("AI 对话失败："+error.message);
+      followUpButton.disabled = false;
+      followUpButton.textContent = "发送给 AI 修改草稿";
+    }
+  };
+  $("btnPublishDrafts").onclick = async () => {
+    if(!state.parsedDraftOrders.length) return;
+    syncDraftTextareas();
+    const items = state.parsedDraftOrders.map(order => normalizeOrder(order));
+    const idIssues = checkDraftIds(items,Store.getOrders());
+    if(idIssues.length) return showToast("单号重复或不合法："+idIssues.slice(0,3).join("、")+"；请核对草稿编号");
+    if(items.some(o=>o.grade==="年级待补充"||o.subject==="科目待补充"))
+      return showToast("请先补全所有草稿的年级和科目，再发布");
+    if(!confirmDuplicateRisks(items))return;
+    if(!confirm("确认发布 "+items.length+" 条家教单？AI 仅负责整理，发布前应核对地址、时间、老师要求和薪资。"))return;
+    const button = $("btnPublishDrafts");
+    button.disabled=true;
+    button.textContent="正在写入云端…";
+    try {
+      // API 模型已经处理过结构化地址；不再额外发起一次容易失败的 AI 解析调用。
+      await Store.addOrders(items);
+      const count=items.length;
+      state.parsedDraftOrders=[];
+      state.aiDraftHistory=[];
+      state.aiDraftQuestions=[];
+      state.aiDraftGroupingNotes=[];
+      state.selectedDraftSubjects.clear();
+      renderAll();
+      showToast("已发布 "+count+" 条家教单");
+    }catch(error){showToast("发布失败："+error.message);}
+    finally {button.disabled=false;button.textContent="确认发布草稿";}
+  };
+  $("btnCopyDrafts").onclick = () => {
+    syncDraftTextareas();
+    copyText(state.parsedDraftOrders.map(formatOrderText).join("\\n\\n"),"已复制全部九字段草稿");
+  };
   $("csvImportInput").onchange = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
