@@ -60,6 +60,40 @@ export function missingStructuredOrderSources(messages, orders) {
   }
   return result;
 }
+// Models must account for every input message, including non-order chat.
+ // A malformed or incomplete audit is a retryable extraction failure, not success.
+export function bulkAuditProblems(messages, parsed) {
+  const issues = [];
+  const report = Array.isArray(parsed?.messageAudit) ? parsed.messageAudit : [];
+  const orders = Array.isArray(parsed?.orders) ? parsed.orders : [];
+  const updates = Array.isArray(parsed?.updates) ? parsed.updates : [];
+  if (report.length !== messages.length)
+    issues.push('逐条审计只覆盖 ' + report.length + '/' + messages.length + ' 条来源');
+  const visited = new Set();
+  const allowed = new Set(['order', 'status_update', 'irrelevant', 'needs_review']);
+  for (const item of report) {
+    const n = item?.sourceMessageIndex;
+    if (!Number.isInteger(n) || n < 1 || n > messages.length || visited.has(n) ||
+        !allowed.has(item?.decision)) {
+      issues.push('审计序号重复、缺失或分类不合法');
+      continue;
+    }
+    visited.add(n);
+    const hasOrder = orders.some(o=>Array.isArray(o?.sourceMessageIndices) &&
+      o.sourceMessageIndices.includes(n));
+    if (item.decision === 'order' && !hasOrder)
+      issues.push('消息' + n + ' 被标为订单，却没有对应草稿');
+    if (item.decision === 'status_update' && !updates.some(u=>u?.sourceMessageIndex === n))
+      issues.push('消息' + n + ' 被标为状态更新，却没有对应建议');
+    if (item.decision === 'irrelevant' && hasOrder)
+      issues.push('消息' + n + ' 既被忽略又生成订单');
+  }
+  if (visited.size !== messages.length) issues.push('有来源未审计');
+  const missing = missingStructuredOrderSources(messages,orders);
+  if (missing.length) issues.push('未覆盖标准订单 ' +
+    missing.slice(0,6).map(x=>x.id+'（消息'+x.sourceIndex+'）').join('、'));
+  return issues;
+}
 export function redactWechatText(input) {
   return clean(input)
     .replace(/1[3-9]\d{9}/g, '[手机号已隐藏]')
@@ -68,7 +102,7 @@ export function redactWechatText(input) {
     .replace(/\d{1,4}\s*(?:号楼|栋|幢)\s*(?:\d{1,4}\s*单元)?\s*\d{1,4}\s*(?:室|户)/g, '[详细门牌已隐藏]')
     .replace(/\d{1,3}\s*单元\s*\d{1,4}\s*(?:室|户)/g, '[详细门牌已隐藏]');
 }
-export function groupWechatMessages(messages, maxCharacters = 9000, maxCount = 10) {
+export function groupWechatMessages(messages, maxCharacters = 6000, maxCount = 5) {
   const result = []; let bucket = [], length = 0;
   for (const message of messages) {
     const text = redactWechatText(message.text);
