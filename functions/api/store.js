@@ -208,7 +208,7 @@ export async function onRequest(context) {
       const merged = [...(body.orders || []), ...existing];
       await kvPut(env.TUTOR_KV, "orders", merged);
       const previousNumber = Number(await kvGet(env.TUTOR_KV, "order_sequence", 2991)) || 2991;
-      const numbers = merged.map((o) => Number(String(o.orderNumber || o.id).match(/^#?(\\d{3,7})/)?.[1]) || 0);
+      const numbers = merged.map((o) => Number(String(o.orderNumber || o.id).match(/^#?(\d{3,7})/)?.[1]) || 0);
       const orderSequence = Math.max(2991, previousNumber, ...numbers);
       await kvPut(env.TUTOR_KV, "order_sequence", orderSequence);
       return jsonResp({ ok: true, orders: merged, orderSequence });
