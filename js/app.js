@@ -1071,52 +1071,103 @@ function renderAdminView() {
   bindAssignmentAdmin(box, Store, renderAll, showToast);
 }
 
-function renderParsedPreview() {
-  const wrap = $("parsedPreview");
-  if (!wrap) return;
-  if (!state.parsedDraftOrders.length) { wrap.innerHTML = ""; return; }
-  wrap.innerHTML = state.parsedDraftOrders.map((o, index) => `
-    <div class="order-draft">
-      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
-        <strong>草稿 ${index + 1} · ${escapeHtml(o.id)}</strong>
-        <div style="display:flex;gap:6px;">
-          ${getSubjectList(o.subject).length > 1 ? `<button class="btn btn-sm" data-split-draft="${index}">拆成单科</button>` : ""}
-          <button class="btn btn-sm" data-copy-draft="${index}">复制</button>
-          <button class="btn btn-danger btn-sm" data-remove-draft="${index}">移除</button>
-        </div>
-      </div>
-      ${missingDraftFields(o).length ? `<p class="admin-helper" style="color:#a65d07">需要向家长核实：${escapeHtml(missingDraftFields(o).join("、"))}。默认格式不代表家长已确认。</p>` : ""}
-      ${findPotentialDuplicates([o], Store.getOrders()).length
-        ? `<p class="admin-helper" style="color:#a65d07">⚠️ 可能与已有单重复：${escapeHtml(findPotentialDuplicates([o], Store.getOrders()).slice(0, 3).map((item) => item.existing.orderNumber || item.existing.id).join("、"))}；发布前请核对。</p>`
-        : ""}
-      <textarea data-draft-text="${index}" aria-label="可编辑的标准家教单草稿 ${index + 1}">${escapeHtml(formatOrderText(o))}</textarea>
-      <p class="admin-helper">可直接修改上面的九字段文字，确认后才会写入云端。</p>
-    </div>
-  `).join("");
-  const sync = () => {
-    wrap.querySelectorAll("[data-draft-text]").forEach((el) => {
-      const parsed = parseFormattedOrder(el.value);
-      if (parsed) state.parsedDraftOrders[Number(el.dataset.draftText)] = parsed;
-    });
-  };
-  wrap.querySelectorAll("[data-draft-text]").forEach((el) => { el.onchange = sync; });
-  wrap.querySelectorAll("[data-copy-draft]").forEach((btn) => {
-    btn.onclick = () => copyText(wrap.querySelector(`[data-draft-text="${btn.dataset.copyDraft}"]`).value, "已复制标准家教单");
-  });
-  wrap.querySelectorAll("[data-remove-draft]").forEach((btn) => {
-    btn.onclick = () => {
-      sync();
-      state.parsedDraftOrders.splice(Number(btn.dataset.removeDraft), 1);
-      renderAdminView();
+
+function syncDraftTextareas() {
+  const wrap=$("parsedPreview");
+  if(!wrap)return;
+  wrap.querySelectorAll("[data-draft-text]").forEach(el=>{
+    const i=Number(el.dataset.draftText),parsed=parseFormattedOrder(el.value);
+    const old=state.parsedDraftOrders[i];
+    if(parsed&&old) state.parsedDraftOrders[i]={
+      ...old,...parsed,orderNumber:parsed.id||old.orderNumber,
+      mode:old.mode,publicAddress:parsed.address
     };
   });
-  wrap.querySelectorAll("[data-split-draft]").forEach((btn) => {
-    btn.onclick = () => {
-      sync();
-      const index = Number(btn.dataset.splitDraft);
-      const split = splitOrderBySubject(state.parsedDraftOrders[index]);
-      state.parsedDraftOrders.splice(index, 1, ...split);
-      renderAdminView();
+}
+function renderParsedPreview() {
+  const wrap=$("parsedPreview");
+  if(!wrap)return;
+  const drafts=state.parsedDraftOrders;
+  if(!drafts.length){wrap.innerHTML="";return;}
+  const notes=[...state.aiDraftGroupingNotes,...state.aiDraftQuestions.map(s=>"待确认："+s)];
+  wrap.innerHTML=`
+    <div class="ai-group-summary"><strong>AI 生成了 ${drafts.length} 条草稿</strong>
+      ${notes.length ? `<p>${notes.map(escapeHtml).join("；")}</p>` : ""}
+      <p>勾选下方具体科目后，可自选拆单或合并；AI 的拆合建议可以手动覆盖。</p>
+    </div>
+    <div class="ai-group-toolbar">
+      <button class="btn btn-sm" type="button" id="btnSplitSelectedSubjects">拆分所选科目</button>
+      <button class="btn btn-sm" type="button" id="btnMergeSelectedSubjects">合并所选科目</button>
+      <button class="btn btn-sm" type="button" id="btnClearSubjectSelections">取消勾选</button>
+      <span class="admin-helper">当前勾选 <strong id="selectedSubjectCount">${state.selectedDraftSubjects.size}</strong> 个科目</span>
+    </div>
+    ${drafts.map((o,index)=>`
+      <div class="order-draft">
+        <div class="ai-draft-head"><strong>草稿 ${index+1} · ${escapeHtml(o.orderNumber||o.id)} · ${escapeHtml(o.grade)}</strong>
+          <div class="ai-draft-actions">
+            <button class="btn btn-sm" type="button" data-split-draft="${index}">全部按单科拆分</button>
+            <button class="btn btn-sm" type="button" data-copy-draft="${index}">复制</button>
+            <button class="btn btn-danger btn-sm" type="button" data-remove-draft="${index}">移除</button>
+          </div>
+        </div>
+        <div class="ai-subject-picker" role="group" aria-label="草稿 ${index+1} 科目选择">
+          ${getSubjectList(o.subject).map(subject=>{
+            const key=index+"::"+subject;
+            return `<label class="ai-subject-chip"><input type="checkbox" data-subject-key="${escapeHtml(key)}" ${state.selectedDraftSubjects.has(key)?"checked":""}/><span>${escapeHtml(subject)}</span></label>`;
+          }).join("")}
+        </div>
+        ${o.groupingReason ? `<p class="admin-helper">AI 判断：${escapeHtml(o.groupingDecision||"待确认")} · ${escapeHtml(o.groupingReason)}</p>`:""}
+        ${missingDraftFields(o).length ? `<p class="admin-helper ai-draft-warning">待核实：${escapeHtml(missingDraftFields(o).join("、"))}</p>`:""}
+        ${findPotentialDuplicates([o],Store.getOrders()).length ?
+          `<p class="admin-helper ai-draft-warning">疑似重复单：${escapeHtml(findPotentialDuplicates([o],Store.getOrders()).slice(0,3).map(x=>x.existing.orderNumber||x.existing.id).join("、"))}</p>`:""}
+        <textarea data-draft-text="${index}" aria-label="草稿 ${index+1} 的标准九字段">${escapeHtml(formatOrderText(o))}</textarea>
+        <p class="admin-helper">可手动编辑九字段。只有确认发布才会保存到云端。</p>
+      </div>`).join("")}
+  `;
+  wrap.querySelectorAll("[data-draft-text]").forEach(el=>el.onchange=syncDraftTextareas);
+  wrap.querySelectorAll("[data-subject-key]").forEach(box=>{
+    box.onchange=()=>{
+      if(box.checked)state.selectedDraftSubjects.add(box.dataset.subjectKey);
+      else state.selectedDraftSubjects.delete(box.dataset.subjectKey);
+      $("selectedSubjectCount").textContent=String(state.selectedDraftSubjects.size);
+    };
+  });
+  $("btnClearSubjectSelections").onclick=()=>{state.selectedDraftSubjects.clear();renderParsedPreview();};
+  $("btnSplitSelectedSubjects").onclick=()=>{
+    syncDraftTextareas();
+    if(!state.selectedDraftSubjects.size)return showToast("请先勾选要拆开的科目");
+    state.parsedDraftOrders=splitDraftSubjects(state.parsedDraftOrders,[...state.selectedDraftSubjects]);
+    state.selectedDraftSubjects.clear();renderAdminView();
+    showToast("已拆分科目，未勾选的科目仍保留");
+  };
+  $("btnMergeSelectedSubjects").onclick=()=>{
+    syncDraftTextareas();
+    const keys=[...state.selectedDraftSubjects];
+    if(keys.length<2)return showToast("请至少从两条草稿中分别选中科目");
+    if(!confirm("请确认这些科目来自同一名学生、希望由一位老师授课。确认合并吗？"))return;
+    try{
+      state.parsedDraftOrders=mergeDraftSubjects(state.parsedDraftOrders,keys,true);
+      state.selectedDraftSubjects.clear();renderAdminView();
+      showToast("已合并选定科目，其余科目保留");
+    }catch(err){showToast("合并失败："+err.message);}
+  };
+  wrap.querySelectorAll("[data-split-draft]").forEach(btn=>{
+    btn.onclick=()=>{
+      syncDraftTextareas();
+      const i=Number(btn.dataset.splitDraft);
+      const keys=getSubjectList(state.parsedDraftOrders[i].subject).map(s=>i+"::"+s);
+      state.parsedDraftOrders=splitDraftSubjects(state.parsedDraftOrders,keys);
+      state.selectedDraftSubjects.clear();renderAdminView();
+    };
+  });
+  wrap.querySelectorAll("[data-copy-draft]").forEach(btn=>{
+    btn.onclick=()=>copyText(wrap.querySelector('[data-draft-text="'+btn.dataset.copyDraft+'"]').value,"已复制家教单");
+  });
+  wrap.querySelectorAll("[data-remove-draft]").forEach(btn=>{
+    btn.onclick=()=>{
+      syncDraftTextareas();
+      state.parsedDraftOrders.splice(Number(btn.dataset.removeDraft),1);
+      state.selectedDraftSubjects.clear();renderAdminView();
     };
   });
 }
