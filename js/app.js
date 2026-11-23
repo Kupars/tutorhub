@@ -38,6 +38,7 @@ const state = {
   adminPage: "home"
 };
 let teacherPoolModulePromise=null;
+let pendingTeacherApplicationScroll=false;
 function loadTeacherPoolModule() {
   // 只在打开管理后台时下载老师档案和推荐模块，不影响普通老师的首屏加载。
   if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=6")
@@ -54,6 +55,12 @@ function hydrateTeacherPool() {
     slot.outerHTML=module.renderTeacherPool(Store.getOrders(),Store.getTeacherProfiles(),
       Store.getTeacherApplications(),Store.getAssignments(),Store.isCloudMode());
     module.bindTeacherPool(container,Store,renderAll,showToast);
+    if (pendingTeacherApplicationScroll) {
+      pendingTeacherApplicationScroll=false;
+      requestAnimationFrame(() => document.getElementById("teacherApplicationPanel")?.scrollIntoView({
+        behavior:"smooth",block:"start"
+      }));
+    }
   }).catch(err=>{
     const slot=container.querySelector("#teacherPoolSlot");
     if(slot)slot.textContent="老师档案库加载失败："+err.message;
@@ -927,6 +934,7 @@ function renderAdminView() {
       try {
         const module = await loadTeacherPoolModule();
         module.selectTeacherApplication(button.dataset.openApp);
+        pendingTeacherApplicationScroll=true;
         state.adminPage = "teachers";
         renderAdminView();
         $("view-admin")?.scrollIntoView({ behavior: "smooth", block: "start" });
