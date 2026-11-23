@@ -10,7 +10,7 @@ import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacher
 import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=6";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
-import { renderTeacherPool, bindTeacherPool, presentTeacherMatches } from "./admin-teacher-pool.js?v=2";
+
 import { splitDraftSubjects, mergeDraftSubjects, groupDraftsUnderParent, checkDraftIds, missingDraftFields } from "./draft-grouping.js?v=4";
 
 const state = {
@@ -34,6 +34,34 @@ const state = {
   adminStatus: "all",
   adminPageSize: 40
 };
+let teacherPoolModulePromise=null;
+function loadTeacherPoolModule() {
+  // 只在打开管理后台时下载老师档案和推荐模块，不影响普通老师的首屏加载。
+  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=3")
+    .catch(err=>{teacherPoolModulePromise=null;throw err;});
+  return teacherPoolModulePromise;
+}
+function hydrateTeacherPool() {
+  const container=$("adminContainer");
+  if(!container?.querySelector("#teacherPoolSlot"))return;
+  void loadTeacherPoolModule().then(module=>{
+    const slot=container.querySelector("#teacherPoolSlot");
+    if(!slot || Store.getCurrentUser()?.role!=="admin")return;
+    slot.outerHTML=module.renderTeacherPool(Store.getOrders(),Store.getTeacherProfiles(),
+      Store.getTeacherApplications(),Store.getAssignments(),Store.isCloudMode());
+    module.bindTeacherPool(container,Store,renderAll,showToast);
+  }).catch(err=>{
+    const slot=container.querySelector("#teacherPoolSlot");
+    if(slot)slot.textContent="老师档案库加载失败："+err.message;
+  });
+}
+async function showNewTeacherRecommendations(orders) {
+  try {
+    const module=await loadTeacherPoolModule();
+    module.presentTeacherMatches(orders,Store);
+  }catch(err){showToast("已发布，但老师推荐面板加载失败："+err.message);}
+}
+
 const adminCheckedOrders = new Set();
 let visibleBoardOrders = [];
 let expandedOrderId = null;
@@ -692,7 +720,7 @@ function renderAdminView() {
     </div>
 
 
-    ${renderTeacherPool(orders, Store.getTeacherProfiles(), Store.getTeacherApplications(), Store.getAssignments(), Store.isCloudMode())}
+    <div id="teacherPoolSlot" class="panel"><p class="admin-helper">正在加载老师档案库…</p></div>
 
     <div class="panel">
       <h2>📋 家教单管理（展示中 ${orders.filter(isPubliclyOpenOrder).length} 条 · 已关闭 ${orders.filter((o) => !isPubliclyOpenOrder(o)).length} 条）</h2>
@@ -802,7 +830,7 @@ function renderAdminView() {
       else await Store.addOrders([item]);
       state.editingOrderId = null;
       renderAll();
-      if(!old) presentTeacherMatches([item],Store);
+      if(!old) void showNewTeacherRecommendations([item]);
       showToast(old ? "家教单已保存修改" : `家教单 ${item.id} 已发布`);
     } catch (err) { showToast(`保存失败：${err.message}`); }
     finally { saveButton.disabled = false; saveButton.textContent = saveLabel; }
@@ -894,7 +922,7 @@ function renderAdminView() {
       state.selectedDraftSubjects.clear();
       state.selectedDraftFamilies.clear();
       renderAll();
-      presentTeacherMatches(items,Store);
+      void showNewTeacherRecommendations(items);
       showToast("已发布 "+count+" 条家教单");
     }catch(error){showToast("发布失败："+error.message);}
     finally {button.disabled=false;button.textContent="确认发布草稿";}
@@ -1085,7 +1113,7 @@ function renderAdminView() {
       } catch (err) { showToast(`删除失败：${err.message}`); }
     };
   });
-  bindTeacherPool(box, Store, renderAll, showToast);
+  hydrateTeacherPool();
 }
 
 
