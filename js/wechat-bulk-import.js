@@ -2,7 +2,7 @@
 import { readWechatFiles } from './wechat-bulk-reader.js?v=2';
 import { splitWechatMessages, redactWechatText, normalizeImportDocuments,
   groupWechatMessages, findBulkDuplicate, safeBulkUpdates, bulkAuditProblems } from './wechat-bulk-core.js?v=3';
-import { parseBulkWechatMessages } from './ai-engine.js';
+import { parseBulkWechatMessages } from './ai-engine.js?v=9';
 import { normalizeOrder, formatOrderText, parseFormattedOrder } from './order-format.js';
 import { checkDraftIds, missingDraftFields } from './draft-grouping.js';
 
