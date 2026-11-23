@@ -1,4 +1,4 @@
-import { formatterPrompt, siteCommandPrompt } from "../lib/tutoring-order-formatter.js";
+import { formatterPrompt, siteCommandPrompt } from "../../shared/tutoring-order-formatter.js";
 // Cloudflare Pages Function: /api/ai
 // 支持完全免费的 AI 模型接口（Key 仅保存在 Cloudflare 环境变量，绝不暴露到前端）：
 // 1) 智谱 BigModel 免费模型 glm-4-flash 或 硅基流动 / DeepSeek 等 OpenAI 兼容接口（OPENAI_API_KEY + OPENAI_BASE_URL + OPENAI_MODEL）
