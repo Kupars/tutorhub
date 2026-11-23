@@ -34,14 +34,16 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
     const evidence=previousOrders.concat(legacy);
     let score=0;
     const reasons=[];
-    if(targetSubjects.length && taught.some(x=>targetSubjects.includes(x))) {
-      score+=10;reasons.push("明确可教相同科目");
-    } else if(targetSubjects.length && taught.length && !taught.includes("全科")) {
-      // 指定了能教哪些科目，则不推荐超出范围的单。
+    const overlaps=targetSubjects.filter(s=>taught.includes(s)||taught.includes("全科"));
+    const needsAll=(Number(target.teacherCount)||1)<=1;
+    if (!taught.length || (targetSubjects.length &&
+        (needsAll ? overlaps.length!==targetSubjects.length : overlaps.length===0))) {
+      // 一位老师负责多科时必须全部覆盖；多位教师分工时可以推荐部分科目。
       continue;
-    } else if(!taught.length) {
-      // 没有明确学科能力时不推荐，只保留在储备池待补全。
-      continue;
+    }
+    if (overlaps.length) {
+      score+=needsAll?10:7;
+      reasons.push(needsAll?"明确可教全部要求科目":"可教部分科目："+overlaps.join("、"));
     }
     if(districts.includes(targetDistrict) && targetDistrict) {
       score+=6;reasons.push("明确愿意在该区授课");
