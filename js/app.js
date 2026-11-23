@@ -1,9 +1,9 @@
 import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=5";
-import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=9";
+import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=10";
 import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=7";
-import { Store } from "./store.js?v=5";
+import { Store } from "./store.js?v=6";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=4";
@@ -202,7 +202,7 @@ function applySiteConfig() {
   // 旧站公告可能提到账号与自动投递，不再展示过时的使用指引。
   $("siteAnnouncement").textContent = /自动投递|简历|登录|注册|账号|选中感兴趣的家教单|复制后微信联系/.test(notice) ? "" : notice;
   $("siteAnnouncement").hidden = !$("siteAnnouncement").textContent;
-  $("modeBadge").textContent = Store.isCloudMode() ? "🟢 云端已同步" : "";
+  $("modeBadge").textContent = Store.isCloudMode() ? "🟢 云端已同步" : "⚠️ 数据服务暂不可用，已暂停显示家教单";
 }
 
 function renderUserActions() {
