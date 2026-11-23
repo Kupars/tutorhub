@@ -134,7 +134,7 @@ export async function activateAIProvider(kv,env,id,model) {
   await persist(kv,registry);
   return safeAIRegistry(registry,env);
 }
-export async function resolveAIProvider(kv,env,requestedId) {
+export async function resolveAIProvider(kv,env,requestedId,requestedModel) {
   const registry = await loadAIRegistry(kv);
   const id = requestedId || registry.activeId;
   if (requestedId && requestedId !== "env" && requestedId !== registry.activeId) {
@@ -151,6 +151,8 @@ export async function resolveAIProvider(kv,env,requestedId) {
   }
   const profile = registry.profiles.find(p=>p.id===id);
   if (!profile) throw new Error("当前选中的中转站已不存在，请在 AI 模型管理中重新选择");
+  if (requestedModel && !profile.models.includes(requestedModel)) throw new Error("只能测试此中转站已保存的模型 ID");
   return {kind:"openai",baseUrl:validateBaseUrl(profile.baseUrl),
-    model:profile.selectedModel,apiKey:await decryptKey(profile.encryptedKey,String(env.AUTH_SECRET)),name:profile.name};
+    model:requestedModel || profile.selectedModel,
+    apiKey:await decryptKey(profile.encryptedKey,String(env.AUTH_SECRET)),name:profile.name};
 }
