@@ -46,10 +46,11 @@ export async function onRequestPost(context) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${env.OPENAI_API_KEY}`
         },
+        signal: AbortSignal.timeout(25000),
         body: JSON.stringify({
           model,
-          temperature: publicRecommend ? 0.1 : 0.2,
-          ...(publicRecommend ? { max_tokens: 850 } : {}),
+          temperature: publicRecommend ? 0.1 : 0.15,
+          max_tokens: publicRecommend ? 850 : action === "parse_orders" ? 3000 : 1400,
           messages: [
             { role: "system", content: "你是专业的家教教务与网站运营助手。请严格只返回合法的 JSON，不要包含 Markdown 代码块标记。" },
             { role: "user", content: prompt }
@@ -65,6 +66,7 @@ export async function onRequestPost(context) {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(25000),
         body: JSON.stringify({
           contents: [{ parts: [{ text: `请严格只返回合法的 JSON，不要输出多余文字。\n\n${prompt}` }] }],
           generationConfig: { temperature: 0.2, responseMimeType: "application/json" }
@@ -145,6 +147,7 @@ async function verifyAuth(request, secret) {
 }
 
 function buildPrompt(action, payload) {
+  if (action === "model_probe") return '请只输出 JSON：{"health":"ok","role":"家教录单助手"}。这是 API 连通性测试，不要输出解释。';
   if (action === "recommend_orders") {
     const candidates = payload.candidates.map((candidate) => ({
       id: String(candidate.id || "").slice(0, 60),
@@ -180,7 +183,7 @@ function buildPrompt(action, payload) {
     return `请根据老师简历与目标家教单（如有），优化简历并返回 JSON：{"highlights":"优化后的成绩与核心亮点","experience":"优化后的教学经历与方法","pitch":"针对该家教单发给家长的120字以内高转化自荐语"}。\n\n简历：${JSON.stringify(payload.resume)}\n目标单：${JSON.stringify(payload.targetOrder || null)}`;
   }
   if (action === "site_command") {
-    return `管理员发出了自然语言改站指令，请解析为 JSON：{"reply":"简短执行反馈","actions":[{"type":"update_site","patch":{"siteName?":"","announcement?":"","theme?":"indigo|emerald|amber|rose"}},{"type":"update_order","id":"单号","patch":{"hourlyRate?":160,"status?":"招募中|已匹配|已结束"}}]}。只输出需要执行的 action。\n\n指令：${payload.command}\n当前配置：${JSON.stringify(payload.siteConfig)}\n现有单号列表：${JSON.stringify(payload.orders)}`;
+    return `你只能提出后台已支持的安全操作：更新公告、主题颜色、指定单号的时薪或上架状态。不能修改网页代码、删除订单、批量改动或假装能重写网站功能。结果需要管理员二次确认，不能声称已经执行。输出 JSON：{"reply":"简短执行反馈","actions":[{"type":"update_site","patch":{"siteName?":"","announcement?":"","theme?":"indigo|emerald|amber|rose"}},{"type":"update_order","id":"单号","patch":{"hourlyRate?":160,"status?":"招募中|已匹配|已结束"}}]}。只输出需要执行的 action。\n\n指令：${payload.command}\n当前配置：${JSON.stringify(payload.siteConfig)}\n现有单号列表：${JSON.stringify(payload.orders)}`;
   }
   return "";
 }
