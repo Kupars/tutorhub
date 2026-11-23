@@ -58,11 +58,11 @@ export async function onRequest(context) {
     if (origin && origin !== new URL(request.url).origin) {
       return jsonResp({ ok: false, error: "仅允许从本站操作管理员接口" }, 403);
     }
-    // 私人资料不允许使用默认密码或默认签名密钥；没有强配置时直接拒绝。
-    if (!env.ADMIN_PASSWORD || String(env.ADMIN_PASSWORD).length < 12 ||
-        !env.AUTH_SECRET || String(env.AUTH_SECRET).length < 32) {
+    // 不再按字符长度拒绝管理员凭据，但两项必须显式配置且不能为空。
+    // 保留服务端邮箱/密码鉴权、HMAC 会话签名和登录限速，绝不开放匿名后台。
+    if (!String(env.ADMIN_PASSWORD ?? "").trim() || !String(env.AUTH_SECRET ?? "").trim()) {
       return jsonResp({ ok: false, code: "ADMIN_SECURITY_NOT_CONFIGURED",
-        error: "后台未安全启用：请在 Cloudflare 设置至少12位管理员密码和至少32位随机 AUTH_SECRET" }, 503);
+        error: "管理员登录未配置：请在 Cloudflare 设置 ADMIN_PASSWORD 和 AUTH_SECRET（已取消最小长度限制）" }, 503);
     }
     const body = await request.json();
     const { action } = body;
