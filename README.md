@@ -24,7 +24,7 @@
 使用 GitHub `main` 分支部署到 Pages，静态资源根目录为 `.`，无需构建命令。Cloudflare Pages 项目应绑定：
 
 - KV Namespace：变量名 `TUTOR_KV`
-- 管理员鉴权：`ADMIN_EMAIL`、强随机 `ADMIN_PASSWORD`、随机 `AUTH_SECRET`
+- 管理员鉴权：`ADMIN_EMAIL`、非空 `ADMIN_PASSWORD`、非空 `AUTH_SECRET`（不强制字符长度，仍建议分别使用高强度密码及随机签名密钥）
 - 智谱 AI：`OPENAI_API_KEY`、`OPENAI_BASE_URL`（如 `https://open.bigmodel.cn/api/paas/v4`）、`OPENAI_MODEL`
 - 可选：`AMAP_KEY`，提升地址解析精度。无此密钥时，骑行/公交时间是粗略估算值，**不等于地图实际路线时间**。
 
@@ -53,7 +53,7 @@ npm test
 
 ### 私人数据安全要求
 
-使用老师匹配记录前，Cloudflare 必须同时配置高强度 `ADMIN_PASSWORD` 和独立随机 `AUTH_SECRET`，缺少任一个时私人记录保存会被拒绝。管理员应妥善保管账号与密钥，并只收集完成派单所必需的信息。若当前站点仍使用示例密码，应先更换。
+使用老师匹配记录前，Cloudflare 必须同时配置非空 `ADMIN_PASSWORD` 和 `AUTH_SECRET`，不再检查最小长度；缺少任一个时私人记录保存仍会被拒绝。管理员应妥善保管账号与密钥，并只收集完成派单所必需的信息。若当前站点仍使用示例密码，应先更换。
 
 
 ## 2026-11-23 AI 专项升级：仅外部 API、连续对话、智能拆合单
