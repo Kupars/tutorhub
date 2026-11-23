@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=5";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=9";
-import { parseMessyOrders, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=4";
+import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=5";
 import { Store } from "./store.js?v=4";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
@@ -12,12 +12,22 @@ import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
 import { renderAssignmentAdmin, bindAssignmentAdmin } from "./admin-assignment-view.js?v=2";
 import { missingDraftFields } from "./structured-order-extractor.js?v=2";
+import { splitDraftSubjects, mergeDraftSubjects, checkDraftIds } from "./draft-grouping.js?v=1";
 
 const state = {
   view: "hall",
   layout: "cards",
   onlySelected: false,
   parsedDraftOrders: [],
+  aiRawText: "",
+  aiDraftHistory: [],
+  aiDraftGroupingNotes: [],
+  aiDraftQuestions: [],
+  aiDraftReply: "",
+  selectedDraftSubjects: new Set(),
+  aiSiteHistory: [],
+  aiSiteInput: "",
+  aiSiteReply: "",
   editingOrderId: null,
   editingPartTimeId: null,
   adminQuery: "",
@@ -155,7 +165,11 @@ async function copyText(text, successMsg = "已复制") {
 function applySiteConfig() {
   const cfg = Store.getSiteConfig();
   document.documentElement.setAttribute("data-theme", cfg.theme || "indigo");
-  document.title = "小木学长 · 天津家教看板";
+  document.title = (cfg.siteName || "小木学长") + " · 天津家教看板";
+  const heroTitle = document.querySelector(".usage-card h1");
+  const heroDescription = document.querySelector(".usage-card-copy > p");
+  if (heroTitle) heroTitle.textContent = cfg.heroTitle || "筛选心仪家教，勾选后一键复制，发给南开小木同学";
+  if (heroDescription) heroDescription.textContent = cfg.heroDescription || "筛选或在地图上挑选家教单，添加到选单清单，再把复制的内容发给「南开小木同学」微信。也可以让智能推荐帮你先挑选。";
   const notice = (cfg.announcement || "").trim();
   // 旧站公告可能提到账号与自动投递，不再展示过时的使用指引。
   $("siteAnnouncement").textContent = /自动投递|简历|登录|注册|账号|选中感兴趣的家教单|复制后微信联系/.test(notice) ? "" : notice;
@@ -657,18 +671,24 @@ function renderAdminView() {
         <label for="csvImportInput">📄 从飞书导出的 CSV / TSV 批量导入（只生成草稿，不自动发布）</label>
         <input type="file" id="csvImportInput" accept=".csv,.tsv,.txt,text/csv,text/plain" />
       </div>
+      <div class="ai-chat-panel" id="aiDraftHistory" aria-live="polite"></div>
+      <div class="ai-chat-compose" id="aiDraftCompose" ${state.parsedDraftOrders.length ? "" : "hidden"}>
+        <label for="aiDraftFollowUp">继续对话修改草稿（不会直接发布）</label>
+        <textarea id="aiDraftFollowUp" rows="2" placeholder="例如：第二条改周日；数学和化学一位老师一起带，物理单独招"></textarea>
+        <button class="btn btn-primary" id="btnReviseDrafts" type="button">发送给 AI 修改草稿</button>
+      </div>
       <div id="parsedPreview" style="margin-top:12px;"></div>
     </div>
 
     <div class="panel">
       <h2>🤖 AI 辅助修改（管理员确认后执行）</h2>
-      <p style="font-size:13px;color:var(--muted);margin-bottom:8px;">当前仅支持公告、主题和指定家教单的时薪／状态。不能直接修改网页代码，也不允许 AI 自动执行操作：</p>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:8px;">支持连续对话修改现有单的科目、时薪、时间、要求、状态及首页标题、公告、配色。每次先预览、再确认；网页代码和新功能仍需通过 GitHub 修改：</p>
       <div style="display:flex;gap:8px;">
-        <input id="aiSiteCmd" placeholder="例如：把公告改成寒假特惠招募中，切换成温暖橙主题，把 JJ-2026-101 课时费改成 180 元" />
-        <button class="btn btn-primary" id="btnRunSiteCmd" style="white-space:nowrap;">执行更新</button>
+        <textarea id="aiSiteCmd" rows="2" placeholder="例如：把 #2517 的时薪改为150元。下一条还可以说：把刚才那单的时间改到周日"></textarea>
+        <button class="btn btn-primary" id="btnRunSiteCmd" style="white-space:nowrap;">生成修改预览</button>
       </div>
       <div class="admin-editor-actions"><button class="btn btn-sm" id="btnProbeAI" type="button">检测 AI 接口是否接通</button><span class="admin-helper" id="aiProbeResult">更换模型可在 Cloudflare 环境变量设置 OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL，密钥不放网页。</span></div>
-      <p id="aiSiteReply" style="font-size:13px;color:var(--primary);margin-top:8px;"></p>
+      <div class="ai-chat-panel" id="aiSiteHistory" aria-live="polite"></div><p id="aiSiteReply" style="font-size:13px;color:var(--primary);margin-top:8px;"></p>
     </div>
 
 
@@ -723,6 +743,13 @@ function renderAdminView() {
     </div>
   `;
 
+  $("rawOrderInput").value = state.aiRawText;
+  $("aiSiteCmd").value = state.aiSiteInput;
+  $("aiSiteReply").textContent = state.aiSiteReply;
+  $("aiDraftHistory").innerHTML = state.aiDraftHistory.map(entry => `<div class="ai-message ai-message-${entry.role}"><b>${entry.role === "user" ? "管理员" : "AI"}</b> ${escapeHtml(entry.content)}</div>`).join("");
+  $("aiSiteHistory").innerHTML = state.aiSiteHistory.map(entry => `<div class="ai-message ai-message-${entry.role}"><b>${entry.role === "user" ? "管理员" : "AI"}</b> ${escapeHtml(entry.content)}</div>`).join("");
+  $("rawOrderInput").oninput = (event) => { state.aiRawText = event.target.value; };
+  $("aiSiteCmd").oninput = (event) => { state.aiSiteInput = event.target.value; };
   if (state.editingPartTimeId) {
     const oldPartTime = Store.getPartTimePosts().find((post) => post.id === state.editingPartTimeId);
     if (oldPartTime) {
