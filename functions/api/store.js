@@ -1,3 +1,4 @@
+import {loadAIRegistry, safeAIRegistry, saveAIProvider, deleteAIProvider, activateAIProvider} from "../../shared/ai-provider-registry.js";
 // Cloudflare Pages Function: /api/store
 // 基于 Cloudflare KV 的无服务器生产级后端（与 kupars.top 同域，大陆直连快、无需额外服务器）
 // 只需在 Cloudflare Pages 绑定名为 TUTOR_KV 的 KV Namespace 即可自动启用多人云端持久化与服务端鉴权。
@@ -120,6 +121,24 @@ export async function onRequest(context) {
     // ---------------- 以下为严格管理员权限接口 ----------------
     if (authUser.role !== "admin") {
       return jsonResp({ ok: false, error: "无管理员权限" }, 403);
+    }
+
+    // Admin-only provider management; no API key or encrypted key is ever returned to browser.
+    if (action === "admin_ai_provider_list") {
+      const registry=await loadAIRegistry(env.TUTOR_KV);
+      return jsonResp({ok:true,registry:safeAIRegistry(registry,env)});
+    }
+    if (action === "admin_ai_provider_save") {
+      const registry=await saveAIProvider(env.TUTOR_KV,env,body.provider);
+      return jsonResp({ok:true,registry});
+    }
+    if (action === "admin_ai_provider_activate") {
+      const registry=await activateAIProvider(env.TUTOR_KV,env,String(body.id||""),body.model);
+      return jsonResp({ok:true,registry});
+    }
+    if (action === "admin_ai_provider_delete") {
+      const registry=await deleteAIProvider(env.TUTOR_KV,env,String(body.id||""));
+      return jsonResp({ok:true,registry});
     }
 
     if (action === "admin_data") {
