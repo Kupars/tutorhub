@@ -44,7 +44,9 @@ export function renderTeacherPool(orders,profiles,applications,legacyAssignments
           <input type="file" id="teacherResumeFile" accept=".txt,.md,.jpg,.jpeg,.png,.webp,text/plain,image/png,image/jpeg,image/webp" aria-label="上传老师简历图片或文本文件"/>
           <button type="button" id="teacherAIExtract" class="btn btn-sm">✨ AI 提取姓名 / 学校 / 性别 / 科目</button>
         </div>
-        <p class="admin-helper">仅支持 TXT、Markdown、JPG、PNG、WebP，暂不直接解析 PDF/Word，请复制其文字或上传截图。图片需由当前 API 模型支持视觉；AI 不提取联系方式。简历内容将发送给已配置的第三方 API，建议先移除不必要的敏感信息，不保留简历原文件。</p>
+        <p class="admin-helper">简历会发送给当前配置的第三方 AI 服务商；仅支持 TXT、Markdown、JPG、PNG、WebP，文件不会保存在本站数据库。图片可能包含无法自动遮盖的手机号、证件号、家庭地址，请先裁剪或打码。PDF/Word 请复制文字或上传脱敏截图。</p>
+        <label class="teacher-ai-consent"><input id="teacherResumeConsent" type="checkbox" />
+          我确认已获得简历提供者授权用于家教匹配，并已检查、删除不必要的身份证号、住址、电话、微信等敏感资料，知晓内容将发送给第三方 AI。</label>
         <div id="teacherExtractResult" class="admin-helper">${h(latestExtraction)}</div>
         <form id="teacherProfileForm" class="assignment-form">
           <div class="field"><label for="teacherName">姓名 / 称呼 *</label><input id="teacherName" required maxlength="80" value="${h(editing?.name||"")}" placeholder="手动核对 AI 识别结果"/></div>
@@ -196,10 +198,12 @@ export function bindTeacherPool(container,store,rerender,showToast) {
     const file=document.getElementById("teacherResumeFile")?.files?.[0];
     const text=document.getElementById("teacherResumeText")?.value.trim()||"";
     if(!file&&!text)return showToast("请先粘贴简历或选择图片文件");
+    if(!document.getElementById("teacherResumeConsent")?.checked)
+      return showToast("请先确认已获授权并完成简历脱敏，再提交第三方 AI");
     extract.disabled=true;extract.textContent="AI 正在识别…";
     try{
       const input=await fileToResumeData(file);
-      const ai=await callServerlessAI("extract_teacher_resume",{text:[text,input.text||""].filter(Boolean).join("\n"),imageData:input.imageData||""});
+      const ai=await callServerlessAI("extract_teacher_resume",{text:[text,input.text||""].filter(Boolean).join("\n"),imageData:input.imageData||"",consent:true});
       if(ai.teacherName)document.getElementById("teacherName").value=ai.teacherName;
       if(ai.teacherSchool)document.getElementById("teacherSchool").value=ai.teacherSchool;
       if(["男","女"].includes(ai.teacherGender))document.getElementById("teacherGender").value=ai.teacherGender;
