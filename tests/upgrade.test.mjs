@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { findPotentialDuplicates, orderFreshness } from "../js/order-extras.js";
@@ -11,12 +11,12 @@ const fixture = () => {
   return {
     TUTOR_KV: { get: async (key) => db.get(key) || null,
       put: async (key, value) => db.set(key, value) },
-    AUTH_SECRET: "upgrade-test-secret"
+    AUTH_SECRET: "upgrade-test-secret-0123456789-aaa", ADMIN_PASSWORD: "secure-test-password"
   };
 };
 const auth = () => {
-  const raw = btoa(JSON.stringify({ id: "admin", role: "admin", exp: Date.now() + 100000 }));
-  return `${raw}.${createHash("sha256").update(`${raw}.upgrade-test-secret`).digest("hex")}`;
+  const raw = btoa(JSON.stringify({ id: "admin", role: "admin", jti: "test-session-upgrade-12345", exp: Date.now() + 100000 }));
+  return `${raw}.${createHmac("sha256", "upgrade-test-secret-0123456789-aaa").update(raw).digest("hex")}`;
 };
 const callStore = async (env, body, bearer = auth()) => {
   const response = await storeHandler({ env, request: new Request("https://test.pages.dev/api/store", {
