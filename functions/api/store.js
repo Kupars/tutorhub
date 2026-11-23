@@ -102,13 +102,15 @@ export async function onRequest(context) {
     }
 
     if (action === "admin_data") {
-      const [orders, siteConfig, hiddenImported, partTimePosts, assignments, sequence] = await Promise.all([
+      const [orders, siteConfig, hiddenImported, partTimePosts, assignments, sequence, teacherProfiles, teacherApplications] = await Promise.all([
         kvGet(env.TUTOR_KV, "orders", []),
         kvGet(env.TUTOR_KV, "site_config", DEFAULT_SITE),
         kvGet(env.TUTOR_KV, "hidden_imported_orders", []),
         kvGet(env.TUTOR_KV, "part_time_posts", []),
         kvGet(env.TUTOR_KV, "teacher_assignments", []),
-        kvGet(env.TUTOR_KV, "order_sequence", 2991)
+        kvGet(env.TUTOR_KV, "order_sequence", 2991),
+        kvGet(env.TUTOR_KV, "teacher_profiles", []),
+        kvGet(env.TUTOR_KV, "teacher_applications", [])
       ]);
       return jsonResp({
         ok: true,
@@ -117,6 +119,8 @@ export async function onRequest(context) {
         hiddenImported,
         partTimePosts,
         assignments: env.AUTH_SECRET && env.ADMIN_PASSWORD ? assignments : [],
+        teacherProfiles: env.AUTH_SECRET && env.ADMIN_PASSWORD ? teacherProfiles : [],
+        teacherApplications: env.AUTH_SECRET && env.ADMIN_PASSWORD ? teacherApplications : [],
         orderSequence: Math.max(2991, Number(sequence) || 0, ...orders.map((o) => Number(String(o.orderNumber || o.id).match(/^#?(\d{3,7})/)?.[1]) || 0))
       });
     }
@@ -145,6 +149,101 @@ export async function onRequest(context) {
 
     // 教师姓名和联系信息只保存在独立的管理员 KV 记录中，绝不随公开 GET 输出。
     // 由管理员手动登记；无教师自助注册、无位置追踪。
+    // 管理员老师储备池：与具体订单无关，可先收简历后按学科、区域、状态推荐。
+    // 个人资料与投递记录只随 admin_data 返回，从不放进公共 GET。
+    if (action === "admin_save_teacher_profile") {
+      if (!env.AUTH_SECRET || !env.ADMIN_PASSWORD) return jsonResp({ok:false,error:"请先配置 ADMIN_PASSWORD 与独立 AUTH_SECRET 才能保存老师档案"},503);
+      const raw=body.profile && typeof body.profile==="object"?body.profile:{};
+      const name=String(raw.name||"").trim();
+      if (!name || name.length>80) return jsonResp({ok:false,error:"请填写老师姓名（不超过80字）"},400);
+      const statuses=["可接单","已接满","暂不接单","待确认"];
+      const genders=["男","女","未知"];
+      const types=["在校生","专职老师","未知"];
+      if (raw.gender && !genders.includes(raw.gender)) return jsonResp({ok:false,error:"老师性别选项无效"},400);
+      if (raw.availability && !statuses.includes(raw.availability)) return jsonResp({ok:false,error:"接单状态选项无效"},400);
+      if (raw.teacherType && !types.includes(raw.teacherType)) return jsonResp({ok:false,error:"教师类型选项无效"},400);
+      const records=await kvGet(env.TUTOR_KV,"teacher_profiles",[]);
+      const id=String(raw.id||"").trim();
+      const original=id?records.find(o=>o.id===id):null;
+      if(id && !original) return jsonResp({ok:false,error:"老师档案不存在，请刷新后重试"},404);
+      for(const key of ["school","contact","agentName","canTeach","preferredDistricts","note"]) {
+        if(raw[key]!=null && (typeof raw[key]!=="string" || raw[key].length>(key==="note"?800:300)))
+          return jsonResp({ok:false,error:"老师档案字段长度超限："+key},400);
+      }
+      const now=new Date().toISOString();
+      const profile={
+        id:original?.id||"tp-"+crypto.randomUUID(),
+        name,school:String(raw.school||"").trim().slice(0,120),
+        gender:raw.gender||"未知",teacherType:raw.teacherType||"未知",
+        canTeach:String(raw.canTeach||"").trim().slice(0,200),
+        preferredDistricts:String(raw.preferredDistricts||"").trim().slice(0,200),
+        availability:raw.availability||"待确认",
+        contact:String(raw.contact||"").trim().slice(0,150),
+        agentName:String(raw.agentName||"").trim().slice(0,100),
+        note:String(raw.note||"").trim().slice(0,800),
+        createdAt:original?.createdAt||now,updatedAt:now
+      };
+      const next=[profile,...records.filter(o=>o.id!==profile.id)];
+      await kvPut(env.TUTOR_KV,"teacher_profiles",next);
+      return jsonResp({ok:true,teacherProfiles:next,profileId:profile.id});
+    }
+    if (action === "admin_set_teacher_availability") {
+      if (!env.AUTH_SECRET || !env.ADMIN_PASSWORD) return jsonResp({ok:false,error:"管理员个人资料存储未启用"},503);
+      const statuses=["可接单","已接满","暂不接单","待确认"];
+      if(!statuses.includes(body.availability))return jsonResp({ok:false,error:"老师状态无效"},400);
+      const profiles=await kvGet(env.TUTOR_KV,"teacher_profiles",[]);
+      if(!profiles.some(p=>p.id===body.teacherId))return jsonResp({ok:false,error:"找不到老师档案"},404);
+      const next=profiles.map(p=>p.id===body.teacherId?{...p,availability:body.availability,updatedAt:new Date().toISOString()}:p);
+      await kvPut(env.TUTOR_KV,"teacher_profiles",next);
+      return jsonResp({ok:true,teacherProfiles:next});
+    }
+    if (action === "admin_delete_teacher_profile") {
+      if (!env.AUTH_SECRET || !env.ADMIN_PASSWORD) return jsonResp({ok:false,error:"管理员个人资料存储未启用"},503);
+      const profiles=await kvGet(env.TUTOR_KV,"teacher_profiles",[]);
+      const applications=await kvGet(env.TUTOR_KV,"teacher_applications",[]);
+      if(!profiles.some(p=>p.id===body.teacherId))return jsonResp({ok:false,error:"找不到老师档案"},404);
+      const nextProfiles=profiles.filter(p=>p.id!==body.teacherId);
+      const nextApplications=applications.filter(c=>c.teacherId!==body.teacherId);
+      await kvPut(env.TUTOR_KV,"teacher_profiles",nextProfiles);
+      await kvPut(env.TUTOR_KV,"teacher_applications",nextApplications);
+      return jsonResp({ok:true,teacherProfiles:nextProfiles,teacherApplications:nextApplications});
+    }
+    if (action === "admin_save_teacher_application") {
+      if (!env.AUTH_SECRET || !env.ADMIN_PASSWORD) return jsonResp({ok:false,error:"管理员个人资料存储未启用"},503);
+      const orderId=String(body.orderId||"").trim(),teacherId=String(body.teacherId||"").trim();
+      const profiles=await kvGet(env.TUTOR_KV,"teacher_profiles",[]);
+      if(!profiles.some(p=>p.id===teacherId))return jsonResp({ok:false,error:"先把老师存入档案库"},404);
+      const orders=await kvGet(env.TUTOR_KV,"orders",[]);
+      const override=body.importedOverride;
+      const order=orders.find(o=>o.id===orderId)||
+        (/^fs-\d{4,}$/.test(orderId)&&override?.id===orderId?override:null);
+      if(!order)return jsonResp({ok:false,error:"找不到这条家教单，请刷新后台重试"},404);
+      const applications=await kvGet(env.TUTOR_KV,"teacher_applications",[]);
+      const recordId=String(body.applicationId||"").trim();
+      const existing=recordId?applications.find(x=>x.id===recordId):applications.find(x=>x.teacherId===teacherId && x.orderId===orderId);
+      if(recordId&&!existing)return jsonResp({ok:false,error:"该条投递记录不存在"},404);
+      const status=String(body.status||"已投递");
+      if(!["已投递","待联系","沟通中","试课中","已接单","未录用"].includes(status))
+        return jsonResp({ok:false,error:"投递进展选项无效"},400);
+      const agent=String(body.agentName||"").trim(),note=String(body.note||"").trim();
+      if(agent.length>100||note.length>500)return jsonResp({ok:false,error:"代理名称或备注过长"},400);
+      const now=new Date().toISOString();
+      const item={id:existing?.id||"ta-"+crypto.randomUUID(),orderId,teacherId,status,
+        agentName:agent,note,createdAt:existing?.createdAt||now,updatedAt:now};
+      const next=[item,...applications.filter(x=>x.id!==item.id)];
+      await kvPut(env.TUTOR_KV,"teacher_applications",next);
+      // 登记投递或接单，只更新关联关系；绝不自动关闭家教单。
+      return jsonResp({ok:true,teacherApplications:next});
+    }
+    if (action === "admin_delete_teacher_application") {
+      if (!env.AUTH_SECRET || !env.ADMIN_PASSWORD) return jsonResp({ok:false,error:"管理员个人资料存储未启用"},503);
+      const applications=await kvGet(env.TUTOR_KV,"teacher_applications",[]);
+      const next=applications.filter(x=>x.id!==body.applicationId);
+      if(next.length===applications.length)return jsonResp({ok:false,error:"投递记录不存在"},404);
+      await kvPut(env.TUTOR_KV,"teacher_applications",next);
+      return jsonResp({ok:true,teacherApplications:next});
+    }
+
     if (action === "admin_save_assignment") {
       if (!env.AUTH_SECRET || !env.ADMIN_PASSWORD) return jsonResp({ ok: false, error: "保存老师个人信息前，请在 Cloudflare 配置强密码 ADMIN_PASSWORD 和独立随机 AUTH_SECRET" }, 503);
       const orderId = String(body.orderId || "").trim();
