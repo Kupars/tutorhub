@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { onRequest as storeHandler } from "../functions/api/store.js";
 import { onRequestPost as aiHandler } from "../functions/api/ai.js";
 import { recommendTeacherProfiles, wantedTeacherGender, nextFamilySubIds } from "../js/teacher-profile-utils.js";
@@ -9,13 +9,13 @@ import { teacherResumePrompt, sanitizeTeacherResumeResult } from "../shared/teac
 
 const fixture=()=>{
   const kv=new Map();
-  return {AUTH_SECRET:"teacher-pool-test-secret",ADMIN_PASSWORD:"strong-test-password",
+  return {AUTH_SECRET:"teacher-pool-test-secret-0123456789",ADMIN_PASSWORD:"strong-test-password",
     OPENAI_API_KEY:"fake-key",OPENAI_BASE_URL:"https://api.example.com/v1",OPENAI_MODEL:"fake-vision",
     TUTOR_KV:{get:async key=>kv.get(key)||null,put:async(key,v)=>kv.set(key,v)}};
 };
 function token(env){
-  const raw=btoa(JSON.stringify({role:"admin",id:"admin",exp:Date.now()+60000}));
-  return raw+"."+createHash("sha256").update(raw+"."+env.AUTH_SECRET).digest("hex");
+  const raw=btoa(JSON.stringify({role:"admin",id:"admin",jti:"test-session-teacher-1234",exp:Date.now()+60000}));
+  return raw+"."+createHmac("sha256",env.AUTH_SECRET).update(raw).digest("hex");
 }
 async function postStore(env,action,payload={}){
   const request=new Request("https://test.pages.dev/api/store",{method:"POST",
@@ -120,7 +120,7 @@ test("简历图片在有权限情况下提交到视觉模型，不存储原文�
     const request=new Request("https://test.pages.dev/api/ai",{method:"POST",
       headers:{Authorization:"Bearer "+token(env),"Content-Type":"application/json"},
       body:JSON.stringify({action:"extract_teacher_resume",payload:{
-        text:"简历，数学老师",imageData:"data:image/jpeg;base64,aGVsbG8="
+        text:"简历，数学老师",consent:true,imageData:"data:image/jpeg;base64,aGVsbG8="
       }})});
     const res=await aiHandler({request,env});
     assert.equal(res.status,200);
