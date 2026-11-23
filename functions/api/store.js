@@ -102,18 +102,20 @@ export async function onRequest(context) {
     }
 
     if (action === "admin_data") {
-      const [orders, siteConfig, hiddenImported, partTimePosts] = await Promise.all([
+      const [orders, siteConfig, hiddenImported, partTimePosts, assignments] = await Promise.all([
         kvGet(env.TUTOR_KV, "orders", []),
         kvGet(env.TUTOR_KV, "site_config", DEFAULT_SITE),
         kvGet(env.TUTOR_KV, "hidden_imported_orders", []),
-        kvGet(env.TUTOR_KV, "part_time_posts", [])
+        kvGet(env.TUTOR_KV, "part_time_posts", []),
+        kvGet(env.TUTOR_KV, "teacher_assignments", [])
       ]);
       return jsonResp({
         ok: true,
         orders,
         siteConfig,
         hiddenImported,
-        partTimePosts
+        partTimePosts,
+        assignments
       });
     }
 
@@ -137,6 +139,53 @@ export async function onRequest(context) {
       const next = posts.filter((post) => post.id !== body.id);
       await kvPut(env.TUTOR_KV, "part_time_posts", next);
       return jsonResp({ ok: true, partTimePosts: next });
+    }
+
+    // 教师姓名和联系信息只保存在独立的管理员 KV 记录中，绝不随公开 GET 输出。
+    // 由管理员手动登记；无教师自助注册、无位置追踪。
+    if (action === "admin_save_assignment") {
+      const orderId = String(body.orderId || "").trim();
+      const name = String(body.teacherName || "").trim();
+      const contact = String(body.teacherContact || "").trim();
+      const note = String(body.note || "").trim();
+      if (!orderId || orderId.length > 60 || !name || name.length > 80 ||
+        contact.length > 120 || note.length > 500) {
+        return jsonResp({ ok: false, error: "请填写有效的订单编号和老师姓名（联系方式、备注可选）" }, 400);
+      }
+      const current = await kvGet(env.TUTOR_KV, "orders", []);
+      const override = body.importedOverride;
+      const order = current.find((o) => o.id === orderId) ||
+        (/^fs-\d{4,}$/.test(orderId) && override?.id === orderId ? override : null);
+      if (!order) return jsonResp({ ok: false, error: "找不到该家教单，请刷新后重试" }, 404);
+      const assignments = await kvGet(env.TUTOR_KV, "teacher_assignments", []);
+      const assignmentId = String(body.assignmentId || "");
+      const matched = assignments.find((a) => a.id === assignmentId && a.orderId === orderId);
+      if (assignmentId && !matched) return jsonResp({ ok: false, error: "未找到要修改的匹配记录" }, 404);
+      const now = new Date().toISOString();
+      const entry = {
+        id: matched?.id || `as-${crypto.randomUUID()}`, orderId,
+        teacherName: name, teacherContact: contact, note,
+        assignedAt: matched?.assignedAt || now, updatedAt: now,
+        district: String(order.district || "").slice(0, 50),
+        publicAddress: String(order.publicAddress || order.address || "").slice(0, 220),
+        subject: String(order.subject || "").slice(0, 90)
+      };
+      const nextAssignments = [entry, ...assignments.filter((a) => a.id !== entry.id)];
+      await kvPut(env.TUTOR_KV, "teacher_assignments", nextAssignments);
+      let nextOrders = current;
+      if (body.markMatched === true) {
+        const updated = { ...order, id: orderId, status: "已匹配", updatedAt: now };
+        nextOrders = [updated, ...current.filter((o) => o.id !== orderId)];
+        await kvPut(env.TUTOR_KV, "orders", nextOrders);
+      }
+      return jsonResp({ ok: true, assignments: nextAssignments, orders: nextOrders });
+    }
+    if (action === "admin_delete_assignment") {
+      const assignments = await kvGet(env.TUTOR_KV, "teacher_assignments", []);
+      const next = assignments.filter((a) => a.id !== body.assignmentId);
+      if (next.length === assignments.length) return jsonResp({ ok: false, error: "该匹配记录不存在" }, 404);
+      await kvPut(env.TUTOR_KV, "teacher_assignments", next);
+      return jsonResp({ ok: true, assignments: next });
     }
 
     if (action === "admin_add_orders") {
