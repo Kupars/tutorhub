@@ -1017,3 +1017,29 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 .bulk-update { display:flex; align-items:flex-start; gap:10px; border-bottom:1px solid var(--border); padding:10px 0 }
 .bulk-update small { display:block; margin-top:5px; color:var(--muted) }
 @media(max-width:850px){.bulk-import-grid{grid-template-columns:1fr}.bulk-panel{padding:13px}.bulk-review-heading{display:block}.bulk-publish-bar .btn{width:100%}}
+
+/* Admin-only AI model relay manager */
+.ai-model-manager { display:block }
+.ai-model-top { display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px }
+.ai-model-top h2 { margin:0 0 6px }
+.ai-model-active { display:flex;align-items:center;flex-wrap:wrap;gap:9px;border:1px solid var(--border);border-radius:12px;padding:13px;background:var(--primary-soft,rgba(85,120,210,.06));margin-bottom:8px }
+.ai-model-active span { color:var(--muted);font-size:12px }
+.ai-model-active strong { overflow-wrap:anywhere }
+.ai-model-notice { padding:10px 12px;border:1px solid var(--border);border-radius:10px;font-size:13px }
+.ai-provider-card { display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px;margin:12px 0;border:1px solid var(--border);border-radius:12px;min-width:0 }
+.ai-provider-info { flex:1;min-width:220px }
+.ai-provider-info>strong { font-size:15px }
+.ai-provider-current { margin-left:9px;padding:3px 8px;font-size:11px;color:var(--primary);border:1px solid var(--primary);border-radius:8px }
+.ai-provider-info p { margin:7px 0;overflow-wrap:anywhere;word-break:break-word }
+.ai-provider-info label { display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:10px;font-size:13px }
+.ai-provider-info select { max-width:100%;min-width:180px;box-sizing:border-box;border-radius:8px;padding:7px;border:1px solid var(--border);background:var(--bg,#fff);color:var(--text) }
+.ai-provider-actions { display:flex;align-items:center;flex-wrap:wrap;gap:8px }
+.ai-model-editor { margin-top:22px;padding-top:18px;border-top:1px solid var(--border) }
+.ai-model-editor h3 { margin:0 0 14px }
+.ai-model-fields { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px }
+.ai-model-fields .field { min-width:0 }
+.ai-model-fields .field:nth-child(3),.ai-model-fields .field:nth-child(4),.ai-model-fields .ai-provider-actions { grid-column:1/-1 }
+.ai-model-fields input,.ai-model-fields textarea { box-sizing:border-box;width:100%;background:var(--bg,#fff);color:var(--text);border:1px solid var(--border);border-radius:9px;padding:10px;font:inherit }
+.ai-model-fields textarea { resize:vertical;min-height:105px;font-size:13px }
+.ai-model-fields small { display:block;color:var(--muted);font-size:12px;line-height:1.6;margin-top:5px }
+@media(max-width:760px) { .ai-model-fields {grid-template-columns:1fr}.ai-provider-info{min-width:0;width:100%}.ai-provider-actions{width:100%}.ai-provider-actions .btn{flex:1} }
