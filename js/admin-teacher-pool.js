@@ -6,6 +6,7 @@ let activeOrderId="";
 let editingTeacherId="";
 let teacherQuery="";
 let latestExtraction="";
+let autoLinkOrderId="";
 let resumeInput="";
 const h = v=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
 const short=(v,n=80)=>String(v||"").slice(0,n);
@@ -92,7 +93,7 @@ export function renderTeacherPool(orders,profiles,applications,legacyAssignments
         <div class="teacher-linked-list">
           ${linked.length?linked.map(c=>{
             const p=profiles.find(t=>t.id===c.teacherId);
-            return `<div class="teacher-linked-item"><span><strong>${h(p?.name||"档案已删除")}</strong> · ${h(c.status||"已投递")} ${h(p?.school||"")} ${c.agentName?" · 代理："+h(c.agentName):""}<small>${h(c.note||"")}</small></span><button class="btn btn-sm" data-remove-application="${h(c.id)}" type="button">取消关联</button></div>`;
+            return `<div class="teacher-linked-item"><span><strong>${h(p?.name||"档案已删除")}</strong> · ${h(c.status||"已投递")} ${h(p?.school||"")} ${c.agentName?" · 代理："+h(c.agentName):""}<small>${h(c.note||"")}</small></span><div class="teacher-link-actions"><button class="btn btn-sm" data-edit-application="${h(c.id)}" type="button">编辑进展</button><button class="btn btn-sm" data-remove-application="${h(c.id)}" type="button">取消关联</button></div></div>`;
           }).join(""):'<p class="admin-helper">本单尚未登记投递老师</p>'}
         </div>
         <div class="teacher-recommend-panel"><h4>优先联系的老师（可接单）</h4>
@@ -196,7 +197,7 @@ export function bindTeacherPool(container,store,rerender,showToast) {
     event.preventDefault();
     const button=profileForm.querySelector('button[type="submit"]');button.disabled=true;
     try{
-      await store.saveTeacherProfile({
+      const profileId=await store.saveTeacherProfile({
         id:editingTeacherId||undefined,
         name:document.getElementById("teacherName").value.trim(),
         school:document.getElementById("teacherSchool").value.trim(),
@@ -209,7 +210,12 @@ export function bindTeacherPool(container,store,rerender,showToast) {
         contact:document.getElementById("teacherContact").value.trim(),
         note:document.getElementById("teacherNote").value.trim()
       });
-      editingTeacherId="";latestExtraction="";resumeInput="";rerender();showToast("老师档案已存入储备池");
+      if(autoLinkOrderId){
+        await store.saveTeacherApplication({teacherId:profileId,orderId:autoLinkOrderId,status:"已投递"});
+        autoLinkOrderId="";
+        showToast("老师档案已保存并关联到本单，订单状态未改变");
+      }else showToast("老师档案已存入储备池");
+      editingTeacherId="";latestExtraction="";resumeInput="";rerender();
     }catch(error){button.disabled=false;showToast("保存失败："+error.message);}
   };
   const linkForm=document.getElementById("teacherApplicationForm");
@@ -228,12 +234,26 @@ export function bindTeacherPool(container,store,rerender,showToast) {
     }catch(error){submit.disabled=false;showToast("登记失败："+error.message);}
   };
   document.getElementById("addTeacherFromOrder")?.addEventListener("click",()=>{
-    editingTeacherId="";resumeInput="";latestExtraction="";rerender();
+    editingTeacherId="";resumeInput="";latestExtraction="";autoLinkOrderId=activeOrderId;rerender();
     document.getElementById("teacherProfileEditor")?.scrollIntoView({behavior:"smooth",block:"start"});
   });
   container.querySelectorAll("[data-use-recommendation]").forEach(btn=>btn.onclick=()=>{
     const select=document.getElementById("applicationTeacherId");
     if(select){select.value=btn.dataset.useRecommendation;select.focus();}
+  });
+  container.querySelectorAll("[data-edit-application]").forEach(btn=>btn.onclick=()=>{
+    const item=store.getTeacherApplications().find(x=>x.id===btn.dataset.editApplication);
+    if(!item)return;
+    document.getElementById("applicationTeacherId").value=item.teacherId;
+    document.getElementById("applicationStatus").value=item.status;
+    document.getElementById("applicationAgentName").value=item.agentName||"";
+    document.getElementById("applicationNote").value=item.note||"";
+    document.getElementById("applicationNote").focus();
+  });
+  document.getElementById("applicationTeacherId")?.addEventListener("change",event=>{
+    const teacher=store.getTeacherProfiles().find(x=>x.id===event.target.value);
+    const agent=document.getElementById("applicationAgentName");
+    if(teacher?.agentName&&agent&&!agent.value.trim())agent.value=teacher.agentName;
   });
   container.querySelectorAll("[data-remove-application]").forEach(btn=>btn.onclick=async()=>{
     if(!confirm("取消这位老师和当前订单的投递关联吗？不会修改订单状态或老师档案。"))return;
