@@ -148,3 +148,34 @@ export async function interpretSiteCommand(commandText,currentSiteConfig,orders,
   return {source:remote.provider || "外部模型 API",reply:String(remote.reply || ""),
     questions:Array.isArray(remote.questions)?remote.questions:[],...checked};
 }
+
+// A separate API action preserves boundaries between unrelated historical WeChat messages.
+// AI returns untrusted proposals; neither orders nor status updates are saved here.
+export async function parseBulkWechatMessages(messages, existingOrders = []) {
+  if (!Array.isArray(messages) || !messages.length || messages.length > 12)
+    throw new Error("请提供 1～12 条微信消息");
+  const payload = messages.map((m,index)=>({
+    source:String(m.source || "").slice(0,100),
+    text:String(m.text || "").slice(0,10000),
+    sourceMessageIndex:index+1
+  }));
+  const result = await callServerlessAI("bulk_parse_orders", {messages:payload});
+  if (!Array.isArray(result.orders)) throw new Error("模型未返回 orders 数组");
+  const combined = payload.map(m=>m.text).join("\n\n");
+  const prepared = result.orders.length ? prepareAIDrafts(combined,result,existingOrders) : [];
+  const orders = prepared.map((draft,index)=>({
+    ...draft,
+    source:"wechat-history",
+    status:"已匹配",
+    sourceMessageIndices:Array.isArray(result.orders[index]?.sourceMessageIndices)
+      ? result.orders[index].sourceMessageIndices.filter(n=>Number.isInteger(n)&&n>=1&&n<=payload.length)
+      : []
+  }));
+  return {
+    orders,
+    updates:Array.isArray(result.updates)?result.updates:[],
+    questions:Array.isArray(result.questions)?result.questions:[],
+    groupingNotes:Array.isArray(result.groupingNotes)?result.groupingNotes:[],
+    provider:String(result.provider || "已配置的模型 API")
+  };
+}

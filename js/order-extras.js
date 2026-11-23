@@ -9,7 +9,7 @@ export function orderFreshness(order, now = Date.now()) {
       if (days <= 7) return `${days}天前更新`;
     }
   }
-  if (order?.source === "feishu-public-orders" || !order?.createdAt) return "";
+  if (["feishu-public-orders", "wechat-history"].includes(order?.source) || !order?.createdAt) return "";
   const time = Date.parse(order.createdAt);
   if (!Number.isFinite(time) || time > now + 60000) return "";
   const days = Math.floor((now - time) / 86400000);

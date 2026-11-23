@@ -23,7 +23,7 @@ export async function onRequestPost(context) {
       const limited = await checkRecommendRateLimit(request, env.TUTOR_KV);
       if (limited) return jsonResp({ ok: false, error: "推荐请求较频繁，请稍后再试或使用本地排序" }, 429);
     }
-    const isOrderParsing = action === "parse_orders" || action === "revise_drafts";
+    const isOrderParsing = ["parse_orders", "revise_drafts", "bulk_parse_orders"].includes(action);
     const prompts = isOrderParsing ? formatterPrompt(action, payload)
       : action === "extract_teacher_resume" ? teacherResumePrompt(redactResumeText(payload?.text))
       : action === "site_command" ? siteCommandPrompt(payload)
@@ -46,7 +46,7 @@ export async function onRequestPost(context) {
         return jsonResp({ ok: false, error: "管理员安全密钥未配置，AI 私人资料处理已暂停" }, 503);
       const auth = await verifyAuth(request, String(env.AUTH_SECRET), env.TUTOR_KV);
       if (!auth) return jsonResp({ ok: false, error: "请重新登录后使用 AI 功能" }, 401);
-      if (["parse_orders", "revise_drafts", "site_command", "optimize_addresses", "model_probe", "extract_teacher_resume"].includes(action) && auth.role !== "admin") {
+      if (["parse_orders", "revise_drafts", "bulk_parse_orders", "site_command", "optimize_addresses", "model_probe", "extract_teacher_resume"].includes(action) && auth.role !== "admin") {
         return jsonResp({ ok: false, error: "仅管理员可以整理或修改家教单" }, 403);
       }
     }
@@ -112,11 +112,13 @@ export async function onRequestPost(context) {
     catch { throw new Error(`${provider} 返回的格式不是完整 JSON；请缩短输入或切换支持 JSON 的模型`); }
     if (action === "extract_teacher_resume") parsed = sanitizeTeacherResumeResult(parsed);
     if (isOrderParsing) {
-      if (!Array.isArray(parsed.orders) || parsed.orders.length === 0 || parsed.orders.length > 30 ||
-        parsed.orders.some(o=>!o || typeof o !== "object" || Array.isArray(o)))
+      if (!Array.isArray(parsed.orders) || (action !== "bulk_parse_orders" && parsed.orders.length === 0) ||
+        parsed.orders.length > 30 || parsed.orders.some(o=>!o || typeof o !== "object" || Array.isArray(o)))
         throw new Error(`${provider} 未返回 1～30 张完整草稿，未保存任何内容。请减少单次输入的数量`);
       parsed.groupingNotes = Array.isArray(parsed.groupingNotes) ? parsed.groupingNotes.slice(0,15).map(String) : [];
       parsed.questions = Array.isArray(parsed.questions) ? parsed.questions.slice(0,15).map(String) : [];
+      if(action === "bulk_parse_orders")
+        parsed.updates = Array.isArray(parsed.updates) ? parsed.updates.slice(0,30).filter(x=>x && typeof x === "object") : [];
     }
     if (action === "site_command" && !Array.isArray(parsed.actions))
       throw new Error("模型没有返回可审核的网站修改计划");

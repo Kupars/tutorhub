@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=5";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=10";
-import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=7";
+import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=8";
 import { Store } from "./store.js?v=6";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
@@ -44,6 +44,22 @@ function loadTeacherPoolModule() {
   if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=6")
     .catch(err=>{teacherPoolModulePromise=null;throw err;});
   return teacherPoolModulePromise;
+}
+let wechatBulkImportPromise=null;
+function hydrateWechatBulkImport() {
+  if (state.adminPage !== "bulkImport" || Store.getCurrentUser()?.role !== "admin") return;
+  const slot=document.getElementById("wechatBulkImportSlot");
+  if (!slot) return;
+  if (!wechatBulkImportPromise) wechatBulkImportPromise=import("./wechat-bulk-import.js?v=1")
+    .catch(error=>{wechatBulkImportPromise=null;throw error;});
+  void wechatBulkImportPromise.then(module=>{
+    const target=document.getElementById("wechatBulkImportSlot");
+    if(!target || state.adminPage!=="bulkImport" || Store.getCurrentUser()?.role!=="admin")return;
+    module.mountWechatBulkImport(target,{Store,refresh:renderAll,toast:showToast});
+  }).catch(error=>{
+    const target=document.getElementById("wechatBulkImportSlot");
+    if(target)target.textContent="批量导入模块加载失败："+error.message;
+  });
 }
 function hydrateTeacherPool() {
   if (state.adminPage !== "teachers") return;
@@ -702,6 +718,7 @@ const ADMIN_PAGES = {
   orders: { name: "家教单管理", icon: "📋" },
   manual: { name: "手动录单", icon: "✍️" },
   aiOrders: { name: "AI 智能录单", icon: "✨" },
+  bulkImport: { name: "微信历史批量导入", icon: "📥" },
   teachers: { name: "老师档案与匹配", icon: "👩‍🏫" },
   aiSite: { name: "AI 修改网站与订单", icon: "🤖" },
   parttime: { name: "其他兼职", icon: "💼" }
@@ -747,6 +764,7 @@ function renderAdminView() {
   const moduleCards = [
     {id:"orders", detail:"统一搜索、筛选、编辑、上架及批量处理", metric:`${orders.length} 条家教单`},
     {id:"aiOrders", detail:"一次识别多条微信需求，AI 对话修改并自由拆合科目", metric:`${state.parsedDraftOrders.length} 条待发布草稿`},
+    {id:"bulkImport", detail:"微信多文件导入、AI 分批拆单、重复核查、状态更新及人工审核", metric:"支持数百条历史消息"},
     {id:"manual", detail:"按九字段模板手动新建或编辑家教单", metric:"规范录入"},
     {id:"teachers", detail:"老师档案、历史接单记录、投递与推荐匹配", metric:"管理员专用"},
     {id:"aiSite", detail:"通过对话预览并确认修改网站设置和已有订单", metric:"修改前确认"},
@@ -838,6 +856,8 @@ function renderAdminView() {
         </div>
       </form>
     </div>
+
+    <section class="admin-module-page" data-admin-page="bulkImport" ${openedPage==="bulkImport"?"":"hidden"}><div id="wechatBulkImportSlot" class="panel"><p class="admin-helper">正在加载批量导入模块…</p></div></section>
 
     <div class="panel admin-module-page" data-admin-page="aiOrders" ${openedPage==="aiOrders"?"":"hidden"}>
       <h2>✨ AI 零散信息一键整理成家教单</h2>
@@ -1287,6 +1307,7 @@ function renderAdminView() {
     };
   });
   hydrateTeacherPool();
+  hydrateWechatBulkImport();
 }
 
 
