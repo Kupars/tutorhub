@@ -50,7 +50,7 @@ function hydrateWechatBulkImport() {
   if (state.adminPage !== "bulkImport" || Store.getCurrentUser()?.role !== "admin") return;
   const slot=document.getElementById("wechatBulkImportSlot");
   if (!slot) return;
-  if (!wechatBulkImportPromise) wechatBulkImportPromise=import("./wechat-bulk-import.js?v=1")
+  if (!wechatBulkImportPromise) wechatBulkImportPromise=import("./wechat-bulk-import.js?v=2")
     .catch(error=>{wechatBulkImportPromise=null;throw error;});
   void wechatBulkImportPromise.then(module=>{
     const target=document.getElementById("wechatBulkImportSlot");

@@ -1,4 +1,4 @@
-import { splitWechatMessages } from './wechat-bulk-core.js';
+import { splitWechatMessages } from './wechat-bulk-core.js?v=2';
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_TOTAL_UNZIPPED = 35 * 1024 * 1024;
