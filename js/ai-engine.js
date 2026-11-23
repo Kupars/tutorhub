@@ -167,6 +167,7 @@ export async function parseBulkWechatMessages(messages, existingOrders = []) {
     updates:Array.isArray(result.updates)?result.updates:[],
     questions:Array.isArray(result.questions)?result.questions:[],
     groupingNotes:Array.isArray(result.groupingNotes)?result.groupingNotes:[],
+    messageAudit:Array.isArray(result.messageAudit)?result.messageAudit:[],
     provider:String(result.provider || "已配置的模型 API")
   };
 }
