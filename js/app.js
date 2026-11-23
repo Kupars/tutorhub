@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=5";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=10";
-import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=8";
+import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=9";
 import { Store } from "./store.js?v=7";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
@@ -50,7 +50,7 @@ function hydrateWechatBulkImport() {
   if (state.adminPage !== "bulkImport" || Store.getCurrentUser()?.role !== "admin") return;
   const slot=document.getElementById("wechatBulkImportSlot");
   if (!slot) return;
-  if (!wechatBulkImportPromise) wechatBulkImportPromise=import("./wechat-bulk-import.js?v=2")
+  if (!wechatBulkImportPromise) wechatBulkImportPromise=import("./wechat-bulk-import.js?v=3")
     .catch(error=>{wechatBulkImportPromise=null;throw error;});
   void wechatBulkImportPromise.then(module=>{
     const target=document.getElementById("wechatBulkImportSlot");
