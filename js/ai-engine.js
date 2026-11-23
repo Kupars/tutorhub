@@ -1,7 +1,7 @@
 import { APP_CONFIG } from "./app-env.js";
 import { nextOrderId, normalizeOrder } from "./order-format.js";
 import { normalizePublicAddress, safeOptimizedPublicAddress } from "./address-normalizer.js";
-import { guardSiteActions } from "./ai-command-guard.js?v=3";
+import { guardSiteActions } from "./ai-command-guard.js?v=4";
 
 export async function callServerlessAI(action, payload = {}) {
   let response;
