@@ -1,14 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { onRequestPost as aiHandler, parseModelJSON } from "../functions/api/ai.js";
 import { guardSiteActions } from "../js/ai-command-guard.js";
 
-const env={TUTOR_KV:{get:async()=>null,put:async()=>{}},AUTH_SECRET:"ai-test-secret",
+const env={TUTOR_KV:{get:async()=>null,put:async()=>{}},AUTH_SECRET:"ai-test-secret-0123456789-0123456",ADMIN_PASSWORD:"super-strong-test-password",
   OPENAI_API_KEY:"test-key-only",OPENAI_BASE_URL:"https://lingyuapi.com/v1",OPENAI_MODEL:"example-available-model"};
 const token=()=>{
-  const payload=btoa(JSON.stringify({id:"admin",role:"admin",exp:Date.now()+100000}));
-  return payload+"."+createHash("sha256").update(payload+"."+env.AUTH_SECRET).digest("hex");
+  const payload=btoa(JSON.stringify({id:"admin",role:"admin",jti:"test-session-ai-01234567",exp:Date.now()+100000}));
+  return payload+"."+createHmac("sha256",env.AUTH_SECRET).update(payload).digest("hex");
 };
 const post=(action,payload,authenticated=true)=>aiHandler({
   env,request:new Request("https://test.pages.dev/api/ai",{
