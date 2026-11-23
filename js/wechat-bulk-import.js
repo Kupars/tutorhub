@@ -1,7 +1,7 @@
 // Admin-only, browser-memory historical import wizard. Nothing is published automatically.
 import { readWechatFiles } from './wechat-bulk-reader.js';
 import { splitWechatMessages, redactWechatText, normalizeImportDocuments,
-  groupWechatMessages, findBulkDuplicate, safeBulkUpdates } from './wechat-bulk-core.js';
+  groupWechatMessages, findBulkDuplicate, safeBulkUpdates, missingStructuredOrderSources } from './wechat-bulk-core.js';
 import { parseBulkWechatMessages } from './ai-engine.js';
 import { normalizeOrder, formatOrderText, parseFormattedOrder } from './order-format.js';
 import { checkDraftIds, missingDraftFields } from './draft-grouping.js';
@@ -43,9 +43,10 @@ function validToPublish(item) {
     !(dup?.hard) && !(dup && !item.allowSimilar);
 }
 function progressText() {
-  const pending = state.batches.filter(b=>b.status==='pending').length;
-  const success = state.batches.filter(b=>b.status==='done').length;
-  const failed = state.batches.filter(b=>b.status==='failed').length;
+  const current = state.batches.filter(b=>b.status!=='split');
+  const pending = current.filter(b=>b.status==='pending').length;
+  const success = current.filter(b=>b.status==='done').length;
+  const failed = current.filter(b=>b.status==='failed').length;
   return success + ' 批成功 · ' + failed + ' 批失败 · ' + pending + ' 批待处理';
 }
 function countSelection() {
@@ -65,6 +66,10 @@ function render() {
   if (!root) return;
   const visible = visibleDrafts();
   const failures = state.batches.filter(b=>b.status==='failed');
+  const activeBatches = state.batches.filter(b=>b.status!=='split');
+  const numberedRecords = state.messages.filter(m=>/【年级性别】/.test(m.text) &&
+    /【补习科目】/.test(m.text) && /^\s*#\d{3,7}(?:-\d+)?/m.test(m.text)).length;
+  const coveredRecords = new Set(state.drafts.flatMap(d => (d.sources || []).map(x=>x.index))).size;
   const status = state.running ? 'AI 正在依次处理，请保持此页面打开…' :
     state.publishing ? '正在逐批写入云端…' : progressText();
   const locked = state.running || state.publishing;
@@ -80,7 +85,7 @@ function render() {
     (locked?'disabled':'')+'></textarea>'+
     '<div class="bulk-toolbar"><button class="btn btn-sm" id="bulkAddPaste" '+(locked?'disabled':'')+'>添加粘贴消息</button>'+
     '<button class="btn btn-sm" id="bulkReset" '+(locked?'disabled':'')+'>清空本次导入</button></div>'+
-    '<p class="bulk-mini">'+state.docs.length+' 份来源 · '+state.messages.length+' 条独立消息 · '+state.batches.length+' 个处理批次</p>'+
+    '<p class="bulk-mini">'+state.docs.length+' 份来源 · '+state.messages.length+' 条独立消息 · '+numberedRecords+' 条带编号标准家教需求 · '+activeBatches.length+' 个处理批次</p>'+
     (state.warnings.length?'<details><summary>文件提醒（'+state.warnings.length+'）</summary><ul>'+state.warnings.slice(0,20).map(w=>'<li>'+esc(w)+'</li>').join('')+'</ul></details>':'')+
     '</section><section class="bulk-panel"><h3>② AI 分批识别</h3>'+
     '<p>上传文件由本地浏览器读取。只有勾选授权后，系统才会将脱敏后的文字发送至你已配置的第三方 AI 服务。</p>'+
@@ -91,11 +96,11 @@ function render() {
     '重试失败批次（'+failures.length+'）</button>'+
     (state.running?'<button class="btn btn-sm" id="bulkStop">本批结束后暂停</button>':'')+'</div>'+
     '<p role="status" aria-live="polite" class="bulk-mini">'+esc(status)+'</p>'+
-    '<div class="bulk-progress"><div style="width:'+(state.batches.length?
-      Math.round(state.batches.filter(b=>b.status==='done').length/state.batches.length*100):0)+'%"></div></div>'+
+    '<div class="bulk-progress"><div style="width:'+(activeBatches.length?
+      Math.round(activeBatches.filter(b=>b.status==='done').length/activeBatches.length*100):0)+'%"></div></div>'+
     (failures.length?'<details><summary>查看失败原因</summary><ol>'+failures.slice(0,25).map(b=>
       '<li>'+esc(b.messages.map(x=>x.source).slice(0,2).join('、'))+'：'+esc(b.error)+'</li>').join('')+'</ol></details>':'')+
-    '<p class="bulk-mini">每批最多 10 条消息 / 9000 字符；API 失败保留当前页面的成功结果，不会回退到本地假 AI。</p>'+
+    '<p class="bulk-mini">带编号需求已覆盖 '+coveredRecords+' / '+numberedRecords+' 条；若 AI 漏识别，系统会自动拆小批次重新调用，不把部分结果当作完整成功。单批最多10条消息/9000字符。</p>'+
     '</section></div>'+
     '<section class="bulk-panel bulk-review"><div class="bulk-review-heading"><div><h3>③ 审核草稿与去重</h3>'+
     '<p>'+state.drafts.length+' 张草稿 · '+state.drafts.filter(x=>duplicateFor(x)).length+' 条疑似重复 · '+
@@ -238,28 +243,49 @@ async function process(retryOnly) {
       try {
         const redacted=batch.messages.map((x,n)=>({source:'本批消息 '+(n+1),text:redactWechatText(x.text)}));
         const result=await parseBulkWechatMessages(redacted,reserved());
-        const before=state.drafts.length;
+        const missing=missingStructuredOrderSources(redacted,result.orders);
+        if(missing.length){
+          const error=new Error('AI 漏识别 ' + missing.length + ' 条：' +
+            missing.slice(0,6).map(x=>x.id+'（消息'+x.sourceIndex+'）').join('、'));
+          error.code='AI_INCOMPLETE_BATCH';throw error;
+        }
+        // Stage the complete validated batch before committing any draft.
+        // Failed or split batches must never leave partial drafts behind.
+        const staged=[];
         for(let j=0;j<result.orders.length;j++){
           const o=result.orders[j];
           const sourceItems=sourcesFor(batch,o.sourceMessageIndices);
           const order=normalizeOrder({...o,source:'wechat-history',status:'已匹配'});
           const item={key:'b'+i+'o'+j,order,sources:sourceItems,selected:false,
             published:false,failed:false,allowSimilar:false};
-          const duplicate=findBulkDuplicate(order,[...existing(),...state.drafts.map(d=>d.order)]);
+          const duplicate=findBulkDuplicate(order,[...existing(),
+            ...state.drafts.map(d=>d.order),...staged.map(d=>d.order)]);
           item.selected=!duplicate && !/待补充/.test(order.grade) && !/待补充/.test(order.subject);
-          state.drafts.push(item);
+          staged.push(item);
         }
-        // Message indices here refer to the local 1-based index within this API batch.
         const updates=safeBulkUpdates(result.updates,
           redacted.map((x,n)=>({...x,index:n+1})),existing());
+        state.drafts.push(...staged);
         for(const item of updates)if(!state.updates.some(x=>x.id===item.id&&x.status===item.status&&x.source===item.source))
           state.updates.push(item);
         for(const note of result.questions || [])state.report.push('第'+(i+1)+'批待核实：'+note);
         for(const note of result.groupingNotes || [])state.report.push('第'+(i+1)+'批拆合说明：'+note);
         if(!result.orders.length && !result.updates.length)state.report.push('第'+(i+1)+'批未识别到可导入家教单');
         batch.status='done';
-        batch.created=state.drafts.length-before;
-      }catch(error){batch.status='failed';batch.error=error.message;state.error='第'+(i+1)+'批失败：'+error.message;}
+        batch.created=staged.length;
+      }catch(error){
+        if(error.code==='AI_INCOMPLETE_BATCH' && batch.messages.length>1){
+          const midpoint=Math.ceil(batch.messages.length/2);
+          const children=[batch.messages.slice(0,midpoint),batch.messages.slice(midpoint)]
+            .filter(xs=>xs.length).map(messages=>({messages,status:'pending',error:''}));
+          batch.status='split';batch.error=error.message;
+          state.batches.splice(i+1,0,...children);
+          state.report.push('第'+(i+1)+'批结果不全，已自动拆成'+children.length+'个更小的批次重新识别：'+error.message);
+        }else{
+          batch.status='failed';batch.error=error.message;
+          state.error='第'+(i+1)+'批失败：'+error.message;
+        }
+      }
       render();
     }
   } finally {
