@@ -1,5 +1,9 @@
 /*
   Cache-Control: public, max-age=300
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), payment=(), usb=()
 
 /
   ! Cache-Control
