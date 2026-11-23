@@ -102,12 +102,13 @@ export async function onRequest(context) {
     }
 
     if (action === "admin_data") {
-      const [orders, siteConfig, hiddenImported, partTimePosts, assignments] = await Promise.all([
+      const [orders, siteConfig, hiddenImported, partTimePosts, assignments, sequence] = await Promise.all([
         kvGet(env.TUTOR_KV, "orders", []),
         kvGet(env.TUTOR_KV, "site_config", DEFAULT_SITE),
         kvGet(env.TUTOR_KV, "hidden_imported_orders", []),
         kvGet(env.TUTOR_KV, "part_time_posts", []),
-        kvGet(env.TUTOR_KV, "teacher_assignments", [])
+        kvGet(env.TUTOR_KV, "teacher_assignments", []),
+        kvGet(env.TUTOR_KV, "order_sequence", 2991)
       ]);
       return jsonResp({
         ok: true,
@@ -115,7 +116,8 @@ export async function onRequest(context) {
         siteConfig,
         hiddenImported,
         partTimePosts,
-        assignments
+        assignments,
+        orderSequence: Math.max(2991, Number(sequence) || 0, ...orders.map((o) => Number(String(o.orderNumber || o.id).match(/^#?(\d{3,7})/)?.[1]) || 0))
       });
     }
 
@@ -198,9 +200,18 @@ export async function onRequest(context) {
           incomingIds.some((id) => existing.some((item) => item.id === id))) {
         return jsonResp({ ok: false, error: "家教单编号为空或与已有单重复，请确认编号后发布" }, 409);
       }
+      const existingLabels = new Set(existing.map((o) => String(o.orderNumber || o.id)));
+      const incomingLabels = body.orders.map((o) => String(o.orderNumber || o.id));
+      if (new Set(incomingLabels).size !== incomingLabels.length || incomingLabels.some((label) => existingLabels.has(label))) {
+        return jsonResp({ ok: false, error: "家教单展示编号已存在，请核对编号后发布" }, 409);
+      }
       const merged = [...(body.orders || []), ...existing];
       await kvPut(env.TUTOR_KV, "orders", merged);
-      return jsonResp({ ok: true, orders: merged });
+      const previousNumber = Number(await kvGet(env.TUTOR_KV, "order_sequence", 2991)) || 2991;
+      const numbers = merged.map((o) => Number(String(o.orderNumber || o.id).match(/^#?(\\d{3,7})/)?.[1]) || 0);
+      const orderSequence = Math.max(2991, previousNumber, ...numbers);
+      await kvPut(env.TUTOR_KV, "order_sequence", orderSequence);
+      return jsonResp({ ok: true, orders: merged, orderSequence });
     }
 
     if (action === "admin_update_order") {
