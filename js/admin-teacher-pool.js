@@ -85,7 +85,7 @@ export function renderTeacherPool(orders,profiles,applications,legacyAssignments
       <p class="admin-helper">可参考旧版记录建立老师档案。以前接过单不代表现在有空，所以导入后默认为「待确认」，不会直接进入推荐。</p>
       ${legacyAssignments.slice(0,60).map(entry=>`<div class="teacher-legacy-row">
         <span><strong>${h(entry.teacherName)}</strong> · ${h(entry.subject||"科目未知")} · ${h(entry.district||"地区未知")}</span>
-        <button class="btn btn-sm" type="button" data-prefill-legacy="${h(entry.id)}">建立储备档案</button>
+        <div class="teacher-link-actions"><button class="btn btn-sm" type="button" data-prefill-legacy="${h(entry.id)}">建立储备档案</button><button class="btn btn-sm" type="button" data-remove-legacy="${h(entry.id)}">删除旧记录</button></div>
       </div>`).join("")}
     </details>`:""}
     <div class="teacher-application-panel" id="teacherApplicationPanel">
@@ -167,6 +167,15 @@ export function bindTeacherPool(container,store,rerender,showToast) {
     document.getElementById("teacherCanTeach").value=item.subject||"";
     document.getElementById("teacherAvailability").value="待确认";
     document.getElementById("teacherProfileEditor")?.scrollIntoView({behavior:"smooth",block:"start"});
+  });
+  container.querySelectorAll("[data-remove-legacy]").forEach(btn=>btn.onclick=async()=>{
+    const id=btn.dataset.removeLegacy;
+    if(!confirm("永久删除这条旧版老师接单记录？这不会删除其他老师档案或家教单，且无法撤销。"))return;
+    try{
+      await store.deleteAssignment(id);
+      rerender();
+      showToast("旧版老师记录已从当前后台数据库移除");
+    }catch(error){showToast("删除失败："+error.message);}
   });
   container.querySelectorAll("[data-edit-teacher]").forEach(btn=>btn.onclick=()=>{
     editingTeacherId=btn.dataset.editTeacher;
