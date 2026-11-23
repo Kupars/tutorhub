@@ -27,6 +27,7 @@ let cloudState = {
   hiddenImported: [],
   partTimePosts: [],
   assignments: [],
+  orderSequence: 2991,
   teachers: [],
   applications: [],
   myResume: null
@@ -140,6 +141,7 @@ export const Store = {
           const adm = await apiPost({ action: "admin_data" });
           if (adm?.ok) {
             cloudState.assignments = Array.isArray(adm.assignments) ? adm.assignments : [];
+            cloudState.orderSequence = Number(adm.orderSequence) || 2991;
             cloudState.teachers = adm.teachers || [];
             cloudState.applications = adm.applications || [];
             if (Array.isArray(adm.orders)) cloudState.orders = adm.orders;
@@ -158,6 +160,9 @@ export const Store = {
     }
   },
 
+  getOrderSequence() {
+    return cloudReady ? (cloudState.orderSequence || 2991) : 2991;
+  },
   getAssignments() {
     return this.getCurrentUser()?.role === "admin" && cloudReady ? cloudState.assignments : [];
   },
@@ -248,6 +253,7 @@ export const Store = {
       const res = await apiPost({ action: "admin_add_orders", orders: normalized });
       if (!res?.ok) throw new Error(res?.error || "云端发布失败");
       cloudState.orders = res.orders;
+      cloudState.orderSequence = Number(res.orderSequence) || cloudState.orderSequence;
       cloudState.hiddenImported = res.hiddenImported || cloudState.hiddenImported;
       return cloudState.orders;
     }
