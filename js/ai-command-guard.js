@@ -34,7 +34,7 @@ export function guardSiteActions(response, command, orders) {
         clean.status = patch.status;
       }
       const rate = Number(patch.hourlyRate);
-      if (/薪资|时薪|课时费|价格|报价/.test(words) && Number.isFinite(rate) && rate >= 30 && rate <= 1000 &&
+      if (/薪资|时薪|课时费|价格|报价|元\/小时/.test(words) && Number.isFinite(rate) && rate >= 30 && rate <= 1000 &&
         new RegExp(`(?:^|[^\\d])${rate}(?:元|块|\\s*(?:每小时|一小时|\\/小时))`).test(words)) {
         clean.hourlyRate = rate;
         clean.salaryText = `${rate}元/小时（可报价）`;
