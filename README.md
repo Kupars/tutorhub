@@ -25,7 +25,7 @@
 
 - KV Namespace：变量名 `TUTOR_KV`
 - 管理员鉴权：`ADMIN_EMAIL`、非空 `ADMIN_PASSWORD`、非空 `AUTH_SECRET`（不强制字符长度，仍建议分别使用高强度密码及随机签名密钥）
-- 智谱 AI：`OPENAI_API_KEY`、`OPENAI_BASE_URL`（如 `https://open.bigmodel.cn/api/paas/v4`）、`OPENAI_MODEL`
+- AI 模型：可直接在「管理 → AI 模型管理」添加 OpenAI 兼容的 HTTPS 中转站、API Key 与多个模型 ID；`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` 仍可作为回退配置。
 - 可选：`AMAP_KEY`，提升地址解析精度。无此密钥时，骑行/公交时间是粗略估算值，**不等于地图实际路线时间**。
 
 不要把 API Key 或管理员密码写到前端代码里。旧项目的内置管理员演示凭据只用于本地测试；线上务必配置强密码，避免后台被他人访问。
@@ -44,7 +44,8 @@ npm test
 ## 2026-11 管理后台：AI 诊断、登记老师与未匹配提醒
 
 - **AI 录单**：通过实际模型接口解析微信零散信息；AI 无法调用时使用保守规则提取，始终输出九字段草稿，管理员确认后才发布。未给出的年级、分数、学生性别、地址不会凭空补充；草稿显示需核实项目。
-- **AI API 更换**：Cloudflare Pages 项目 → Settings → Variables and Secrets（具体菜单名称以 Cloudflare 当前页面为准）。设置 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_MODEL`，即可切换支持 OpenAI Chat Completions 协议的模型服务。亦支持 `GEMINI_API_KEY`。**API Key 只能作为加密环境变量保存，不能上传到 GitHub 或放进浏览器代码。** 在管理后台点「检测 AI 接口是否接通」会向当前模型发送真实请求并报告结果。
+- **后台 AI 模型管理（推荐）**：管理工作台 →「AI 模型管理」，添加不同中转站的名称、HTTPS API Base URL（例如 `https://relay.yourdomain.com/v1`）、API Key 和多行模型 ID；支持编辑、删除、一键选择模型与测试连通性。模型设置保存在服务端 Cloudflare KV，API Key 使用由 `AUTH_SECRET` 派生的 AES-GCM 密钥加密，浏览器只得到是否配置了密钥，不得到原文或密文。管理员登录和 KV 是必要前提。修改 `AUTH_SECRET` 后须重填已加密的 API Key，且弱 `AUTH_SECRET` 会显著削弱加密安全性。
+- **Cloudflare 默认模型回退**：未选择任何自定义中转站或主动切回 Cloudflare 默认配置时，沿用 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`；亦支持原有 `GEMINI_API_KEY` 配置。**密钥绝不能上传 GitHub 或写入前端代码。**
 - **AI 修改功能的边界**：只能理解并预览修改公告、主题、指定订单的时薪和状态；必须经管理员确认才执行。不能通过这个输入框直接重写网页代码、修改后台权限或删除订单。
 - **编号**：默认从 `#2991` 以后递增，综合已有订单和后端保存的最高编号，关闭或删除单子不会将已发出的编号重新回收。管理员原本明确指定的历史编号不自动篡改。
 - **老师匹配记录**：后台订单行点「登记老师」，可录入姓名、可选联系方式及备注，并选择是否一并关闭公开展示。私人匹配记录保存在独立 Cloudflare KV 键 `teacher_assignments`，只有管理员通过 `admin_data` 能查看；公开 API、地图和老师端不输出姓名或联系方式。
@@ -67,7 +68,7 @@ npm test
 - **AI 修改网站／订单**：管理员可以连续聊天规划修改首页标题、副标题、公告、网站主题、指定家教单的时薪、科目、上课时间、补课地址、要求与上下架状态等。模型仅生成受白名单约束的计划，浏览器显示每个修改项，管理员明确确认后才执行。
 - **能力限制**：普通网页代码、CSS/JS、数据库结构、新功能开发无法通过当前后台聊天框直接改 GitHub；应使用代码审查及 GitHub 更新，不能冒充“已修改代码”。
 - **密钥和隐私**：`OPENAI_API_KEY` 仅存 Cloudflare Secret。粘贴的家长微信需求会发送给所配置的第三方 API，请仅发送业务必需的公开信息，不要包含学生姓名、电话、详细门牌和其他敏感个人数据。历史 few-shot 只采用已经公开展示的授课地点摘要。
-- **连通性诊断**：「检测 AI 接口是否接通」会向当前配置的真实模型发送测试请求。需设置 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`。不要向 GitHub 提交 API Key。
+- **连通性诊断**：「AI 模型管理」可测试任意已保存的模型；「AI 修改网站与订单」页也可测试当前使用的模型。请求会真实调用第三方 API，可能产生费用。不要向 GitHub 提交 API Key。
 
 ### 验证
 
