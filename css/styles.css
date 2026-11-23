@@ -761,3 +761,34 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
   .usage-card { margin-top:7px; }
   .page-heading { padding-top:12px; }
 }
+
+/* Admin-only assignment and follow-up module */
+.assignment-admin-panel { scroll-margin-top: 118px; }
+.assignment-admin-panel h3 { font-size: 1rem; margin: 12px 0; }
+.assignment-admin-panel h4 { font-size: .9rem; margin: 12px 0 8px; }
+.assignment-stats { display:flex; flex-wrap:wrap; gap:9px; margin:14px 0; }
+.assignment-stats > span { border:1px solid var(--border); background:var(--surface,transparent); border-radius:10px; padding:9px 12px; font-size:.83rem; }
+.assignment-stats strong { color:var(--primary); font-size:1.15rem; }
+.assignment-reminders { border-top:1px dashed var(--border); margin-top:14px; padding-top:10px; }
+.assignment-reminder-row,.assignment-history-entry { display:flex; justify-content:space-between; gap:10px; align-items:center; border-bottom:1px solid var(--border); padding:10px 3px; }
+.assignment-reminder-row > div { min-width:0; }
+.assignment-reminder-row small,.assignment-history-entry small,.assignment-suggestion small { display:block; color:var(--muted); font-size:.77rem; margin-top:3px; }
+.assignment-age { font-size:.76rem; color:#b45309; font-weight:700; margin-left:8px; }
+.assignment-editor { margin-top:16px; border-top:1px solid var(--border); padding-top:12px; }
+.assignment-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.assignment-form .full { grid-column:1/-1; }
+.assignment-form label { font-size:.83rem; }
+.assignment-check { display:flex; align-items:center; gap:8px; }
+.assignment-check input { width:auto; }
+.assignment-actions { display:flex; gap:8px; }
+.assignment-history-entry span { overflow-wrap:anywhere; }
+.assignment-history-entry > div { display:flex; gap:5px; flex-shrink:0; }
+.assignment-suggestion { display:flex; flex-wrap:wrap; gap:6px 12px; padding:8px 2px; border-bottom:1px dashed var(--border); font-size:.85rem; }
+.assignment-suggestion strong { color:var(--primary); }
+.assignment-suggestion small { flex-basis:100%; }
+@media(max-width:640px) {
+ .assignment-form { grid-template-columns:1fr; }
+ .assignment-reminder-row { align-items:flex-start; }
+ .assignment-reminder-row button { flex-shrink:0; }
+ .assignment-stats > span { flex:1 1 42%; }
+}
