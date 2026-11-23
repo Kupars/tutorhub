@@ -37,7 +37,7 @@ const state = {
 let teacherPoolModulePromise=null;
 function loadTeacherPoolModule() {
   // 只在打开管理后台时下载老师档案和推荐模块，不影响普通老师的首屏加载。
-  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=4")
+  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=5")
     .catch(err=>{teacherPoolModulePromise=null;throw err;});
   return teacherPoolModulePromise;
 }
