@@ -3,15 +3,15 @@ import { SUBJECTS, GRADES } from "./data.js";
 import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=5";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=9";
 import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=7";
-import { Store } from "./store.js?v=4";
+import { Store } from "./store.js?v=5";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=4";
 import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=6";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
-import { renderAssignmentAdmin, bindAssignmentAdmin } from "./admin-assignment-view.js?v=2";
-import { splitDraftSubjects, mergeDraftSubjects, checkDraftIds, missingDraftFields } from "./draft-grouping.js?v=3";
+import { renderTeacherPool, bindTeacherPool, presentTeacherMatches } from "./admin-teacher-pool.js?v=1";
+import { splitDraftSubjects, mergeDraftSubjects, groupDraftsUnderParent, checkDraftIds, missingDraftFields } from "./draft-grouping.js?v=4";
 
 const state = {
   view: "hall",
@@ -24,6 +24,7 @@ const state = {
   aiDraftQuestions: [],
   aiDraftReply: "",
   selectedDraftSubjects: new Set(),
+  selectedDraftFamilies: new Set(),
   aiSiteHistory: [],
   aiSiteInput: "",
   aiSiteReply: "",
@@ -691,7 +692,7 @@ function renderAdminView() {
     </div>
 
 
-    ${renderAssignmentAdmin(orders, Store.getAssignments(), Store.isCloudMode())}
+    ${renderTeacherPool(orders, Store.getTeacherProfiles(), Store.getTeacherApplications(), Store.getAssignments(), Store.isCloudMode())}
 
     <div class="panel">
       <h2>📋 家教单管理（展示中 ${orders.filter(isPubliclyOpenOrder).length} 条 · 已关闭 ${orders.filter((o) => !isPubliclyOpenOrder(o)).length} 条）</h2>
@@ -728,7 +729,7 @@ function renderAdminView() {
             </div>
             <div style="display:flex;gap:6px;">
               <button class="btn btn-sm" data-edit-order="${escapeHtml(o.id)}">编辑</button>
-              <button class="btn btn-sm" data-open-assignment="${escapeHtml(o.id)}">登记老师</button>
+              <button class="btn btn-sm" data-open-app="${escapeHtml(o.id)}">登记投递</button>
               ${addressQueue.some((item) => item.id === o.id) ? `<button class="btn btn-sm" data-fix-address="${escapeHtml(o.id)}">核对地址</button>` : ""}
               ${getSubjectList(o.subject).length > 1 ? `<button class="btn btn-sm" data-split-order="${escapeHtml(o.id)}">按科目拆单</button>` : ""}
               <button class="btn btn-sm" data-toggle-status="${escapeHtml(o.id)}">${isPubliclyOpenOrder(o) ? "关闭展示" : "重新上架"}</button>
@@ -801,6 +802,7 @@ function renderAdminView() {
       else await Store.addOrders([item]);
       state.editingOrderId = null;
       renderAll();
+      if(!old) presentTeacherMatches([item],Store);
       showToast(old ? "家教单已保存修改" : `家教单 ${item.id} 已发布`);
     } catch (err) { showToast(`保存失败：${err.message}`); }
     finally { saveButton.disabled = false; saveButton.textContent = saveLabel; }
@@ -831,6 +833,7 @@ function renderAdminView() {
       state.aiDraftGroupingNotes = result.groupingNotes;
       state.aiDraftQuestions = result.questions;
       state.selectedDraftSubjects.clear();
+      state.selectedDraftFamilies.clear();
       state.aiDraftHistory = [{role:"user",content:raw},{role:"assistant",content:result.reply || "草稿已提取"}];
       renderAdminView();
       showToast("AI 已生成 "+result.orders.length+" 条草稿，请核对再发布");
@@ -858,6 +861,7 @@ function renderAdminView() {
       state.aiDraftHistory.push({role:"user",content:message},{role:"assistant",content:result.reply || "草稿已更新"});
       state.aiDraftHistory = state.aiDraftHistory.slice(-12);
       state.selectedDraftSubjects.clear();
+      state.selectedDraftFamilies.clear();
       renderAdminView();
       showToast("AI 已更新 "+result.orders.length+" 条草稿");
     } catch(error) {
@@ -888,7 +892,9 @@ function renderAdminView() {
       state.aiDraftQuestions=[];
       state.aiDraftGroupingNotes=[];
       state.selectedDraftSubjects.clear();
+      state.selectedDraftFamilies.clear();
       renderAll();
+      presentTeacherMatches(items,Store);
       showToast("已发布 "+count+" 条家教单");
     }catch(error){showToast("发布失败："+error.message);}
     finally {button.disabled=false;button.textContent="确认发布草稿";}
@@ -1079,7 +1085,7 @@ function renderAdminView() {
       } catch (err) { showToast(`删除失败：${err.message}`); }
     };
   });
-  bindAssignmentAdmin(box, Store, renderAll, showToast);
+  bindTeacherPool(box, Store, renderAll, showToast);
 }
 
 
