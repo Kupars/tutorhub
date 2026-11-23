@@ -78,8 +78,8 @@ export function extractRawOrderDrafts(source) {
     // 家长单独说“女生/男生”时可识别；若仅出现“女老师/男老师”不能推成学生性别。
     let studentGender = getGenderFromText(block);
     if (studentGender === "待补充") {
-      if (/(?:^|[，,；;\\s])女生(?:[，,。；;\\s]|$)/.test(block) && !/女老师|女教师/.test(block)) studentGender = "女生";
-      else if (/(?:^|[，,；;\\s])男生(?:[，,。；;\\s]|$)/.test(block) && !/男老师|男教师/.test(block)) studentGender = "男生";
+      if (/(?:^|[，,；;\s])女生(?:[，,。；;\s]|$)/.test(block) && !/女老师|女教师/.test(block)) studentGender = "女生";
+      else if (/(?:^|[，,；;\s])男生(?:[，,。；;\s]|$)/.test(block) && !/男老师|男教师/.test(block)) studentGender = "男生";
     }
     return normalizeOrder({
       id: orderId, grade, subject: subject.join("、") || "科目待补充",
