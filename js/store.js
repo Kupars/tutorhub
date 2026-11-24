@@ -302,6 +302,16 @@ export const Store = {
       return normalizeOrder({ ...order, address: publicAddress, publicAddress });
     });
   },
+  async publishAIDrafts(drafts) {
+    if (!cloudReady || this.getCurrentUser()?.role !== "admin") throw new Error("管理员存储不可用，未发布");
+    const res=await apiPost({action:"admin_publish_ai_drafts",orders:drafts.map(o=>normalizeOrder(o)),
+      importedOverrides:importedOrders.filter(o=>drafts.some(d=>d.existingOrderId===o.id||d.splitFromId===o.id))});
+    if(!res?.ok)throw new Error(res?.error||"发布失败");
+    cloudState.orders=res.orders;
+    cloudState.orderSequence=Number(res.orderSequence)||cloudState.orderSequence;
+    if(Array.isArray(res.hiddenImported))cloudState.hiddenImported=res.hiddenImported;
+    return res.published.map(o=>normalizeOrder(o));
+  },
   async addOrders(newOrders) {
     const normalized = newOrders.map((o) => normalizeOrder(o));
     if (cloudReady) {

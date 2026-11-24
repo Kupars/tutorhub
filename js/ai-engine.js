@@ -57,7 +57,7 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
   const rawOrders = Array.isArray(parsed?.orders) ? parsed.orders : [];
   if (!rawOrders.length || rawOrders.length > 30) throw new Error("AI 未返回有效数量的家教草稿");
   const reserved = [...existingOrders];
-  const explicitIds = [...String(rawText || "").matchAll(/#\d{3,7}(?:-\d+)?/g)].map(m=>m[0]);
+  const explicitIds = [...new Set([...String(rawText || "").matchAll(/#\d{3,7}(?:-\d+)?/g)].map(m=>m[0]))];
   const prev = Array.isArray(previousDrafts) ? previousDrafts : [];
   const root=id=>String(id||"").replace(/-\d+$/,"");
   const addr=o=>String(o.publicAddress||o.address||"").replace(/天津市|\s/g,"");
@@ -72,19 +72,42 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
   const allocated=new Set();
   return rawOrders.map((raw,index)=>{
     const candidate = normalizeOrder(raw || {});
-    const prevId = String(prev[index]?.id || "");
-    const stated = String(raw.id || "");
+    const stated = String(raw.orderNumber || raw.id || "");
+    const old=prev.find(o=>o.id===stated||o.orderNumber===stated) ||
+      prev.find(o=>o.grade===candidate.grade && o.subject===candidate.subject && addr(o)===addr(candidate)) ||
+      (prev.length===rawOrders.length?prev[index]:null);
+    const prevId = String(old?.orderNumber || old?.id || "");
     const canonical = /^#\d{3,7}(?:-\d+)?$/.test(stated) &&
       (explicitIds.includes(stated) || prev.some(o=>o.id === stated));
     let id = canonical ? stated : /^#\d{3,7}(?:-\d+)?$/.test(prevId) ? prevId : "";
     if (explicitSplit) id = `${mainId}-${index+1}`;
-    if (!id && explicitIds[index] && !reserved.some(o=>o.id===explicitIds[index])) id = explicitIds[index];
+    if (!id && explicitIds[index]) id = explicitIds[index];
     if (!id || allocated.has(id)) id = nextOrderId(reserved);
     if (reserved.some(o=>o.id===id || o.orderNumber===id)) {
       // 已有真实编号可能是管理员指定的旧单：允许原始来源明确指定的旧单，
       // 但新草稿发生碰撞时保留草稿供管理员检查，不静默覆盖。
       if (!explicitSplit && !explicitIds.includes(id) && !prev.some(o=>o.id===id)) id = nextOrderId(reserved);
     }
+    // Model output cannot authorize an overwrite. Only current records and explicit admin input can.
+    delete candidate.existingOrderId;delete candidate.explicitNumberReuse;delete candidate.splitFromId;
+    const known=existingOrders.filter(o=>o.id && String(o.orderNumber||o.id)===id);
+    const exactKeys=["grade","subject","studentGender","currentScores","publicAddress","weeklyFrequency","hoursPerSession","teacherCount","requirements","salaryText"];
+    const complete=!/待补充|待协商/.test([candidate.grade,candidate.subject,candidate.studentGender,candidate.currentScores,candidate.publicAddress,candidate.weeklyFrequency].join(" "));
+    const exact=!explicitSplit && !explicitIds.length && !old && complete ? existingOrders.filter(o=>o.id&&exactKeys.every(k=>String(normalizeOrder(o)[k])===String(candidate[k]))) : [];
+    if(exact.length===1&&!allocated.has(String(exact[0].orderNumber||exact[0].id))){
+      id=String(exact[0].orderNumber||exact[0].id);
+      candidate.existingOrderId=exact[0].id;
+    } else if(old?.existingOrderId && id===prevId){
+      candidate.existingOrderId=old.existingOrderId;
+    } else if(known.length && explicitIds.includes(id) && /新增|新单|新学生|另一个学生/.test(rawText)){
+      candidate.explicitNumberReuse=true;
+    } else if(known.length && explicitIds.includes(id) && /修改|补充|更新|重新发布|重新上架|改为|改成/.test(rawText) && known.length===1){
+      candidate.existingOrderId=known[0].id;
+    }
+    if(explicitSplit && prev.length===1 && prev[0].existingOrderId && !/-\d+$/.test(prevId))
+      candidate.splitFromId=prev[0].existingOrderId;
+    else if(old?.splitFromId)candidate.splitFromId=old.splitFromId;
+    if(old?.explicitNumberReuse&&id===prevId)candidate.explicitNumberReuse=true;
     candidate.id = id;
     candidate.orderNumber = id;
     candidate.title = `${candidate.grade}${candidate.subject}家教`;

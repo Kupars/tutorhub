@@ -1056,8 +1056,17 @@ function renderAdminView() {
     $("btnPublishDrafts").disabled=true;
     try{
       const existing=[...Store.getOrders(),{orderNumber:"#"+Store.getOrderSequence()}];
-      const result=state.parsedDraftOrders.length ?
-        await reviseDraftsWithAI(raw,state.parsedDraftOrders,state.aiDraftHistory,existing):
+      let previous=state.parsedDraftOrders;
+      if(!previous.length && /修改|补充|更新|重新发布|重新上架|改为|改成|拆单|拆分|分成.{0,12}单/.test(raw)){
+        const labels=[...new Set([...raw.matchAll(/#\d{3,7}(?:-\d+)?/g)].map(m=>m[0]))];
+        if(labels.length===1){
+          const found=Store.getOrders().filter(o=>String(o.orderNumber||o.id)===labels[0]);
+          if(found.length>1)throw new Error("此编号对应多条历史订单，请在订单管理中选择原单，避免修改错人");
+          if(found.length===1)previous=[{...found[0],id:labels[0],existingOrderId:found[0].id}];
+        }
+      }
+      const result=previous.length ?
+        await reviseDraftsWithAI(raw,previous,state.aiDraftHistory,existing):
         await parseMessyOrders(raw,existing,state.aiDraftHistory);
       state.parsedDraftOrders=result.orders;
       state.aiDraftReply=result.reply;state.aiDraftGroupingNotes=result.groupingNotes;state.aiDraftQuestions=result.questions;
@@ -1074,11 +1083,13 @@ function renderAdminView() {
     if(!state.parsedDraftOrders.length||state.aiDraftBusy) return;
     syncDraftTextareas();
     const items = state.parsedDraftOrders.map(order => normalizeOrder(order));
-    const idIssues = checkDraftIds(items,Store.getOrders());
+    const ordinary=items.filter(o=>!o.existingOrderId&&!o.explicitNumberReuse);
+    const idIssues = checkDraftIds(ordinary,Store.getOrders());
     if(idIssues.length) return showToast("单号重复或不合法："+idIssues.slice(0,3).join("、")+"；请核对草稿编号");
     if(items.some(o=>o.grade==="年级待补充"||o.subject==="科目待补充"))
       return showToast("请先补全所有草稿的年级和科目，再发布");
-    if(!confirmDuplicateRisks(items))return;
+    if(!confirmDuplicateRisks(ordinary))return;
+    if(items.some(o=>o.existingOrderId||o.explicitNumberReuse||o.splitFromId) && !confirm("此批含原单更新、历史拆单或明确指定的重号新单。请核对编号及学生身份；发布将保留原记录关联，历史拆单会下架原主单，重号新单不会覆盖旧单。继续吗？"))return;
     if(!Store.isCloudMode())return showToast("服务器存储不可用，未发布");
     state.aiDraftBusy=true;
     const button = $("btnPublishDrafts");
@@ -1086,9 +1097,9 @@ function renderAdminView() {
     button.textContent="正在写入云端…";
     try {
       // API 模型已经处理过结构化地址；不再额外发起一次容易失败的 AI 解析调用。
-      await Store.addOrders(items);
+      const published=await Store.publishAIDrafts(items);
       const count=items.length;
-      state.lastPublishedDrafts=items;
+      state.lastPublishedDrafts=published;
       state.aiRawText="";
       state.parsedDraftOrders=[];
       state.aiDraftHistory=[];
@@ -1357,10 +1368,11 @@ function syncDraftTextareas() {
   wrap.querySelectorAll("[data-draft-text]").forEach(el=>{
     const i=Number(el.dataset.draftText),parsed=parseFormattedOrder(el.value);
     const old=state.parsedDraftOrders[i];
-    if(parsed&&old) state.parsedDraftOrders[i]={
-      ...old,...parsed,orderNumber:parsed.id||old.orderNumber,
-      mode:old.mode,publicAddress:parsed.address
-    };
+    if(parsed&&old){
+      const next={...old,...parsed,orderNumber:parsed.id||old.orderNumber,mode:old.mode,publicAddress:parsed.address};
+      if(next.orderNumber!==old.orderNumber){delete next.existingOrderId;delete next.explicitNumberReuse;delete next.splitFromId;}
+      state.parsedDraftOrders[i]=next;
+    }
   });
 }
 function renderParsedPreview() {
@@ -1383,7 +1395,7 @@ function renderParsedPreview() {
     </div></details>
     ${drafts.map((o,index)=>`
       <div class="order-draft">
-        <div class="ai-draft-head"><label class="ai-family-label"><input type="checkbox" data-group-family="${index}" ${state.selectedDraftFamilies.has(index)?"checked":""} />编为一组</label><strong>草稿 ${index+1} · ${escapeHtml(o.orderNumber||o.id)} · ${escapeHtml(o.grade)}</strong>
+        <div class="ai-draft-head"><label class="ai-family-label"><input type="checkbox" data-group-family="${index}" ${state.selectedDraftFamilies.has(index)?"checked":""} />编为一组</label><strong>${o.existingOrderId?"更新原单":o.explicitNumberReuse?"指定重号新单":o.splitFromId?"历史拆单":"草稿 "+(index+1)} · ${escapeHtml(o.orderNumber||o.id)} · ${escapeHtml(o.grade)}</strong>
           <div class="ai-draft-actions">
             <button class="btn btn-sm" type="button" data-split-draft="${index}">全部按单科拆分</button>
             <button class="btn btn-sm" type="button" data-copy-draft="${index}">复制</button>
@@ -1399,7 +1411,7 @@ function renderParsedPreview() {
         </details>
         ${o.groupingReason ? `<p class="admin-helper">AI 判断：${escapeHtml(o.groupingDecision||"待确认")} · ${escapeHtml(o.groupingReason)}</p>`:""}
         ${missingDraftFields(o).length ? `<p class="admin-helper ai-draft-warning">待核实：${escapeHtml(missingDraftFields(o).join("、"))}</p>`:""}
-        ${findPotentialDuplicates([o],Store.getOrders()).length ?
+        ${!o.existingOrderId && findPotentialDuplicates([o],Store.getOrders()).length ?
           `<p class="admin-helper ai-draft-warning">疑似重复单：${escapeHtml(findPotentialDuplicates([o],Store.getOrders()).slice(0,3).map(x=>x.existing.orderNumber||x.existing.id).join("、"))}</p>`:""}
         <textarea data-draft-text="${index}" aria-label="草稿 ${index+1} 的标准九字段">${escapeHtml(formatOrderText(o))}</textarea>
         <p class="admin-helper">可手动编辑九字段。只有确认发布才会保存到云端。</p>
