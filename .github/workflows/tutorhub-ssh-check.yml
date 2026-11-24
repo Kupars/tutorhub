@@ -1,0 +1,25 @@
+name: TutorHub SSH connectivity check
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check restricted deployment SSH key
+        shell: bash
+        env:
+          DEPLOY_KEY: ${{ secrets.TUTORHUB_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.TUTORHUB_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/tutorhub_actions"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/tutorhub_known_hosts"
+          trap 'rm -f "$HOME/.ssh/tutorhub_actions" "$HOME/.ssh/tutorhub_known_hosts"' EXIT
+          result=$(ssh -T -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/tutorhub_known_hosts" -o ConnectTimeout=15 -i "$HOME/.ssh/tutorhub_actions" -p 36464 tutorhub-deploy@103.236.84.10)
+          test "$result" = "tutorhub-ssh-ok"
+          echo "SSH connection verified"
