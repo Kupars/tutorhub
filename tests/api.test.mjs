@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import test from "node:test";
 import { onRequest as storeHandler } from "../functions/api/store.js";
 import { onRequestPost as aiHandler } from "../functions/api/ai.js";
@@ -10,13 +10,13 @@ function makeEnv() {
     get: async (key) => data.get(key) ?? null,
     put: async (key, value) => { data.set(key, value); }
   };
-  return { TUTOR_KV: kv, AUTH_SECRET: "test-only-signing-secret" };
+  return { TUTOR_KV: kv, ADMIN_PASSWORD: "test-only-password", AUTH_SECRET: "test-only-signing-secret" };
 }
 
 function token(role = "admin") {
-  const claims = { id: role, role, email: "test@example.com", exp: Date.now() + 300000 };
+  const claims = { id: role, role, jti: randomUUID(), email: "test@example.com", exp: Date.now() + 300000 };
   const content = btoa(unescape(encodeURIComponent(JSON.stringify(claims))));
-  const signature = createHash("sha256").update(`${content}.test-only-signing-secret`).digest("hex");
+  const signature = createHmac("sha256", "test-only-signing-secret").update(content).digest("hex");
   return `${content}.${signature}`;
 }
 
@@ -54,7 +54,7 @@ test("非管理员不能创建订单", async () => {
   const response = await storeHandler({
     request: request({ action: "admin_add_orders", orders: [{ id: "#2992" }] }, token("teacher")), env
   });
-  assert.equal(response.status, 403);
+  assert.equal(response.status, 401);
 });
 
 test("老师注册、简历和投递接口已停用，管理员发布仍可用", async () => {
@@ -64,7 +64,7 @@ test("老师注册、简历和投递接口已停用，管理员发布仍可用",
     assert.equal(response.status, 410, `${action} 应不再开放`);
   }
   const deniedTeacher = await storeHandler({ request: request({ action: "admin_data" }, token("teacher")), env });
-  assert.equal(deniedTeacher.status, 403);
+  assert.equal(deniedTeacher.status, 401);
   const admin = await storeHandler({ request: request({ action: "admin_data" }), env });
   assert.equal((await admin.json()).ok, true);
 });
