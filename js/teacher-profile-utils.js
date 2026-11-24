@@ -1,5 +1,7 @@
 // 老师档案推荐：仅利用管理员录入的偏好与历史投递/接单，不获取老师实时位置。
-export const TEACHER_AVAILABILITIES = ["可接单","已接满","暂不接单","待确认"];
+import { verifiedPublicLandmarkCoords, inferNamedLandmarkCoords } from "./commute.js";
+import { isPubliclyOpenOrder } from "./board-utils.js";
+export const TEACHER_AVAILABILITIES = ["可接单","已接满","待确认"];
 export const TEACHER_GENDERS = ["男","女","未知"];
 const trim=v=>String(v??"").trim();
 const location=v=>trim(v).replace(/天津市|天津|[\s，,。·()（）]/g,"").toLowerCase();
@@ -21,6 +23,27 @@ export function wantedTeacherGender(order) {
   return {gender,strict};
 }
 
+const gradeTokens=v=>[...new Set(String(v||"").match(/小学|初中|高中|[一二三四五六]年级|初[一二三]|高[一二三]/g)||[])];
+const gradeMatches=(level,grade)=>level===grade || (level==="高中"&&/^高[一二三]/.test(grade)) ||
+  (level==="初中"&&/^初[一二三]/.test(grade)) || (level==="小学"&&/^[一二三四五六]年级/.test(grade));
+function days(v){
+  const text=trim(v);if(!text||/不|除|以外|未定|待确认/.test(text))return [];
+  const d=new Set();
+  if(/周末/.test(text)){d.add("六");d.add("日");}
+  if(/周中|工作日/.test(text))for(const x of "一二三四五")d.add(x);
+  for(const m of text.matchAll(/(?:周|星期)([一二三四五六日天])/g))d.add(m[1]==="天"?"日":m[1]);
+  return [...d];
+}
+function point(address,district=""){
+  if(!address)return null;
+  return verifiedPublicLandmarkCoords(address)||inferNamedLandmarkCoords(address,district);
+}
+function km(a,b){
+  if(!a||!b)return null;
+  const rad=x=>x*Math.PI/180;
+  const h=Math.sin(rad(b.lat-a.lat)/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(rad(b.lng-a.lng)/2)**2;
+  return 12742*Math.asin(Math.sqrt(Math.min(1,h)));
+}
 export function recommendTeacherProfiles(target,profiles=[],candidacies=[],orders=[],legacyAssignments=[],limit=5) {
   const byOrder=new Map(orders.map(o=>[trim(o.id),o]));
   const preference=wantedTeacherGender(target);
@@ -31,14 +54,26 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
   for(const teacher of profiles) {
     if(teacher.availability!=="可接单")continue;
     if(preference.strict && teacher.gender!==preference.gender)continue;
+    const levels=gradeTokens(teacher.gradeLevels),targetGrade=trim(target.grade);
+    if(levels.length && targetGrade && !levels.some(x=>gradeMatches(x,targetGrade)))continue;
+    const teacherDays=days(teacher.availableTimes||teacher.preferences),targetDays=days(target.weeklyFrequency);
+    if(teacherDays.length&&targetDays.length&&!targetDays.some(d=>teacherDays.includes(d)))continue;
     const taught=subjectTokens(teacher.canTeach);
     const districts=districtTokens(teacher.preferredDistricts);
+    const interest=trim(teacher.interestLocations).split(/[、，,；;\n]/).map(x=>x.trim()).filter(x=>x&&!/\d{5,}|门牌|室|单元|楼栋|号楼/.test(x));
     const history=candidacies.filter(x=>x.teacherId===teacher.id);
     const previousOrders=history.map(c=>byOrder.get(trim(c.orderId))).filter(Boolean);
+    const recentRefs=new Set(String(teacher.recentOrderRefs||"").match(/#\d{3,7}(?:-\d+)?/g)||[]);
+    const recentOrders=orders.filter(o=>recentRefs.has(trim(o.orderNumber||o.id)));
+    // A repeated historical display label is ambiguous; don't pick an arbitrary address.
+    for(const o of recentOrders)if(recentOrders.filter(x=>trim(x.orderNumber||x.id)===trim(o.orderNumber||o.id)).length===1)previousOrders.push(o);
     const legacy=legacyAssignments.filter(a=>trim(a.teacherName)===trim(teacher.name) && trim(a.teacherContact)===trim(teacher.contact));
-    const evidence=previousOrders.concat(legacy);
+    const evidence=previousOrders.concat(legacy,interest.map(publicAddress=>({publicAddress,district:publicAddress.match(/和平区|河西区|南开区|河东区|河北区|红桥区|津南区|西青区|东丽区|北辰区|武清区|滨海新区|宝坻区|静海区|宁河区|蓟州区/)?.[0]||""})));
     let score=0;
-    const reasons=[];
+    const reasons=[],checks=[];
+    if(levels.length&&targetGrade){score+=3;reasons.push("明确可教该年级");}else checks.push("核对可教年级");
+    if(teacherDays.length&&targetDays.length){score+=3;reasons.push("上课日期有交集");}else checks.push("核对上课日期");
+    checks.push("确认具体时段、课时与通勤");
     const overlaps=targetSubjects.filter(s=>taught.includes(s)||taught.includes("全科"));
     const needsAll=(Number(target.teacherCount)||1)<=1;
     if (!taught.length || (targetSubjects.length &&
@@ -50,7 +85,7 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
       score+=needsAll?10:7;
       reasons.push(needsAll?"明确可教全部要求科目":"可教部分科目："+overlaps.join("、"));
     }
-    if(districts.includes(targetDistrict) && targetDistrict) {
+    if(targetDistrict && (districts.includes(targetDistrict)||trim(teacher.preferences).includes(targetDistrict))) {
       score+=6;reasons.push("明确愿意在该区授课");
     }
     const samePlace=evidence.some(o=>location(o.publicAddress||o.address)===targetAddress && targetAddress.length>=5);
@@ -65,17 +100,36 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
     } else if(preference.gender!=="未知" && teacher.gender==="未知") {
       reasons.push("老师性别待确认");
     }
+    const targetPoint=point(target.publicAddress||target.address,targetDistrict);
+    const departure=point(teacher.departureLandmark);
+    let distanceKm=km(departure,targetPoint),distanceBasis=distanceKm===null?"":"老师明确出发地与订单地标的直线距离";
+    if(distanceKm===null){
+      const distances=evidence.map(o=>km(point(o.publicAddress||o.address,o.district),targetPoint)).filter(d=>d!==null);
+      if(distances.length){distanceKm=Math.min(...distances);distanceBasis="历史订单地址与本单地址的直线距离（非老师通勤）";}
+    }
+    if(distanceKm!==null){score+=Math.max(0,8-distanceKm/2);reasons.unshift(distanceBasis+"约"+distanceKm.toFixed(1)+"公里");}
     if(!score)continue;
     result.push({
       teacherId:teacher.id,name:trim(teacher.name),school:trim(teacher.school),
       gender:trim(teacher.gender),availability:teacher.availability,
       contact:trim(teacher.contact),agentName:trim(teacher.agentName),
-      reasons,score,historyCount:history.length,
+      reasons,checks,distanceKm,distanceBasis,score,historyCount:history.length,
       warning:"历史投递地点只是兴趣线索，不代表老师住址、实时位置或当前档期"
     });
   }
   return result.sort((a,b)=>b.score-a.score||b.historyCount-a.historyCount||a.name.localeCompare(b.name))
     .slice(0,Math.max(1,Math.min(20,limit)));
+}
+
+// 即时匹配不写入老师档案；当前简历由管理员发起，不将未知空闲状态保存到储备库。
+export function recommendOrdersForTeacher(teacher,orders=[],candidacies=[],legacy=[],limit=8){
+  if(!trim(teacher?.canTeach))return [];
+  if(["已接满","暂不接单","排满"].includes(teacher.availability))return [];
+  const profile={...teacher,id:teacher.id||"temporary-teacher",availability:"可接单"};
+  return orders.filter(isPubliclyOpenOrder).map(order=>{
+    const match=recommendTeacherProfiles(order,[profile],candidacies,orders,legacy,1)[0];
+    return match?{order,...match}:null;
+  }).filter(Boolean).sort((a,b)=>b.score-a.score).slice(0,limit);
 }
 
 export function linkedOrderFamilyKey(order) {

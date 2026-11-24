@@ -212,7 +212,7 @@ export const Store = {
     cloudState.teacherApplications=response.teacherApplications;
   },
   getOrderSequence() {
-    return cloudReady ? (cloudState.orderSequence || 2991) : 2991;
+    return Math.max(3062, cloudReady ? Number(cloudState.orderSequence)||0 : 0);
   },
   getAssignments() {
     return this.getCurrentUser()?.role === "admin" && cloudReady ? cloudState.assignments : [];
@@ -301,6 +301,16 @@ export const Store = {
       const publicAddress = raw.publicAddress || (raw.addressVisibility === "private" ? (raw.district || "地址请咨询") : raw.address);
       return normalizeOrder({ ...order, address: publicAddress, publicAddress });
     });
+  },
+  async publishAIDrafts(drafts) {
+    if (!cloudReady || this.getCurrentUser()?.role !== "admin") throw new Error("管理员存储不可用，未发布");
+    const res=await apiPost({action:"admin_publish_ai_drafts",orders:drafts.map(o=>normalizeOrder(o)),
+      importedOverrides:importedOrders.filter(o=>drafts.some(d=>d.existingOrderId===o.id||d.splitFromId===o.id))});
+    if(!res?.ok)throw new Error(res?.error||"发布失败");
+    cloudState.orders=res.orders;
+    cloudState.orderSequence=Number(res.orderSequence)||cloudState.orderSequence;
+    if(Array.isArray(res.hiddenImported))cloudState.hiddenImported=res.hiddenImported;
+    return res.published.map(o=>normalizeOrder(o));
   },
   async addOrders(newOrders) {
     const normalized = newOrders.map((o) => normalizeOrder(o));

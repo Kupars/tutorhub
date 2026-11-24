@@ -206,7 +206,7 @@ export async function onRequest(context) {
       const id=String(raw.id||"").trim();
       const original=id?records.find(o=>o.id===id):null;
       if(id && !original) return jsonResp({ok:false,error:"老师档案不存在，请刷新后重试"},404);
-      for(const key of ["school","contact","agentName","canTeach","preferredDistricts","note"]) {
+      for(const key of ["school","contact","agentName","canTeach","preferredDistricts","gradeLevels","availableTimes","preferences","departureLandmark","recentOrderRefs","interestLocations","note"]) {
         if(raw[key]!=null && (typeof raw[key]!=="string" || raw[key].length>(key==="note"?800:300)))
           return jsonResp({ok:false,error:"老师档案字段长度超限："+key},400);
       }
@@ -217,7 +217,14 @@ export async function onRequest(context) {
         gender:raw.gender||"未知",teacherType:raw.teacherType||"未知",
         canTeach:String(raw.canTeach||"").trim().slice(0,200),
         preferredDistricts:String(raw.preferredDistricts||"").trim().slice(0,200),
-        availability:raw.availability||"待确认",
+        gradeLevels:String(raw.gradeLevels??original?.gradeLevels??"").trim().slice(0,120),
+        availableTimes:String(raw.availableTimes??original?.availableTimes??"").trim().slice(0,200),
+        preferences:String(raw.preferences??original?.preferences??"").trim().slice(0,300),
+        departureLandmark:String(raw.departureLandmark??original?.departureLandmark??"").trim().slice(0,120),
+        recentOrderRefs:String(raw.recentOrderRefs??original?.recentOrderRefs??"").trim().slice(0,300),
+        interestLocations:String(raw.interestLocations??original?.interestLocations??"").trim().slice(0,200),
+        availability:raw.availability||original?.availability||"待确认",
+        availabilityConfirmedAt:raw.availability && raw.availability!==original?.availability?now:original?.availabilityConfirmedAt||"",
         contact:String(raw.contact||"").trim().slice(0,150),
         agentName:String(raw.agentName||"").trim().slice(0,100),
         note:String(raw.note||"").trim().slice(0,800),
@@ -233,7 +240,7 @@ export async function onRequest(context) {
       if(!statuses.includes(body.availability))return jsonResp({ok:false,error:"老师状态无效"},400);
       const profiles=await kvGet(env.TUTOR_KV,"teacher_profiles",[]);
       if(!profiles.some(p=>p.id===body.teacherId))return jsonResp({ok:false,error:"找不到老师档案"},404);
-      const next=profiles.map(p=>p.id===body.teacherId?{...p,availability:body.availability,updatedAt:new Date().toISOString()}:p);
+      const next=profiles.map(p=>p.id===body.teacherId?{...p,availability:body.availability,availabilityConfirmedAt:new Date().toISOString(),updatedAt:new Date().toISOString()}:p);
       await kvPut(env.TUTOR_KV,"teacher_profiles",next);
       return jsonResp({ok:true,teacherProfiles:next});
     }
@@ -329,6 +336,62 @@ export async function onRequest(context) {
       if (next.length === assignments.length) return jsonResp({ ok: false, error: "该匹配记录不存在" }, 404);
       await kvPut(env.TUTOR_KV, "teacher_assignments", next);
       return jsonResp({ ok: true, assignments: next });
+    }
+
+    if (action === "admin_publish_ai_drafts") {
+      if(!Array.isArray(body.orders)||!body.orders.length||body.orders.length>30)
+        return jsonResp({ok:false,error:"请提供1～30条草稿"},400);
+      const existing=await kvGet(env.TUTOR_KV,"orders",[]);
+      const hidden=await kvGet(env.TUTOR_KV,"hidden_imported_orders",[]);
+      // Same static imported-order override convention as the existing admin update endpoint.
+      const imported=new Map((Array.isArray(body.importedOverrides)?body.importedOverrides:[])
+        .filter(o=>o&&/^fs-\d{4,}$/.test(o.id)).map(o=>[o.id,o]));
+      const byId=new Map(existing.map(o=>[o.id,o]));
+      const find=id=>byId.get(id)||imported.get(id);
+      const labelOf=o=>String(o?.orderNumber||o?.id||"");
+      const labels=new Set(),updatedIds=new Set(),parents=new Map(),published=[];
+      const fields=["title","grade","subject","studentGender","teacherCount","currentScores","address","publicAddress","district",
+        "weeklyFrequency","sessionsPerWeek","hoursPerSession","requirements","salaryText","hourlyRate","mode","onlineAllowed","trialTime","notes","genderPref","urgent","tags"];
+      const now=new Date().toISOString();
+      for(const draft of body.orders){
+        const label=labelOf(draft);
+        if(!/^#\d{3,7}(?:-\d+)?$/.test(label)||!draft.grade||!draft.subject||labels.has(label))
+          return jsonResp({ok:false,error:"草稿编号重复或格式不正确"},409);
+        labels.add(label);
+        const linked=String(draft.existingOrderId||""),current=linked?find(linked):null;
+        if(linked&&(!current||labelOf(current)!==label||updatedIds.has(linked)))
+          return jsonResp({ok:false,error:"原单不存在或编号不一致："+label},409);
+        if(!linked && existing.some(o=>labelOf(o)===label||o.id===label) && draft.explicitNumberReuse!==true)
+          return jsonResp({ok:false,error:"编号已使用，请确认是修改原单还是指定重号的新单："+label},409);
+        const parentId=String(draft.splitFromId||"");
+        if(parentId){
+          const original=find(parentId),root=label.replace(/-\d+$/,"");
+          if(!original||labelOf(original)!==root||label===root||linked)
+            return jsonResp({ok:false,error:"历史拆单的主编号不匹配："+label},409);
+          parents.set(parentId,original);
+        }
+        const id=linked || (draft.explicitNumberReuse===true?"order-"+crypto.randomUUID():label);
+        if(updatedIds.has(id)||(!linked&&byId.has(id)))return jsonResp({ok:false,error:"内部订单编号冲突"},409);
+        updatedIds.add(id);
+        const patch=Object.fromEntries(fields.filter(k=>Object.hasOwn(draft,k)).map(k=>[k,draft[k]]));
+        published.push({...current,...patch,id,orderNumber:label,status:"招募中",createdAt:current?.createdAt||now,
+          ...(current?{updatedAt:now}:{})});
+      }
+      for(const [id,original] of parents){
+        if(updatedIds.has(id)||published.filter(o=>labelOf(o).replace(/-\d+$/,"")===labelOf(original)).length<2)
+          return jsonResp({ok:false,error:"历史拆单至少需两条子单，且不可同时发布主单"},409);
+        updatedIds.add(id);
+      }
+      const closed=[...parents].map(([id,o])=>({...o,id,status:"已关闭",updatedAt:now}));
+      const merged=[...published,...closed,...existing.filter(o=>!updatedIds.has(o.id))];
+      const previous=Number(await kvGet(env.TUTOR_KV,"order_sequence",2991))||2991;
+      const orderSequence=Math.max(3062,previous,...merged.map(o=>Number(labelOf(o).match(/^#?(\d{3,7})/)?.[1])||0));
+      const visible=new Set(published.map(o=>o.id));
+      const hiddenImported=hidden.filter(id=>!visible.has(id));
+      await kvPut(env.TUTOR_KV,"orders",merged);
+      await kvPut(env.TUTOR_KV,"order_sequence",orderSequence);
+      await kvPut(env.TUTOR_KV,"hidden_imported_orders",hiddenImported);
+      return jsonResp({ok:true,orders:merged,published,orderSequence,hiddenImported});
     }
 
     if (action === "admin_add_orders") {
