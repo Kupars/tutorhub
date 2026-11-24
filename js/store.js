@@ -212,7 +212,7 @@ export const Store = {
     cloudState.teacherApplications=response.teacherApplications;
   },
   getOrderSequence() {
-    return cloudReady ? (cloudState.orderSequence || 2991) : 2991;
+    return Math.max(3062, cloudReady ? Number(cloudState.orderSequence)||0 : 0);
   },
   getAssignments() {
     return this.getCurrentUser()?.role === "admin" && cloudReady ? cloudState.assignments : [];

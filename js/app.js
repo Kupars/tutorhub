@@ -2,8 +2,8 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=5";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=10";
-import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=9";
-import { Store } from "./store.js?v=7";
+import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=10";
+import { Store } from "./store.js?v=8";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=4";
@@ -21,6 +21,8 @@ const state = {
   multiFilters: {},
   parsedDraftOrders: [],
   aiRawText: "",
+  aiDraftBusy: false,
+  lastPublishedDrafts: [],
   aiDraftHistory: [],
   aiDraftGroupingNotes: [],
   aiDraftQuestions: [],
@@ -717,7 +719,7 @@ const ADMIN_PAGES = {
   home: { name: "工作台首页", icon: "🏠" },
   orders: { name: "家教单管理", icon: "📋" },
   manual: { name: "手动录单", icon: "✍️" },
-  aiOrders: { name: "AI 智能录单", icon: "✨" },
+  aiOrders: { name: "AI 编单", icon: "✨" },
   teachers: { name: "老师档案与匹配", icon: "👩‍🏫" },
   aiSite: { name: "AI 修改网站与订单", icon: "🤖" },
   aiModels: { name: "AI 模型管理", icon: "🧠" },
@@ -859,25 +861,24 @@ function renderAdminView() {
 
 
     <div class="panel admin-module-page" data-admin-page="aiOrders" ${openedPage==="aiOrders"?"":"hidden"}>
-      <h2>✨ AI 零散信息一键整理成家教单</h2>
-      <p style="font-size:13px;color:var(--muted);margin-bottom:8px;">直接粘贴微信聊天、飞书表格复制内容或旧单（多条以空行分隔），AI 自动整理成九字段，先预览编辑，再确认发布：</p>
-      <textarea id="rawOrderInput" rows="4" placeholder="示例：急招！南开区天大附近高二女生找数学老师，每周六上午2小时，160元一小时，要求985理工科有耐心，最好女老师"></textarea>
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-        <button class="btn btn-primary" id="btnParseOrders">🪄 AI 自动整理成单</button>
-        <button class="btn" id="btnPublishDrafts" style="display:${state.parsedDraftOrders.length ? "inline-flex" : "none"};">✅ 确认发布全部（${state.parsedDraftOrders.length} 条）</button>
-        <button class="btn btn-sm" id="btnCopyDrafts" style="display:${state.parsedDraftOrders.length ? "inline-flex" : "none"};">复制全部标准文案</button>
-      </div>
-      <div class="field" style="margin-top:12px;">
-        <label for="csvImportInput">📄 导入结构化家教单（CSV / TSV 生成草稿；标准 JSON 可去重批量入库）</label>
-        <input type="file" id="csvImportInput" accept=".csv,.tsv,.txt,.json,text/csv,text/plain,application/json" />
-      </div>
-      <div class="ai-chat-panel" id="aiDraftHistory" aria-live="polite"></div>
-      <div class="ai-chat-compose" id="aiDraftCompose" ${state.parsedDraftOrders.length ? "" : "hidden"}>
-        <label for="aiDraftFollowUp">继续对话修改草稿（不会直接发布）</label>
-        <textarea id="aiDraftFollowUp" rows="2" placeholder="例如：第二条改周日；数学和化学一位老师一起带，物理单独招"></textarea>
-        <button class="btn btn-primary" id="btnReviseDrafts" type="button">发送给 AI 修改草稿</button>
-      </div>
+
+      <div class="ai-workspace-title"><div><h2>AI 编单</h2><p class="admin-helper">发送需求，继续对话修改；满意后复制到微信或一键发布。</p></div><button class="btn btn-sm" id="btnNewAIOrder" type="button">＋ 新单</button></div>
+      <div class="ai-chat-panel ai-order-history" id="aiDraftHistory" aria-live="polite"></div>
       <div id="parsedPreview" style="margin-top:12px;"></div>
+      <div class="ai-workspace-actions">
+        <button class="btn btn-primary" id="btnPublishDrafts" style="display:${state.parsedDraftOrders.length ? "inline-flex" : "none"};">一键发布（${state.parsedDraftOrders.length} 条）</button>
+        <button class="btn" id="btnCopyDrafts" style="display:${state.parsedDraftOrders.length ? "inline-flex" : "none"};">复制全部到微信</button>
+        ${state.lastPublishedDrafts.length?'<button class="btn btn-sm" id="btnCopyPublishedDrafts" type="button">复制上次已发布单</button><button class="btn btn-sm" id="btnMatchPublishedDrafts" type="button">推荐储备老师</button>':""}
+      </div>
+      <div class="ai-chat-compose ai-workspace-compose">
+        <label for="rawOrderInput">${state.parsedDraftOrders.length?"继续说要怎么修改":"输入新家教需求"}</label>
+        <textarea id="rawOrderInput" rows="4" placeholder="${state.parsedDraftOrders.length?"例如：数学改周日下午，物理时薪120":"直接粘贴家长需求，例如高一男生，数学74物理48，河西区津沽东里，周末2小时，分成两单"}"></textarea>
+        <button class="btn btn-primary" id="btnParseOrders" type="button" ${state.aiDraftBusy?"disabled":""}>${state.aiDraftBusy?"AI 正在整理…":"发送"}</button>
+      </div>
+      <details class="ai-workspace-advanced"><summary>其他导入方式</summary><div class="field">
+        <label for="csvImportInput">导入结构化家教单（CSV / TSV / JSON）</label>
+        <input type="file" id="csvImportInput" accept=".csv,.tsv,.txt,.json,text/csv,text/plain,application/json" />
+      </div></details>
     </div>
 
     <section class="admin-module-page" data-admin-page="aiModels" ${openedPage==="aiModels"?"":"hidden"}><div id="aiModelManagerSlot" class="panel"><p class="admin-helper">正在加载模型管理…</p></div></section>
@@ -1037,60 +1038,40 @@ function renderAdminView() {
   renderParsedPreview();
 
 
-  $("btnParseOrders").onclick = async () => {
-    const raw = $("rawOrderInput").value.trim();
-    if (!raw) return showToast("请先粘贴家长提供的零散信息");
-    state.aiRawText = raw;
-    const button = $("btnParseOrders");
-    button.disabled = true;
-    button.textContent = "正在调用模型整理多条单子…";
-    try {
-      const result = await parseMessyOrders(raw,
-        [...Store.getOrders(), {orderNumber:"#"+Store.getOrderSequence()}], []);
-      state.parsedDraftOrders = result.orders;
-      state.aiDraftReply = result.reply;
-      state.aiDraftGroupingNotes = result.groupingNotes;
-      state.aiDraftQuestions = result.questions;
-      state.selectedDraftSubjects.clear();
-      state.selectedDraftFamilies.clear();
-      state.aiDraftHistory = [{role:"user",content:raw},{role:"assistant",content:result.reply || "草稿已提取"}];
-      renderAdminView();
-      showToast("AI 已生成 "+result.orders.length+" 条草稿，请核对再发布");
-    } catch(error) {
-      showToast("AI 整理失败："+error.message);
-    } finally {
-      button.disabled = false;
-      button.textContent = "🪄 AI 自动整理成单";
-    }
+  $("btnNewAIOrder").onclick=()=>{
+    if(state.aiDraftBusy)return;
+    if(state.parsedDraftOrders.length && !confirm("当前草稿尚未发布，开始新单会清空草稿。继续吗？"))return;
+    state.parsedDraftOrders=[];state.aiDraftHistory=[];state.aiRawText="";
+    state.aiDraftGroupingNotes=[];state.aiDraftQuestions=[];
+    state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
+    renderAdminView();$("rawOrderInput")?.focus();
   };
-  const followUpButton = $("btnReviseDrafts");
-  if (followUpButton) followUpButton.onclick = async () => {
-    const message = $("aiDraftFollowUp").value.trim();
-    if (!message) return showToast("请先输入想修改的内容");
+  $("btnParseOrders").onclick = async () => {
+    if(state.aiDraftBusy)return;
+    const raw=$("rawOrderInput").value.trim();
+    if(!raw)return showToast("请输入家教需求或修改指令");
     syncDraftTextareas();
-    followUpButton.disabled = true;
-    followUpButton.textContent = "AI 正在修改草稿…";
-    try {
-      const result = await reviseDraftsWithAI(message,state.parsedDraftOrders,
-        state.aiDraftHistory,[...Store.getOrders(),{orderNumber:"#"+Store.getOrderSequence()}]);
-      state.parsedDraftOrders = result.orders;
-      state.aiDraftGroupingNotes = result.groupingNotes;
-      state.aiDraftQuestions = result.questions;
-      state.aiDraftReply = result.reply;
-      state.aiDraftHistory.push({role:"user",content:message},{role:"assistant",content:result.reply || "草稿已更新"});
-      state.aiDraftHistory = state.aiDraftHistory.slice(-12);
-      state.selectedDraftSubjects.clear();
-      state.selectedDraftFamilies.clear();
-      renderAdminView();
-      showToast("AI 已更新 "+result.orders.length+" 条草稿");
-    } catch(error) {
-      showToast("AI 对话失败："+error.message);
-      followUpButton.disabled = false;
-      followUpButton.textContent = "发送给 AI 修改草稿";
-    }
+    state.aiDraftBusy=true;
+    $("btnParseOrders").disabled=true;$("btnParseOrders").textContent="AI 正在整理…";
+    $("btnPublishDrafts").disabled=true;
+    try{
+      const existing=[...Store.getOrders(),{orderNumber:"#"+Store.getOrderSequence()}];
+      const result=state.parsedDraftOrders.length ?
+        await reviseDraftsWithAI(raw,state.parsedDraftOrders,state.aiDraftHistory,existing):
+        await parseMessyOrders(raw,existing,state.aiDraftHistory);
+      state.parsedDraftOrders=result.orders;
+      state.aiDraftReply=result.reply;state.aiDraftGroupingNotes=result.groupingNotes;state.aiDraftQuestions=result.questions;
+      state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
+      state.aiDraftHistory.push({role:"user",content:raw},{role:"assistant",content:result.reply||"已整理，请查看标准文案"});
+      state.aiDraftHistory=state.aiDraftHistory.slice(-12);state.aiRawText="";
+    }catch(error){showToast("AI 整理失败："+error.message);}
+    finally{state.aiDraftBusy=false;renderAdminView();}
+  };
+  $("rawOrderInput").onkeydown=event=>{
+    if(event.key==="Enter"&&(event.ctrlKey||event.metaKey)){event.preventDefault();$("btnParseOrders").click();}
   };
   $("btnPublishDrafts").onclick = async () => {
-    if(!state.parsedDraftOrders.length) return;
+    if(!state.parsedDraftOrders.length||state.aiDraftBusy) return;
     syncDraftTextareas();
     const items = state.parsedDraftOrders.map(order => normalizeOrder(order));
     const idIssues = checkDraftIds(items,Store.getOrders());
@@ -1098,7 +1079,8 @@ function renderAdminView() {
     if(items.some(o=>o.grade==="年级待补充"||o.subject==="科目待补充"))
       return showToast("请先补全所有草稿的年级和科目，再发布");
     if(!confirmDuplicateRisks(items))return;
-    if(!confirm("确认发布 "+items.length+" 条家教单？AI 仅负责整理，发布前应核对地址、时间、老师要求和薪资。"))return;
+    if(!Store.isCloudMode())return showToast("服务器存储不可用，未发布");
+    state.aiDraftBusy=true;
     const button = $("btnPublishDrafts");
     button.disabled=true;
     button.textContent="正在写入云端…";
@@ -1106,6 +1088,8 @@ function renderAdminView() {
       // API 模型已经处理过结构化地址；不再额外发起一次容易失败的 AI 解析调用。
       await Store.addOrders(items);
       const count=items.length;
+      state.lastPublishedDrafts=items;
+      state.aiRawText="";
       state.parsedDraftOrders=[];
       state.aiDraftHistory=[];
       state.aiDraftQuestions=[];
@@ -1113,15 +1097,16 @@ function renderAdminView() {
       state.selectedDraftSubjects.clear();
       state.selectedDraftFamilies.clear();
       renderAll();
-      void showNewTeacherRecommendations(items);
-      showToast("已发布 "+count+" 条家教单");
+      showToast("已发布 "+count+" 条家教单，可复制上次已发布单");
     }catch(error){showToast("发布失败："+error.message);}
-    finally {button.disabled=false;button.textContent="确认发布草稿";}
+    finally {state.aiDraftBusy=false;renderAdminView();}
   };
   $("btnCopyDrafts").onclick = () => {
     syncDraftTextareas();
-    copyText(state.parsedDraftOrders.map(formatOrderText).join("\\n\\n"),"已复制全部九字段草稿");
+    copyText(state.parsedDraftOrders.map(formatOrderText).join("\n\n"),"已复制全部九字段草稿");
   };
+  if($("btnCopyPublishedDrafts"))$("btnCopyPublishedDrafts").onclick=()=>copyText(state.lastPublishedDrafts.map(formatOrderText).join("\n\n"),"已复制已发布家教单");
+  if($("btnMatchPublishedDrafts"))$("btnMatchPublishedDrafts").onclick=()=>void showNewTeacherRecommendations(state.lastPublishedDrafts);
   $("csvImportInput").onchange = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -1387,15 +1372,15 @@ function renderParsedPreview() {
   wrap.innerHTML=`
     <div class="ai-group-summary"><strong>AI 生成了 ${drafts.length} 条草稿</strong>
       ${notes.length ? `<p>${notes.map(escapeHtml).join("；")}</p>` : ""}
-      <p>勾选下方具体科目后，可自选拆单或合并；AI 的拆合建议可以手动覆盖。</p>
+      <p>直接编辑标准文案或继续对话；核对后即可发布。</p>
     </div>
-    <div class="ai-group-toolbar">
+    <details class="ai-workspace-advanced"><summary>手动拆单 / 合并 / 编组（可选）</summary><div class="ai-group-toolbar">
       <button class="btn btn-sm" type="button" id="btnSplitSelectedSubjects">拆分所选科目</button>
       <button class="btn btn-sm" type="button" id="btnMergeSelectedSubjects">合并所选科目</button>
       <button class="btn btn-sm" type="button" id="btnGroupRelatedDrafts">将选中草稿编为同一主单号</button>
       <button class="btn btn-sm" type="button" id="btnClearSubjectSelections">取消勾选</button>
       <span class="admin-helper">当前勾选 <strong id="selectedSubjectCount">${state.selectedDraftSubjects.size}</strong> 个科目</span>
-    </div>
+    </div></details>
     ${drafts.map((o,index)=>`
       <div class="order-draft">
         <div class="ai-draft-head"><label class="ai-family-label"><input type="checkbox" data-group-family="${index}" ${state.selectedDraftFamilies.has(index)?"checked":""} />编为一组</label><strong>草稿 ${index+1} · ${escapeHtml(o.orderNumber||o.id)} · ${escapeHtml(o.grade)}</strong>
@@ -1405,12 +1390,13 @@ function renderParsedPreview() {
             <button class="btn btn-danger btn-sm" type="button" data-remove-draft="${index}">移除</button>
           </div>
         </div>
-        <div class="ai-subject-picker" role="group" aria-label="草稿 ${index+1} 科目选择">
+        <details class="ai-workspace-advanced"><summary>科目选择</summary><div class="ai-subject-picker" role="group" aria-label="草稿 ${index+1} 科目选择">
           ${getSubjectList(o.subject).map(subject=>{
             const key=index+"::"+subject;
             return `<label class="ai-subject-chip"><input type="checkbox" data-subject-key="${escapeHtml(key)}" ${state.selectedDraftSubjects.has(key)?"checked":""}/><span>${escapeHtml(subject)}</span></label>`;
           }).join("")}
         </div>
+        </details>
         ${o.groupingReason ? `<p class="admin-helper">AI 判断：${escapeHtml(o.groupingDecision||"待确认")} · ${escapeHtml(o.groupingReason)}</p>`:""}
         ${missingDraftFields(o).length ? `<p class="admin-helper ai-draft-warning">待核实：${escapeHtml(missingDraftFields(o).join("、"))}</p>`:""}
         ${findPotentialDuplicates([o],Store.getOrders()).length ?

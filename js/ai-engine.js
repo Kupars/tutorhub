@@ -1,5 +1,5 @@
 import { APP_CONFIG } from "./app-env.js";
-import { nextOrderId, normalizeOrder } from "./order-format.js";
+import { getSubjectList, nextOrderId, normalizeOrder } from "./order-format.js";
 import { normalizePublicAddress, safeOptimizedPublicAddress } from "./address-normalizer.js";
 import { guardSiteActions } from "./ai-command-guard.js?v=4";
 
@@ -58,9 +58,18 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
   if (!rawOrders.length || rawOrders.length > 30) throw new Error("AI 未返回有效数量的家教草稿");
   const reserved = [...existingOrders];
   const explicitIds = [...String(rawText || "").matchAll(/#\d{3,7}(?:-\d+)?/g)].map(m=>m[0]);
-  const mainId = explicitIds.length === 1 ? explicitIds[0].replace(/-\d+$/, "") : "";
-  const explicitSplit = rawOrders.length > 1 && mainId && (/拆单|拆分|分成.*单|分别招|单科|每科.*老师|各科.*老师|各.*一位老师/.test(rawText) || rawOrders.some(o=>o.groupingDecision==="拆单"));
   const prev = Array.isArray(previousDrafts) ? previousDrafts : [];
+  const root=id=>String(id||"").replace(/-\d+$/,"");
+  const addr=o=>String(o.publicAddress||o.address||"").replace(/天津市|\s/g,"");
+  const singleFamily=rawOrders.length>1 && explicitIds.length<=1 &&
+    /拆单|拆分|分成.{0,12}单|分别招|单科|每科.*老师|各科.*老师|各.*一位老师/.test(rawText) &&
+    !/不同学生|两名学生|两个学生|两个家庭|不同家庭/.test(rawText) &&
+    rawOrders.every(o=>o.grade===rawOrders[0].grade && addr(o).length>3 && addr(o)===addr(rawOrders[0]) && o.studentGender===rawOrders[0].studentGender) &&
+    new Set(rawOrders.flatMap(o=>getSubjectList(o.subject))).size===rawOrders.reduce((n,o)=>n+getSubjectList(o.subject).length,0) &&
+    (!prev.length||new Set(prev.map(o=>root(o.id))).size===1);
+  const mainId=singleFamily?root(explicitIds[0]||prev[0]?.id||nextOrderId(reserved)):"";
+  const explicitSplit=Boolean(mainId);
+  const allocated=new Set();
   return rawOrders.map((raw,index)=>{
     const candidate = normalizeOrder(raw || {});
     const prevId = String(prev[index]?.id || "");
@@ -68,20 +77,20 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
     const canonical = /^#\d{3,7}(?:-\d+)?$/.test(stated) &&
       (explicitIds.includes(stated) || prev.some(o=>o.id === stated));
     let id = canonical ? stated : /^#\d{3,7}(?:-\d+)?$/.test(prevId) ? prevId : "";
-    if (explicitSplit && !/^#\d{3,7}-\d+$/.test(stated)) id = `${mainId}-${index+1}`;
+    if (explicitSplit) id = `${mainId}-${index+1}`;
     if (!id && explicitIds[index] && !reserved.some(o=>o.id===explicitIds[index])) id = explicitIds[index];
-    if (!id) id = nextOrderId(reserved);
+    if (!id || allocated.has(id)) id = nextOrderId(reserved);
     if (reserved.some(o=>o.id===id || o.orderNumber===id)) {
       // 已有真实编号可能是管理员指定的旧单：允许原始来源明确指定的旧单，
       // 但新草稿发生碰撞时保留草稿供管理员检查，不静默覆盖。
-      if (!explicitIds.includes(id) && !prev.some(o=>o.id===id)) id = nextOrderId(reserved);
+      if (!explicitSplit && !explicitIds.includes(id) && !prev.some(o=>o.id===id)) id = nextOrderId(reserved);
     }
     candidate.id = id;
     candidate.orderNumber = id;
     candidate.title = `${candidate.grade}${candidate.subject}家教`;
     candidate.groupingDecision = String(raw.groupingDecision || "待确认").slice(0, 12);
     candidate.groupingReason = String(raw.groupingReason || "").slice(0, 150);
-    reserved.push(candidate);
+    allocated.add(id); reserved.push(candidate);
     return candidate;
   });
 }

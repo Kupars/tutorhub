@@ -1043,3 +1043,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 .ai-model-fields textarea { resize:vertical;min-height:105px;font-size:13px }
 .ai-model-fields small { display:block;color:var(--muted);font-size:12px;line-height:1.6;margin-top:5px }
 @media(max-width:760px) { .ai-model-fields {grid-template-columns:1fr}.ai-provider-info{min-width:0;width:100%}.ai-provider-actions{width:100%}.ai-provider-actions .btn{flex:1} }
+
+/* Chat-first order entry */
+.ai-workspace-title{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.ai-order-history{max-height:260px;overflow:auto}.ai-order-history:empty{display:none}.ai-order-history .ai-message{white-space:pre-wrap;overflow-wrap:anywhere}.ai-workspace-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.ai-workspace-compose{display:flex;flex-direction:column;gap:8px;margin-top:12px}.ai-workspace-compose .btn{align-self:flex-end}.ai-workspace-advanced{margin:10px 0;font-size:13px;color:var(--muted)}.ai-workspace-advanced summary{cursor:pointer}.order-draft textarea{min-height:285px;line-height:1.7}
