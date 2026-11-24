@@ -1,10 +1,13 @@
+import {formatOrderText} from "./order-format.js";
+import {TEACHER_TYPES,STAGES,SUBJECT_OPTIONS,STUDY_LEVELS,LOCAL_GAOKAO,cleanTeachingPairs,cleanCompanionOptions,schoolTag,profileCapabilities,filterTeacherProfile} from "../shared/teacher-capabilities.js?v=1";
 import { callServerlessAI, parseMessyOrders } from "./ai-engine.js?v=10";
 import { ageOfOpenOrder } from "./assignment-utils.js";
-import { recommendTeacherProfiles, recommendOrdersForTeacher, TEACHER_AVAILABILITIES, TEACHER_GENDERS, wantedTeacherGender } from "./teacher-profile-utils.js?v=3";
+import { recommendTeacherProfiles, recommendOrdersForTeacher, TEACHER_AVAILABILITIES, TEACHER_GENDERS, wantedTeacherGender } from "./teacher-profile-utils.js?v=5";
 
 let activeOrderId="";
 let editingTeacherId="";
 let teacherQuery="";
+let teacherFilters={};
 let latestExtraction="";
 let autoLinkOrderId="";
 let resumeInput="";
@@ -13,6 +16,22 @@ const short=(v,n=80)=>String(v||"").slice(0,n);
 const opts=(values,selected)=>values.map(x=>`<option value="${h(x)}" ${selected===x?"selected":""}>${h(x)}</option>`).join("");
 const statusLabel=v=>v==="可接单"?"空闲":v==="已接满"?"排满":"未反馈";
 const statusOpts=value=>["待确认","可接单","已接满"].map(v=>`<option value="${v}" ${v===(["可接单","已接满"].includes(value)?value:"待确认")?"selected":""} ${v==="待确认"?"disabled":""}>${statusLabel(v)}</option>`).join("");
+const badge=(label,kind="")=>`<span class="teacher-badge ${kind}">【${h(label)}】</span>`;
+const profileBadges=p=>[
+ p.starred===true?badge("星标老师","teacher-badge-star"):"",
+ schoolTag(p)?badge(schoolTag(p),"teacher-badge-school"):p.teacherType&&p.teacherType!=="未知"?badge(p.teacherType,"teacher-badge-type"):"",
+ p.tianjinGaokao==="是"?badge("天津本地","teacher-badge-local"):"",
+ p.agentName?badge("代理推荐"):""
+].join("");
+const matrixMarkup=p=>{
+ const pairs=cleanTeachingPairs(p?.teachingPairs),comp=cleanCompanionOptions(p?.companionOptions);
+ const subjects=[...new Set([...SUBJECT_OPTIONS,...pairs.map(x=>x.subject)])];
+ return `<fieldset class="teacher-capability-grid full"><legend>可带科目 × 学段</legend><p class="admin-helper">勾选明确对应的组合；可多选。不确定的旧记录保留在下方。</p>
+ <table class="teacher-capability-table"><thead><tr><th>科目</th>${STAGES.map(x=>`<th>${x}</th>`).join("")}</tr></thead><tbody id="teacherPairRows">${subjects.map(subject=>pairRow(subject,pairs)).join("")}</tbody></table>
+ <div class="teacher-link-actions"><input id="teacherOtherSubject" maxlength="30" placeholder="其他科目，例如日语"/><button class="btn btn-sm" id="teacherAddSubject" type="button">添加科目</button></div>
+ <div class="teacher-companion"><strong>陪读（独立接单类型）</strong>${STAGES.map(stage=>`<label><input type="checkbox" data-companion-stage="${stage}" ${comp.some(x=>x.stage===stage)?"checked":""}/> ${stage}陪读 <input data-companion-time="${stage}" maxlength="100" value="${h(comp.filter(x=>x.stage===stage).map(x=>x.time).filter(Boolean).join("；"))}" placeholder="例如每天晚上"/></label>`).join("")}</div></fieldset>`;
+};
+function pairRow(subject,pairs=[]){return `<tr data-pair-row="${h(subject)}"><th>${h(subject)}</th>${STAGES.map(stage=>`<td><input type="checkbox" data-pair-subject="${h(subject)}" data-pair-stage="${stage}" aria-label="${stage}${h(subject)}" ${pairs.some(x=>x.subject===subject&&x.stage===stage)?"checked":""}/></td>`).join("")}</tr>`;}
 const showOrderName=o=>h(o.orderNumber||o.id)+" · "+h(o.grade||"")+h(o.subject||"");
 
 export function renderTeacherPool(orders,profiles,applications,legacyAssignments,cloudReady) {
@@ -23,28 +42,27 @@ export function renderTeacherPool(orders,profiles,applications,legacyAssignments
   const available=profiles.filter(p=>p.availability==="可接单").length;
   const overdue=orders.map(o=>({order:o,age:ageOfOpenOrder(o)}))
     .filter(x=>x.age?.kind==="overdue").sort((a,b)=>b.age.days-a.age.days);
-  const list=profiles.filter(p=>(p.name+" "+p.school+" "+p.canTeach+" "+p.preferredDistricts+" "+p.agentName)
-    .toLowerCase().includes(teacherQuery.toLowerCase())).slice(0,80);
+  const list=profiles.filter(p=>filterTeacherProfile(p,teacherFilters)&&[p.name,p.school,p.currentSchool,p.graduatedSchool,p.canTeach,p.preferredDistricts,p.agentName,p.specialties,profileCapabilities(p),p.teacherType,schoolTag(p)].join(" ").toLowerCase().includes(teacherQuery.toLowerCase())).sort((a,b)=>Number(b.starred===true)-Number(a.starred===true));
   return `<section class="panel teacher-pool-panel" id="teacherPoolPanel">
     <h2>优质老师储备库 · 双向匹配</h2>
     <p class="admin-helper">老师可以先入库、暂时不投递任何单子；一条单也能登记多个投递老师。投递记录和老师状态不会自动更改订单上下架。</p>
     ${!cloudReady?'<p class="admin-helper ai-draft-warning">需要 Cloudflare KV 和管理员登录才能存储老师私人档案。</p>':""}
     <div class="assignment-stats">
-      <span><strong>${profiles.length}</strong> 位储备老师</span>
+      <span><strong>${profiles.length}</strong> 位储备老师</span><span><strong>${profiles.filter(p=>p.starred===true).length}</strong> 位星标老师</span>
       <span><strong>${available}</strong> 位标记可接单</span>
       <span><strong>${applications.length}</strong> 条投递记录</span>
       <span><strong>${overdue.length}</strong> 条超10天待跟进</span>
     </div>
 
-    <div class="teacher-application-panel">
-      <h3>新单来了 · 找合适的老师</h3>
+    <details class="teacher-application-panel">
+      <summary>临时按单找老师（不发布）</summary>
       <textarea id="quickTeacherMatchOrder" rows="3" placeholder="粘贴新家教单或零散需求，不会直接发布"></textarea>
       <div class="teacher-link-actions"><button class="btn btn-primary" id="quickMatchTeachers" type="button">AI 整理并推荐空闲老师</button></div>
       <div id="quickTeacherMatchResult" aria-live="polite"></div>
-    </div>
+    </details>
     <div class="teacher-pool-layout">
       <div class="teacher-profile-editor" id="teacherProfileEditor">
-        <h3>${editing?"编辑老师 · "+h(editing.name):"新增储备老师（无需对应订单）"}</h3>
+        <h3>${editing?"编辑老师 · "+h(editing.name):"老师来了 · 简历找单 / 选择入库"}</h3>
         <div class="field">
           <label for="teacherResumeText">粘贴老师简历、近期投递或接过的单（可选）</label>
           <textarea id="teacherResumeText" rows="3" placeholder="直接粘贴简历，或写：姓名张某，天津大学在读，男老师，可带数学物理。不必包含微信、手机号。">${h(resumeInput)}</textarea>
@@ -57,14 +75,24 @@ export function renderTeacherPool(orders,profiles,applications,legacyAssignments
         <label class="teacher-ai-consent"><input id="teacherResumeConsent" type="checkbox" />
           我确认已获得简历提供者授权用于家教匹配，并已检查、删除不必要的身份证号、住址、电话、微信等敏感资料，知晓内容将发送给第三方 AI。</label>
         <div id="teacherExtractResult" class="admin-helper">${h(latestExtraction)}</div>
+        <div id="teacherOrderMatches" aria-live="polite"></div>
         <form id="teacherProfileForm" class="assignment-form">
           <div class="field"><label for="teacherName">姓名 / 称呼 *</label><input id="teacherName" required maxlength="80" value="${h(editing?.name||"")}" placeholder="手动核对 AI 识别结果"/></div>
-          <div class="field"><label for="teacherSchool">学校 / 任职单位</label><input id="teacherSchool" maxlength="120" value="${h(editing?.school||"")}" placeholder="天津大学、专职教师任职单位等"/></div>
-          <div class="field"><label for="teacherGender">老师性别</label><select id="teacherGender">${opts(TEACHER_GENDERS,editing?.gender||"未知")}</select></div>
-          <div class="field"><label for="teacherType">教师身份</label><select id="teacherType">${opts(["未知","在校生","专职老师"],editing?.teacherType||"未知")}</select></div>
-          <div class="field"><label for="teacherCanTeach">明确可教科目 *</label><input id="teacherCanTeach" maxlength="200" value="${h(editing?.canTeach||"")}" placeholder="数学、物理、化学"/></div>
-
-          <div class="field"><label for="teacherGrades">可教年级</label><input id="teacherGrades" maxlength="120" value="${h(editing?.gradeLevels||"")}" placeholder="例如初中、高一、高二"/></div>
+          <div class="field"><label for="teacherGender">性别</label><select id="teacherGender">${opts(TEACHER_GENDERS,editing?.gender||"未知")}</select></div>
+          <div class="field"><label for="teacherType">老师类型</label><select id="teacherType">${opts(TEACHER_TYPES,editing?.teacherType||"未知")}</select></div>
+          <div class="field"><label for="teacherSchool">任职单位 / 旧学校信息（选填）</label><input id="teacherSchool" maxlength="120" value="${h(editing?.school||"")}"/></div>
+          <div class="field"><label for="teacherCurrentSchool">在读学校</label><input id="teacherCurrentSchool" maxlength="120" value="${h(editing?.currentSchool||(editing?.teacherType==="在校生"?editing?.school:"")||"")}" placeholder="天津大学 / 南开大学等"/></div>
+          <div class="field"><label for="teacherGraduatedSchool">毕业学校（选填）</label><input id="teacherGraduatedSchool" maxlength="120" value="${h(editing?.graduatedSchool||"")}"/></div>
+          <div class="field"><label for="teacherAge">年龄（选填）</label><input id="teacherAge" type="number" min="14" max="100" step="1" value="${h(editing?.age??"")}"/></div>
+          <div class="field"><label for="teacherStudyLevel">在读阶段</label><select id="teacherStudyLevel"><option value="">未填写 / 不适用</option>${opts(STUDY_LEVELS.filter(Boolean),editing?.studyLevel||"")}</select></div>
+          <div class="field"><label for="teacherStudyYear">在读年级</label><input id="teacherStudyYear" maxlength="40" value="${h(editing?.studyYear||"")}" placeholder="大二、研一等"/></div>
+          <div class="field"><label for="teacherGaokao">天津本地（在天津参加过高考）</label><select id="teacherGaokao">${opts(LOCAL_GAOKAO,editing?.tianjinGaokao||"未知")}</select></div>
+          <label class="teacher-star-toggle"><input id="teacherStarred" type="checkbox" ${editing?.starred?"checked":""}/> 星标老师 · 优先推荐</label>
+          ${matrixMarkup(editing)}
+          <div class="field full"><label for="teacherSpecialties">特长</label><input id="teacherSpecialties" maxlength="300" value="${h(editing?.specialties||"")}" placeholder="书法、钢琴、篮球等"/></div>
+          <details class="full"><summary>旧版可教科目 / 学段（尚未明确对应关系）</summary>
+          <div class="field"><label for="teacherCanTeach">旧版科目</label><input id="teacherCanTeach" maxlength="200" value="${h(editing?.canTeach||"")}" placeholder="学段尚未核实的科目"/></div>
+          <div class="field"><label for="teacherGrades">旧版学段</label><input id="teacherGrades" maxlength="120" value="${h(editing?.gradeLevels||"")}"/></div></details>
           <div class="field"><label for="teacherTimes">明确可上课时段</label><input id="teacherTimes" maxlength="200" value="${h(editing?.availableTimes||"")}" placeholder="例如周六下午、周日"/></div>
           <div class="field"><label for="teacherDeparture">明确出发地（公开地标）</label><input id="teacherDeparture" maxlength="120" value="${h(editing?.departureLandmark||"")}" placeholder="可选，不填私人住址"/></div>
           <div class="field"><label for="teacherRecentOrders">近期投递 / 接过的单号</label><input id="teacherRecentOrders" maxlength="300" value="${h(editing?.recentOrderRefs||"")}" placeholder="#3061 #3062-1；仅作为意向线索"/></div>
@@ -72,24 +100,39 @@ export function renderTeacherPool(orders,profiles,applications,legacyAssignments
           <div class="field"><label for="teacherPreferences">接单偏好</label><input id="teacherPreferences" maxlength="300" value="${h(editing?.preferences||"")}" placeholder="例如只接周末，优先附近"/></div>
           <div class="field"><label for="teacherDistricts">明确希望接单的区（可选）</label><input id="teacherDistricts" maxlength="200" value="${h(editing?.preferredDistricts||"")}" placeholder="津南区、河西区，不填也可入库"/></div>
           <div class="field"><label for="teacherAvailability">现在能否接新单</label><select id="teacherAvailability">${statusOpts(editing?.availability)}</select></div>
-          <div class="field"><label for="teacherAgentName">代理名称（可选）</label><input id="teacherAgentName" maxlength="100" value="${h(editing?.agentName||"")}" placeholder="代理人 / 渠道名"/></div>
+          <div class="field"><label for="teacherAgentName">代理推荐（选填；填写中介或代理称呼）</label><input id="teacherAgentName" maxlength="100" value="${h(editing?.agentName||"")}" placeholder="代理人 / 渠道名"/></div>
           <div class="field"><label for="teacherContact">微信号或联系方式（可选，仅手填）</label><input id="teacherContact" maxlength="150" value="${h(editing?.contact||"")}" placeholder="AI 不会填写此项"/></div>
           <div class="field"><label for="teacherNote">管理员备注（可选）</label><input id="teacherNote" maxlength="800" value="${h(editing?.note||"")}" placeholder="老师时间限制、跟进记录等"/></div>
           <div class="full assignment-actions"><button class="btn btn-sm" id="matchOrdersForTeacher" type="button">找适合这位老师的单（不入库）</button><button class="btn btn-primary" type="submit" ${cloudReady?"":"disabled"}>${editing?"保存老师档案":"加入储备池"}</button>
           <button class="btn btn-sm" id="teacherResetEditor" type="button">清空 / 新增</button></div>
         </form>
-        <div id="teacherOrderMatches" aria-live="polite"></div>
       </div>
       <div class="teacher-pool-right">
         <h3>老师档案（${profiles.length}）</h3>
         <input id="teacherSearch" type="search" placeholder="搜索老师姓名、科目、学校、代理" value="${h(teacherQuery)}"/>
+        <div class="teacher-pool-filters">
+          <select data-teacher-filter="subject" aria-label="科目筛选"><option value="">所有科目</option>${opts([...new Set([...SUBJECT_OPTIONS,...profiles.flatMap(p=>cleanTeachingPairs(p.teachingPairs).map(x=>x.subject)),"陪读"])],teacherFilters.subject)}</select>
+          <select data-teacher-filter="stage" aria-label="学段筛选"><option value="">所有学段</option>${opts(STAGES,teacherFilters.stage)}</select>
+          <select data-teacher-filter="type" aria-label="老师类型筛选"><option value="">所有类型</option>${opts(TEACHER_TYPES,teacherFilters.type)}</select>
+          <select data-teacher-filter="school" aria-label="学校筛选"><option value="">所有学校</option>${opts(["天大","南开"],teacherFilters.school)}</select>
+          <select data-teacher-filter="local" aria-label="天津高考筛选"><option value="">天津高考不限</option>${opts(LOCAL_GAOKAO,teacherFilters.local)}</select>
+          <select data-teacher-filter="gender" aria-label="性别筛选"><option value="">性别不限</option>${opts(TEACHER_GENDERS,teacherFilters.gender)}</select>
+          <select data-teacher-filter="availability" aria-label="接单状态筛选"><option value="">状态不限</option><option value="可接单" ${teacherFilters.availability==="可接单"?"selected":""}>空闲</option><option value="已接满" ${teacherFilters.availability==="已接满"?"selected":""}>排满</option></select>
+          <label><input id="teacherFilterStar" type="checkbox" ${teacherFilters.starred?"checked":""}/> 只看星标</label>
+          <button id="teacherClearFilters" class="btn btn-sm" type="button">清空筛选</button>
+        </div><p class="admin-helper">匹配 ${list.length} 位 · 科目与学段按实际组合筛选</p>
         <div class="teacher-pool-list">
           ${list.length?list.map(p=>`<div class="teacher-pool-item">
             <div><strong>${h(p.name)}</strong><span class="chip">${h(p.gender||"未知")}</span><span class="chip">${h(statusLabel(p.availability))}</span>
-            <small>${h(p.school||p.teacherType||"学校待补充")} · 可带 ${h(p.canTeach||"待补充")}${p.agentName?" · 代理："+h(p.agentName):""}</small>
+            <div class="teacher-badges">${profileBadges(p)}</div>
+            <small>${h([p.currentSchool||p.school,p.graduatedSchool?"毕业："+p.graduatedSchool:"",p.studyLevel,p.studyYear,p.age!=null?p.age+"岁":""].filter(Boolean).join(" · "))}</small>
+            <small>${h(profileCapabilities(p)||"学科与学段待核对："+(p.canTeach||"未填写"))}</small>
+            ${p.specialties?`<small>特长：${h(p.specialties)}</small>`:""}
+            ${p.agentName?`<small>代理：${h(p.agentName)}</small>`:""}
             <small>${h(p.preferredDistricts?"明确意向："+p.preferredDistricts:"区域未明确")} · 历史投递 ${applications.filter(a=>a.teacherId===p.id).length} 单</small></div>
             <div class="teacher-pool-item-actions">
               <select data-quick-teacher-status="${h(p.id)}" aria-label="${h(p.name)}的接单状态">${statusOpts(p.availability)}</select>
+              <button class="btn btn-sm teacher-star-button" type="button" data-star-teacher="${h(p.id)}" aria-pressed="${p.starred===true}">${p.starred===true?"★ 已星标":"☆ 星标"}</button>
               <button class="btn btn-sm" type="button" data-edit-teacher="${h(p.id)}">编辑</button>
               <button class="btn btn-sm" type="button" data-remove-teacher="${h(p.id)}">删除</button>
             </div>
@@ -125,7 +168,7 @@ export function renderTeacherPool(orders,profiles,applications,legacyAssignments
         </div>
         <div class="teacher-recommend-panel"><h4>优先联系的老师（可接单）</h4>
           ${matched.length?matched.map(t=>`<div class="teacher-match-row">
-            <div><strong>${h(t.name)}</strong> <small>${h(t.school)} · ${h(t.gender)} · ${h(t.reasons.join("、"))}</small></div>
+            <div><strong>${h(t.name)}</strong> ${t.starred?badge("星标老师","teacher-badge-star"):""} <small>${h(t.school)} · ${h(t.gender)} · ${h(t.reasons.join("、"))}</small><small>待确认：${h(t.checks.join("、"))}</small></div>
             <button class="btn btn-sm" type="button" data-use-recommendation="${h(t.teacherId)}">登记投递</button>
           </div>`).join(""):'<p class="admin-helper">暂无符合条件且明确可接单的老师。已接满、暂不接单和待确认的老师不会出现在推荐中。</p>'}
         </div>
@@ -170,7 +213,7 @@ export function selectTeacherApplication(orderId) {
   activeOrderId=String(orderId || "");
 }
 
-export function bindTeacherPool(container,store,rerender,showToast) {
+export function bindTeacherPool(container,store,rerender,showToast,copyText) {
   const reveal=(id)=>{
     activeOrderId=id;
     rerender();
@@ -217,6 +260,13 @@ export function bindTeacherPool(container,store,rerender,showToast) {
     try{await store.setTeacherAvailability(select.dataset.quickTeacherStatus,status);rerender();showToast("老师接单状态已更新");}
     catch(error){select.disabled=false;showToast("保存失败："+error.message);}
   });
+  container.querySelectorAll("[data-star-teacher]").forEach(btn=>btn.onclick=async()=>{
+    const p=store.getTeacherProfiles().find(x=>x.id===btn.dataset.starTeacher);if(!p)return;
+    btn.disabled=true;try{await store.setTeacherStar(p.id,p.starred!==true);rerender();}catch(e){btn.disabled=false;showToast(e.message);}
+  });
+  container.querySelectorAll("[data-teacher-filter]").forEach(el=>el.onchange=()=>{teacherFilters[el.dataset.teacherFilter]=el.value;rerender();});
+  document.getElementById("teacherFilterStar")?.addEventListener("change",e=>{teacherFilters.starred=e.target.checked;rerender();});
+  document.getElementById("teacherClearFilters")?.addEventListener("click",()=>{teacherFilters={};teacherQuery="";rerender();});
   const teacherSearch=document.getElementById("teacherSearch");
   if(teacherSearch)teacherSearch.oninput=()=>{teacherQuery=teacherSearch.value;rerender();document.getElementById("teacherSearch")?.focus();};
   const teacherResume=document.getElementById("teacherResumeText");
@@ -225,7 +275,26 @@ export function bindTeacherPool(container,store,rerender,showToast) {
   if(clear)clear.onclick=()=>{editingTeacherId="";autoLinkOrderId="";resumeInput="";latestExtraction="";rerender();};
 
   const formValue=id=>document.getElementById(id)?.value.trim()||"";
-  const readProfile=()=>({id:editingTeacherId||undefined,name:formValue("teacherName"),school:formValue("teacherSchool"),
+  const readPairs=()=>cleanTeachingPairs([...container.querySelectorAll("[data-pair-subject]:checked")].map(x=>({subject:x.dataset.pairSubject,stage:x.dataset.pairStage})));
+  const readCompanions=()=>cleanCompanionOptions([...container.querySelectorAll("[data-companion-stage]:checked")].map(x=>({stage:x.dataset.companionStage,time:container.querySelector('[data-companion-time="'+x.dataset.companionStage+'"]').value})));
+  const applyPairs=pairs=>{
+    const rows=document.getElementById("teacherPairRows");
+    for(const pair of cleanTeachingPairs(pairs)){
+      if(![...rows.querySelectorAll("[data-pair-row]")].some(x=>x.dataset.pairRow===pair.subject))rows.insertAdjacentHTML("beforeend",pairRow(pair.subject));
+      for(const box of rows.querySelectorAll("[data-pair-subject]"))if(box.dataset.pairSubject===pair.subject&&box.dataset.pairStage===pair.stage)box.checked=true;
+    }
+  };
+  document.getElementById("teacherAddSubject")?.addEventListener("click",()=>{
+    const input=document.getElementById("teacherOtherSubject"),subject=input.value.trim();
+    if(!subject||/陪读/.test(subject))return showToast("请输入其他科目，陪读请在独立区域填写");
+    const rows=document.getElementById("teacherPairRows");
+    if(![...rows.querySelectorAll("[data-pair-row]")].some(x=>x.dataset.pairRow===subject))rows.insertAdjacentHTML("beforeend",pairRow(subject));
+    input.value="";
+  });
+  const readProfile=()=>({id:editingTeacherId||undefined,name:formValue("teacherName"),school:formValue("teacherSchool"),teacherType:formValue("teacherType"),
+    currentSchool:formValue("teacherCurrentSchool"),graduatedSchool:formValue("teacherGraduatedSchool"),age:formValue("teacherAge")||null,
+    studyLevel:formValue("teacherStudyLevel"),studyYear:formValue("teacherStudyYear"),tianjinGaokao:formValue("teacherGaokao"),
+    starred:document.getElementById("teacherStarred").checked,specialties:formValue("teacherSpecialties"),teachingPairs:readPairs(),companionOptions:readCompanions(),
     gender:formValue("teacherGender"),canTeach:formValue("teacherCanTeach"),gradeLevels:formValue("teacherGrades"),
     availableTimes:formValue("teacherTimes"),preferredDistricts:formValue("teacherDistricts"),departureLandmark:formValue("teacherDeparture"),
     recentOrderRefs:formValue("teacherRecentOrders"),interestLocations:formValue("teacherInterestLocations"),preferences:formValue("teacherPreferences"),
@@ -233,9 +302,11 @@ export function bindTeacherPool(container,store,rerender,showToast) {
   const matchOrders=()=>{
     const profile=readProfile(),target=document.getElementById("teacherOrderMatches");
     if(!target)return;
-    if(!profile.canTeach){target.textContent="先让 AI 读取简历，或填写明确可教科目。";return;}
+    if(!profile.canTeach&&!profile.teachingPairs.length&&!profile.companionOptions.length){target.textContent="先读取简历，或选择明确科目与学段或陪读类型。";return;}
     const matches=recommendOrdersForTeacher(profile,store.getOrders(),store.getTeacherApplications(),store.getAssignments());
-    target.innerHTML=matches.length?'<h4>建议联系的家教单（不自动保存老师）</h4>'+matches.map(x=>`<div class="teacher-match-row"><div><strong>${showOrderName(x.order)}</strong><small>${h(x.order.publicAddress||x.order.address)} · ${h(x.order.weeklyFrequency)} · ${h(x.order.salaryText)}</small><small>${h(x.reasons.slice(0,4).join("；"))}</small><small>待确认：${h(x.checks.join("、"))}</small></div></div>`).join(""):"没有符合已知科目、年级及上课日期的待匹配订单。";
+    target.innerHTML=matches.length?'<div class="teacher-link-actions"><h4>推荐家教单（不自动入库）</h4><button type="button" class="btn btn-sm" id="copyTeacherAllMatches">复制全部推荐单</button></div>'+matches.map((x,i)=>`<div class="teacher-match-row"><div><strong>${showOrderName(x.order)}</strong><small>${h(x.order.publicAddress||x.order.address)} · ${h(x.order.weeklyFrequency)} · ${h(x.order.salaryText)}</small><small>${h(x.reasons.slice(0,4).join("；"))}</small><small>待确认：${h(x.checks.join("、"))}</small></div><button type="button" class="btn btn-sm" data-copy-teacher-match="${i}">复制家教单</button></div>`).join(""):"没有符合已知科目、学段及上课日期的待匹配订单。";
+    target.querySelectorAll("[data-copy-teacher-match]").forEach(btn=>btn.onclick=()=>copyText(formatOrderText(matches[Number(btn.dataset.copyTeacherMatch)].order),"已复制家教单"));
+    target.querySelector("#copyTeacherAllMatches")?.addEventListener("click",()=>copyText(matches.map(x=>formatOrderText(x.order)).join("\n\n"),"已复制全部推荐单"));
   };
   document.getElementById("matchOrdersForTeacher")?.addEventListener("click",matchOrders);
   const quick=document.getElementById("quickMatchTeachers");
@@ -266,11 +337,22 @@ export function bindTeacherPool(container,store,rerender,showToast) {
       if(ai.teacherName)document.getElementById("teacherName").value=ai.teacherName;
       if(ai.teacherSchool)document.getElementById("teacherSchool").value=ai.teacherSchool;
       if(["男","女"].includes(ai.teacherGender))document.getElementById("teacherGender").value=ai.teacherGender;
-      if(["在校生","专职老师"].includes(ai.teacherType))document.getElementById("teacherType").value=ai.teacherType;
+      if(TEACHER_TYPES.includes(ai.teacherType)&&ai.teacherType!=="未知")document.getElementById("teacherType").value=ai.teacherType;
       if(ai.canTeach&&!document.getElementById("teacherCanTeach").value.trim())
         document.getElementById("teacherCanTeach").value=ai.canTeach;
       for(const [field,id] of [["gradeLevels","teacherGrades"],["preferredDistricts","teacherDistricts"],["availableTimes","teacherTimes"],["preferences","teacherPreferences"],["recentOrderRefs","teacherRecentOrders"],["interestLocations","teacherInterestLocations"]]){
         if(ai[field]&&!document.getElementById(id).value.trim())document.getElementById(id).value=ai[field];
+      }
+      for(const [field,id] of [["currentSchool","teacherCurrentSchool"],["graduatedSchool","teacherGraduatedSchool"],["age","teacherAge"],["studyYear","teacherStudyYear"],["specialties","teacherSpecialties"],["agentName","teacherAgentName"]]){
+        if(ai[field]!=null&&ai[field]!==""&&!formValue(id))document.getElementById(id).value=ai[field];
+      }
+      if(ai.teacherType==="在校生"&&!formValue("teacherCurrentSchool")&&ai.teacherSchool)document.getElementById("teacherCurrentSchool").value=ai.teacherSchool;
+      if(STUDY_LEVELS.includes(ai.studyLevel)&&ai.studyLevel&&!formValue("teacherStudyLevel"))document.getElementById("teacherStudyLevel").value=ai.studyLevel;
+      if(["是","否"].includes(ai.tianjinGaokao)&&formValue("teacherGaokao")==="未知")document.getElementById("teacherGaokao").value=ai.tianjinGaokao;
+      applyPairs(ai.teachingPairs);
+      for(const item of cleanCompanionOptions(ai.companionOptions)){
+        const check=container.querySelector('[data-companion-stage="'+item.stage+'"]'),time=container.querySelector('[data-companion-time="'+item.stage+'"]');
+        check.checked=true;if(!time.value)time.value=item.time;
       }
       matchOrders();
       latestExtraction="识别置信度："+(ai.confidence||"待确认")+(ai.warning?"；"+ai.warning:"")+"。请检查姓名、学校与科目；联系方式不自动提取。";
@@ -360,13 +442,13 @@ export function presentTeacherMatches(orders,store) {
   const recommendations=orders.map(order=>({order,candidates:recommendTeacherProfiles(order,profiles,applications,store.getOrders(),store.getAssignments(),5)}));
   const markup=recommendations.map(({order,candidates})=>`<div class="teacher-publish-item">
     <strong>${h(order.orderNumber||order.id)} · ${h(order.grade)}${h(order.subject)}</strong>
-    ${candidates.length?`<p>建议联系：${candidates.map(x=>h(x.name)+"（"+h(x.reasons.slice(0,3).join("、"))+"）").join("；")}</p>`:
+    ${candidates.length?candidates.map(x=>`<div class="teacher-match-row"><div><strong>${h(x.name)}</strong> ${x.starred?badge("星标老师","teacher-badge-star"):""}<small>${h(x.school||"")}${x.contact?" · 联系方式："+h(x.contact):""}${x.agentName?" · 代理："+h(x.agentName):""}</small><small>${h(x.reasons.slice(0,4).join("；"))}</small><small>待确认：${h(x.checks.join("、"))}</small></div></div>`).join(""):
       '<p>暂无符合条件、且标为可接单的储备老师。</p>'}
   </div>`).join("");
   document.getElementById("teacherPublishedMatchModal")?.remove();
   const modal=document.createElement("div");modal.id="teacherPublishedMatchModal";modal.className="teacher-publish-overlay";
   modal.innerHTML=`<section class="teacher-publish-dialog" role="dialog" aria-modal="true" aria-labelledby="publishMatchTitle">
-    <h2 id="publishMatchTitle">🎯 新单已发布 · 储备老师推荐</h2>
+    <h2 id="publishMatchTitle">按单推荐 · 空闲老师</h2>
     <p class="admin-helper">按已知科目、年级、日期、区域和历史投递筛选。仅推荐已明确空闲者；历史订单距离不是老师通勤。请联系确认具体时间。</p>
     <div class="teacher-publish-results">${markup}</div>
     <button class="btn btn-primary" id="closeTeacherPublishedModal" type="button">我知道了</button>

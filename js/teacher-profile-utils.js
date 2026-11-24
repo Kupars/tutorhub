@@ -1,3 +1,4 @@
+import {stageOf,cleanTeachingPairs,cleanCompanionOptions} from "../shared/teacher-capabilities.js";
 // 老师档案推荐：仅利用管理员录入的偏好与历史投递/接单，不获取老师实时位置。
 import { verifiedPublicLandmarkCoords, inferNamedLandmarkCoords } from "./commute.js";
 import { isPubliclyOpenOrder } from "./board-utils.js";
@@ -29,10 +30,24 @@ const gradeMatches=(level,grade)=>level===grade || (level==="高中"&&/^高[一�
 function days(v){
   const text=trim(v);if(!text||/不|除|以外|未定|待确认/.test(text))return [];
   const d=new Set();
+  if(/每天|每日|天天|全周/.test(text))for(const x of "一二三四五六日")d.add(x);
   if(/周末/.test(text)){d.add("六");d.add("日");}
   if(/周中|工作日/.test(text))for(const x of "一二三四五")d.add(x);
   for(const m of text.matchAll(/(?:周|星期)([一二三四五六日天])/g))d.add(m[1]==="天"?"日":m[1]);
   return [...d];
+}
+function dayparts(v){
+  const text=trim(v);
+  if(!text||/不|除|以外|未定|待确认|全天|不限/.test(text))return [];
+  const found=new Set();
+  if(/上午|早上|早晨/.test(text))found.add("上午");
+  if(/下午/.test(text))found.add("下午");
+  if(/晚上|晚间|傍晚/.test(text))found.add("晚上");
+  return [...found];
+}
+function timeCompatible(available,requested){
+ const d=days(available),r=days(requested),p=dayparts(available),q=dayparts(requested);
+ return (!d.length||!r.length||r.some(x=>d.includes(x)))&&(!p.length||!q.length||q.some(x=>p.includes(x)));
 }
 function point(address,district=""){
   if(!address)return null;
@@ -54,11 +69,18 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
   for(const teacher of profiles) {
     if(teacher.availability!=="可接单")continue;
     if(preference.strict && teacher.gender!==preference.gender)continue;
-    const levels=gradeTokens(teacher.gradeLevels),targetGrade=trim(target.grade);
-    if(levels.length && targetGrade && !levels.some(x=>gradeMatches(x,targetGrade)))continue;
-    const teacherDays=days(teacher.availableTimes||teacher.preferences),targetDays=days(target.weeklyFrequency);
-    if(teacherDays.length&&targetDays.length&&!targetDays.some(d=>teacherDays.includes(d)))continue;
-    const taught=subjectTokens(teacher.canTeach);
+    const levels=gradeTokens(teacher.gradeLevels),targetGrade=trim(target.grade),stage=stageOf(targetGrade);
+    const pairs=cleanTeachingPairs(teacher.teachingPairs),companions=cleanCompanionOptions(teacher.companionOptions);
+    const isCompanion=/陪读|作业陪伴/.test([target.subject,target.title,target.requirements].join(" "));
+    const relevantCompanions=companions.filter(x=>!stage||x.stage===stage);
+    if(isCompanion && !relevantCompanions.length && (companions.length||pairs.length||!subjectTokens(teacher.canTeach).includes("陪读")))continue;
+    if(!isCompanion && pairs.length && stage && !pairs.some(x=>x.stage===stage))continue;
+    if(!pairs.length&&!isCompanion&&levels.length&&targetGrade&&!levels.some(x=>gradeMatches(x,targetGrade)))continue;
+    const targetDays=days(target.weeklyFrequency);
+    const teacherDays=days(teacher.availableTimes||teacher.preferences);
+    if(!timeCompatible(teacher.availableTimes||teacher.preferences,target.weeklyFrequency))continue;
+    if(isCompanion&&relevantCompanions.length&&!relevantCompanions.some(x=>timeCompatible(x.time,target.weeklyFrequency)))continue;
+    const taught=isCompanion?["陪读"]:pairs.length?pairs.filter(x=>!stage||x.stage===stage).map(x=>x.subject):subjectTokens(teacher.canTeach);
     const districts=districtTokens(teacher.preferredDistricts);
     const interest=trim(teacher.interestLocations).split(/[、，,；;\n]/).map(x=>x.trim()).filter(x=>x&&!/\d{5,}|门牌|室|单元|楼栋|号楼/.test(x));
     const history=candidacies.filter(x=>x.teacherId===teacher.id);
@@ -71,13 +93,14 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
     const evidence=previousOrders.concat(legacy,interest.map(publicAddress=>({publicAddress,district:publicAddress.match(/和平区|河西区|南开区|河东区|河北区|红桥区|津南区|西青区|东丽区|北辰区|武清区|滨海新区|宝坻区|静海区|宁河区|蓟州区/)?.[0]||""})));
     let score=0;
     const reasons=[],checks=[];
-    if(levels.length&&targetGrade){score+=3;reasons.push("明确可教该年级");}else checks.push("核对可教年级");
+    if((pairs.length||relevantCompanions.length&&isCompanion)&&stage){score+=3;reasons.push("明确记录对应学段");}else if(levels.length&&targetGrade){checks.push("核对科目与学段对应关系");}else checks.push("核对可教年级");
     if(teacherDays.length&&targetDays.length){score+=3;reasons.push("上课日期有交集");}else checks.push("核对上课日期");
     checks.push("确认具体时段、课时与通勤");
-    const overlaps=targetSubjects.filter(s=>taught.includes(s)||taught.includes("全科"));
+    const requested=isCompanion?["陪读"]:targetSubjects;
+    const overlaps=requested.filter(s=>taught.includes(s)||taught.includes("全科"));
     const needsAll=(Number(target.teacherCount)||1)<=1;
-    if (!taught.length || (targetSubjects.length &&
-        (needsAll ? overlaps.length!==targetSubjects.length : overlaps.length===0))) {
+    if (!taught.length || (requested.length &&
+        (needsAll ? overlaps.length!==requested.length : overlaps.length===0))) {
       // 一位老师负责多科时必须全部覆盖；多位教师分工时可以推荐部分科目。
       continue;
     }
@@ -109,8 +132,10 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
     }
     if(distanceKm!==null){score+=Math.max(0,8-distanceKm/2);reasons.unshift(distanceBasis+"约"+distanceKm.toFixed(1)+"公里");}
     if(!score)continue;
+    if(teacher.starred===true){score+=6;reasons.unshift("星标老师（历史合作优先）");}
     result.push({
-      teacherId:teacher.id,name:trim(teacher.name),school:trim(teacher.school),
+      starred:teacher.starred===true,
+      teacherId:teacher.id,name:trim(teacher.name),school:trim(teacher.currentSchool||teacher.school||teacher.graduatedSchool),
       gender:trim(teacher.gender),availability:teacher.availability,
       contact:trim(teacher.contact),agentName:trim(teacher.agentName),
       reasons,checks,distanceKm,distanceBasis,score,historyCount:history.length,
@@ -123,7 +148,7 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
 
 // 即时匹配不写入老师档案；当前简历由管理员发起，不将未知空闲状态保存到储备库。
 export function recommendOrdersForTeacher(teacher,orders=[],candidacies=[],legacy=[],limit=8){
-  if(!trim(teacher?.canTeach))return [];
+  if(!trim(teacher?.canTeach)&&!cleanTeachingPairs(teacher?.teachingPairs).length&&!cleanCompanionOptions(teacher?.companionOptions).length)return [];
   if(["已接满","暂不接单","排满"].includes(teacher.availability))return [];
   const profile={...teacher,id:teacher.id||"temporary-teacher",availability:"可接单"};
   return orders.filter(isPubliclyOpenOrder).map(order=>{

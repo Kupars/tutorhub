@@ -1,3 +1,4 @@
+import {TEACHER_TYPES,LOCAL_GAOKAO,STUDY_LEVELS,cleanTeachingPairs,cleanCompanionOptions,normalizeAge} from "../../shared/teacher-capabilities.js";
 import {loadAIRegistry, safeAIRegistry, saveAIProvider, deleteAIProvider, activateAIProvider} from "../../shared/ai-provider-registry.js";
 // Cloudflare Pages Function: /api/store
 // 基于 Cloudflare KV 的无服务器生产级后端（与 kupars.top 同域，大陆直连快、无需额外服务器）
@@ -198,7 +199,7 @@ export async function onRequest(context) {
       if (!name || name.length>80) return jsonResp({ok:false,error:"请填写老师姓名（不超过80字）"},400);
       const statuses=["可接单","已接满","暂不接单","待确认"];
       const genders=["男","女","未知"];
-      const types=["在校生","专职老师","未知"];
+      const types=TEACHER_TYPES;
       if (raw.gender && !genders.includes(raw.gender)) return jsonResp({ok:false,error:"老师性别选项无效"},400);
       if (raw.availability && !statuses.includes(raw.availability)) return jsonResp({ok:false,error:"接单状态选项无效"},400);
       if (raw.teacherType && !types.includes(raw.teacherType)) return jsonResp({ok:false,error:"教师类型选项无效"},400);
@@ -210,11 +211,31 @@ export async function onRequest(context) {
         if(raw[key]!=null && (typeof raw[key]!=="string" || raw[key].length>(key==="note"?800:300)))
           return jsonResp({ok:false,error:"老师档案字段长度超限："+key},400);
       }
+      if(raw.tianjinGaokao!=null&&!LOCAL_GAOKAO.includes(raw.tianjinGaokao))return jsonResp({ok:false,error:"天津高考经历选项无效"},400);
+      if(raw.studyLevel!=null&&!STUDY_LEVELS.includes(raw.studyLevel))return jsonResp({ok:false,error:"在读阶段无效"},400);
+      if(raw.age!=null&&raw.age!==""&&normalizeAge(raw.age)===null)return jsonResp({ok:false,error:"年龄无效"},400);
+      for(const field of ["currentSchool","graduatedSchool","studyYear","specialties"]){
+        if(raw[field]!=null&&(typeof raw[field]!=="string"||raw[field].length>300))return jsonResp({ok:false,error:"档案字段无效："+field},400);
+      }
+      for(const field of ["teachingPairs","companionOptions"]){
+        if(raw[field]!=null&&(!Array.isArray(raw[field])||raw[field].length>100))return jsonResp({ok:false,error:"能力记录格式无效"},400);
+      }
+      if(raw.starred!=null&&typeof raw.starred!=="boolean")return jsonResp({ok:false,error:"星标格式无效"},400);
       const now=new Date().toISOString();
       const profile={
         id:original?.id||"tp-"+crypto.randomUUID(),
         name,school:String(raw.school||"").trim().slice(0,120),
-        gender:raw.gender||"未知",teacherType:raw.teacherType||"未知",
+        gender:raw.gender||original?.gender||"未知",teacherType:raw.teacherType||original?.teacherType||"未知",
+        currentSchool:String(raw.currentSchool??original?.currentSchool??((raw.teacherType||original?.teacherType)==="在校生"?raw.school||original?.school||"":"")).trim().slice(0,120),
+        graduatedSchool:String(raw.graduatedSchool??original?.graduatedSchool??"").trim().slice(0,120),
+        age:raw.age===undefined?original?.age??null:normalizeAge(raw.age),
+        studyLevel:raw.studyLevel??original?.studyLevel??"",
+        studyYear:String(raw.studyYear??original?.studyYear??"").trim().slice(0,40),
+        tianjinGaokao:raw.tianjinGaokao??original?.tianjinGaokao??"未知",
+        starred:raw.starred??original?.starred??false,
+        specialties:String(raw.specialties??original?.specialties??"").trim().slice(0,300),
+        teachingPairs:cleanTeachingPairs(raw.teachingPairs??original?.teachingPairs),
+        companionOptions:cleanCompanionOptions(raw.companionOptions??original?.companionOptions),
         canTeach:String(raw.canTeach||"").trim().slice(0,200),
         preferredDistricts:String(raw.preferredDistricts||"").trim().slice(0,200),
         gradeLevels:String(raw.gradeLevels??original?.gradeLevels??"").trim().slice(0,120),
@@ -233,6 +254,14 @@ export async function onRequest(context) {
       const next=[profile,...records.filter(o=>o.id!==profile.id)];
       await kvPut(env.TUTOR_KV,"teacher_profiles",next);
       return jsonResp({ok:true,teacherProfiles:next,profileId:profile.id});
+    }
+    if(action==="admin_set_teacher_star"){
+      if(typeof body.starred!=="boolean")return jsonResp({ok:false,error:"星标无效"},400);
+      const profiles=await kvGet(env.TUTOR_KV,"teacher_profiles",[]);
+      if(!profiles.some(p=>p.id===body.teacherId))return jsonResp({ok:false,error:"找不到老师档案"},404);
+      const next=profiles.map(p=>p.id===body.teacherId?{...p,starred:body.starred,updatedAt:new Date().toISOString()}:p);
+      await kvPut(env.TUTOR_KV,"teacher_profiles",next);
+      return jsonResp({ok:true,teacherProfiles:next});
     }
     if (action === "admin_set_teacher_availability") {
       if (!env.AUTH_SECRET || !env.ADMIN_PASSWORD) return jsonResp({ok:false,error:"管理员个人资料存储未启用"},503);
