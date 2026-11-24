@@ -26,3 +26,10 @@ test("简历结构化提取保留明确字段，不由AI生成星标",()=>{
  assert.equal(r.teachingPairs.length,2);assert.equal(r.companionOptions.length,1);assert.equal(r.starred,undefined);
  assert(!JSON.stringify(r).includes("13800000000"));
 });
+
+test("陪读学段和明确时段共同限制推荐",()=>{
+ const base={grade:"初二",subject:"陪读",status:"招募中"};
+ assert.equal(recommendTeacherProfiles({...base,weeklyFrequency:"周三晚上"},[profile]).length,1);
+ assert.equal(recommendTeacherProfiles({...base,weeklyFrequency:"周三下午"},[profile]).length,0);
+ assert.equal(recommendTeacherProfiles({...base,weeklyFrequency:"周六晚上"},[{...profile,companionOptions:[{stage:"初中",time:"周一晚上"}]}]).length,0);
+});

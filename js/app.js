@@ -43,7 +43,7 @@ let teacherPoolModulePromise=null;
 let pendingTeacherApplicationScroll=false;
 function loadTeacherPoolModule() {
   // 只在打开管理后台时下载老师档案和推荐模块，不影响普通老师的首屏加载。
-  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=8")
+  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=9")
     .catch(err=>{teacherPoolModulePromise=null;throw err;});
   return teacherPoolModulePromise;
 }
@@ -72,7 +72,7 @@ function hydrateTeacherPool() {
     if(!slot || Store.getCurrentUser()?.role!=="admin")return;
     slot.outerHTML=module.renderTeacherPool(Store.getOrders(),Store.getTeacherProfiles(),
       Store.getTeacherApplications(),Store.getAssignments(),Store.isCloudMode());
-    module.bindTeacherPool(container,Store,renderAll,showToast);
+    module.bindTeacherPool(container,Store,renderAll,showToast,copyText);
     if (pendingTeacherApplicationScroll) {
       pendingTeacherApplicationScroll=false;
       requestAnimationFrame(() => document.getElementById("teacherApplicationPanel")?.scrollIntoView({
@@ -88,7 +88,7 @@ async function showNewTeacherRecommendations(orders) {
   try {
     const module=await loadTeacherPoolModule();
     module.presentTeacherMatches(orders,Store);
-  }catch(err){showToast("已发布，但老师推荐面板加载失败："+err.message);}
+  }catch(err){showToast("老师推荐面板加载失败："+err.message);}
 }
 
 const adminCheckedOrders = new Set();
@@ -719,8 +719,8 @@ const ADMIN_PAGES = {
   home: { name: "工作台首页", icon: "🏠" },
   orders: { name: "家教单管理", icon: "📋" },
   manual: { name: "手动录单", icon: "✍️" },
-  aiOrders: { name: "AI 编单", icon: "✨" },
-  teachers: { name: "老师档案与匹配", icon: "👩‍🏫" },
+  aiOrders: { name: "编单与推荐老师", icon: "✨" },
+  teachers: { name: "老师库与推荐订单", icon: "👩‍🏫" },
   aiSite: { name: "AI 修改网站与订单", icon: "🤖" },
   aiModels: { name: "AI 模型管理", icon: "🧠" },
   parttime: { name: "其他兼职", icon: "💼" }
@@ -786,20 +786,24 @@ function renderAdminView() {
         </select>`}
     </div>
     <section class="admin-dashboard" data-admin-page="home" ${openedPage==="home"?"":"hidden"}>
-      <div class="admin-dashboard-hero"><h2>管理工作台</h2><p>请选择需要办理的业务。每次只打开一个功能页面，减少滚动和误操作。</p></div>
+      <div class="admin-dashboard-hero"><h2>家教工作台</h2><p>家长来了，整理订单找老师；老师来了，整理简历找订单。</p></div>
       <div class="admin-dashboard-stats">
         <span><strong>${orders.filter(isPubliclyOpenOrder).length}</strong> 招募中</span>
         <span><strong>${orders.length - orders.filter(isPubliclyOpenOrder).length}</strong> 已关闭</span>
         <span><strong>${state.parsedDraftOrders.length}</strong> 待发布草稿</span>
       </div>
-      <div class="admin-module-grid">
-        ${moduleCards.map(item => `<button type="button" class="admin-module-card" data-admin-go="${item.id}">
+      <div class="admin-module-grid admin-primary-workflows">
+        <button type="button" class="admin-module-card admin-workflow-card" data-admin-go="aiOrders"><span class="admin-module-icon">📋</span><span class="admin-module-main"><strong>整理订单 · 推荐老师</strong><small>粘贴家长需求 → AI 编单及修改 → 复制 / 发布 → 推荐空闲老师</small><em>${state.parsedDraftOrders.length} 条待发布草稿</em></span><span class="admin-module-arrow" aria-hidden="true">›</span></button>
+        <button type="button" class="admin-module-card admin-workflow-card" data-admin-go="teachers"><span class="admin-module-icon">👩‍🏫</span><span class="admin-module-main"><strong>维护老师库 · 推荐订单</strong><small>粘贴简历及意向 → 推荐订单 → 选择入库、更新状态与星标</small><em>${Store.getTeacherProfiles().length} 位储备老师</em></span><span class="admin-module-arrow" aria-hidden="true">›</span></button>
+      </div>
+      <details class="admin-secondary-modules"><summary>其他管理功能</summary><div class="admin-module-grid">
+        ${moduleCards.filter(item=>!["aiOrders","teachers"].includes(item.id)).map(item => `<button type="button" class="admin-module-card" data-admin-go="${item.id}">
           <span class="admin-module-icon">${ADMIN_PAGES[item.id].icon}</span>
           <span class="admin-module-main"><strong>${ADMIN_PAGES[item.id].name}</strong>
             <small>${item.detail}</small><em>${item.metric}</em></span>
           <span class="admin-module-arrow" aria-hidden="true">›</span>
         </button>`).join("")}
-      </div>
+      </div></details>
     </section>
     ${!Store.isCloudMode() ? `
       <div class="panel" data-admin-page="home" style="border-color:#f59e0b;background:#fffbeb;" ${openedPage === "home" ? "" : "hidden"}>
@@ -868,6 +872,7 @@ function renderAdminView() {
       <div class="ai-workspace-actions">
         <button class="btn btn-primary" id="btnPublishDrafts" style="display:${state.parsedDraftOrders.length ? "inline-flex" : "none"};">一键发布（${state.parsedDraftOrders.length} 条）</button>
         <button class="btn" id="btnCopyDrafts" style="display:${state.parsedDraftOrders.length ? "inline-flex" : "none"};">复制全部到微信</button>
+        <button class="btn" id="btnMatchDrafts" style="display:${state.parsedDraftOrders.length?"inline-flex":"none"};">推荐老师（不发布）</button>
         ${state.lastPublishedDrafts.length?'<button class="btn btn-sm" id="btnCopyPublishedDrafts" type="button">复制上次已发布单</button><button class="btn btn-sm" id="btnMatchPublishedDrafts" type="button">推荐储备老师</button>':""}
       </div>
       <div class="ai-chat-compose ai-workspace-compose">
@@ -1109,6 +1114,7 @@ function renderAdminView() {
       state.selectedDraftFamilies.clear();
       renderAll();
       showToast("已发布 "+count+" 条家教单，可复制上次已发布单");
+      void showNewTeacherRecommendations(published);
     }catch(error){showToast("发布失败："+error.message);}
     finally {state.aiDraftBusy=false;renderAdminView();}
   };
@@ -1116,6 +1122,7 @@ function renderAdminView() {
     syncDraftTextareas();
     copyText(state.parsedDraftOrders.map(formatOrderText).join("\n\n"),"已复制全部九字段草稿");
   };
+  $("btnMatchDrafts").onclick=()=>{if(state.aiDraftBusy)return;syncDraftTextareas();void showNewTeacherRecommendations(state.parsedDraftOrders);};
   if($("btnCopyPublishedDrafts"))$("btnCopyPublishedDrafts").onclick=()=>copyText(state.lastPublishedDrafts.map(formatOrderText).join("\n\n"),"已复制已发布家教单");
   if($("btnMatchPublishedDrafts"))$("btnMatchPublishedDrafts").onclick=()=>void showNewTeacherRecommendations(state.lastPublishedDrafts);
   $("csvImportInput").onchange = async (event) => {

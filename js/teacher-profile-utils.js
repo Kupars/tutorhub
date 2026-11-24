@@ -30,10 +30,24 @@ const gradeMatches=(level,grade)=>level===grade || (level==="高中"&&/^高[一�
 function days(v){
   const text=trim(v);if(!text||/不|除|以外|未定|待确认/.test(text))return [];
   const d=new Set();
+  if(/每天|每日|天天|全周/.test(text))for(const x of "一二三四五六日")d.add(x);
   if(/周末/.test(text)){d.add("六");d.add("日");}
   if(/周中|工作日/.test(text))for(const x of "一二三四五")d.add(x);
   for(const m of text.matchAll(/(?:周|星期)([一二三四五六日天])/g))d.add(m[1]==="天"?"日":m[1]);
   return [...d];
+}
+function dayparts(v){
+  const text=trim(v);
+  if(!text||/不|除|以外|未定|待确认|全天|不限/.test(text))return [];
+  const found=new Set();
+  if(/上午|早上|早晨/.test(text))found.add("上午");
+  if(/下午/.test(text))found.add("下午");
+  if(/晚上|晚间|傍晚/.test(text))found.add("晚上");
+  return [...found];
+}
+function timeCompatible(available,requested){
+ const d=days(available),r=days(requested),p=dayparts(available),q=dayparts(requested);
+ return (!d.length||!r.length||r.some(x=>d.includes(x)))&&(!p.length||!q.length||q.some(x=>p.includes(x)));
 }
 function point(address,district=""){
   if(!address)return null;
@@ -64,8 +78,8 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
     if(!pairs.length&&!isCompanion&&levels.length&&targetGrade&&!levels.some(x=>gradeMatches(x,targetGrade)))continue;
     const targetDays=days(target.weeklyFrequency);
     const teacherDays=days(teacher.availableTimes||teacher.preferences);
-    if(teacherDays.length&&targetDays.length&&!targetDays.some(d=>teacherDays.includes(d)))continue;
-    if(isCompanion&&relevantCompanions.length&&targetDays.length&&!relevantCompanions.some(x=>{const d=days(x.time);return !d.length||targetDays.some(y=>d.includes(y));}))continue;
+    if(!timeCompatible(teacher.availableTimes||teacher.preferences,target.weeklyFrequency))continue;
+    if(isCompanion&&relevantCompanions.length&&!relevantCompanions.some(x=>timeCompatible(x.time,target.weeklyFrequency)))continue;
     const taught=isCompanion?["陪读"]:pairs.length?pairs.filter(x=>!stage||x.stage===stage).map(x=>x.subject):subjectTokens(teacher.canTeach);
     const districts=districtTokens(teacher.preferredDistricts);
     const interest=trim(teacher.interestLocations).split(/[、，,；;\n]/).map(x=>x.trim()).filter(x=>x&&!/\d{5,}|门牌|室|单元|楼栋|号楼/.test(x));
@@ -121,7 +135,7 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
     if(teacher.starred===true){score+=6;reasons.unshift("星标老师（历史合作优先）");}
     result.push({
       starred:teacher.starred===true,
-      teacherId:teacher.id,name:trim(teacher.name),school:trim(teacher.school),
+      teacherId:teacher.id,name:trim(teacher.name),school:trim(teacher.currentSchool||teacher.school||teacher.graduatedSchool),
       gender:trim(teacher.gender),availability:teacher.availability,
       contact:trim(teacher.contact),agentName:trim(teacher.agentName),
       reasons,checks,distanceKm,distanceBasis,score,historyCount:history.length,

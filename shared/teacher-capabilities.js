@@ -37,7 +37,7 @@ export function cleanCompanionOptions(value){
 export function schoolTag(p){
  if(p?.teacherType!=="在校生")return "";
  const s=str(p.currentSchool||p.school);
- return /^(天津大学|天大)(?:[·（(\\s]|$)/.test(s)?"天大":/^(南开大学|南开)(?:[·（(\\s]|$)/.test(s)?"南开":"";
+ return /^(天津大学|天大)(?:[·（(\s]|$)/.test(s)?"天大":/^(南开大学|南开)(?:[·（(\s]|$)/.test(s)?"南开":"";
 }
 export function profileCapabilities(p){
  const pairs=cleanTeachingPairs(p?.teachingPairs),companions=cleanCompanionOptions(p?.companionOptions);
