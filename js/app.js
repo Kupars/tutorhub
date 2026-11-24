@@ -45,22 +45,6 @@ function loadTeacherPoolModule() {
     .catch(err=>{teacherPoolModulePromise=null;throw err;});
   return teacherPoolModulePromise;
 }
-let wechatBulkImportPromise=null;
-function hydrateWechatBulkImport() {
-  if (state.adminPage !== "bulkImport" || Store.getCurrentUser()?.role !== "admin") return;
-  const slot=document.getElementById("wechatBulkImportSlot");
-  if (!slot) return;
-  if (!wechatBulkImportPromise) wechatBulkImportPromise=import("./wechat-bulk-import.js?v=3")
-    .catch(error=>{wechatBulkImportPromise=null;throw error;});
-  void wechatBulkImportPromise.then(module=>{
-    const target=document.getElementById("wechatBulkImportSlot");
-    if(!target || state.adminPage!=="bulkImport" || Store.getCurrentUser()?.role!=="admin")return;
-    module.mountWechatBulkImport(target,{Store,refresh:renderAll,toast:showToast});
-  }).catch(error=>{
-    const target=document.getElementById("wechatBulkImportSlot");
-    if(target)target.textContent="批量导入模块加载失败："+error.message;
-  });
-}
 let aiModelsModulePromise=null;
 function hydrateAIModelManager() {
   if(state.adminPage!=="aiModels" || Store.getCurrentUser()?.role!=="admin")return;
@@ -734,7 +718,6 @@ const ADMIN_PAGES = {
   orders: { name: "家教单管理", icon: "📋" },
   manual: { name: "手动录单", icon: "✍️" },
   aiOrders: { name: "AI 智能录单", icon: "✨" },
-  bulkImport: { name: "微信历史批量导入", icon: "📥" },
   teachers: { name: "老师档案与匹配", icon: "👩‍🏫" },
   aiSite: { name: "AI 修改网站与订单", icon: "🤖" },
   aiModels: { name: "AI 模型管理", icon: "🧠" },
@@ -781,7 +764,6 @@ function renderAdminView() {
   const moduleCards = [
     {id:"orders", detail:"统一搜索、筛选、编辑、上架及批量处理", metric:`${orders.length} 条家教单`},
     {id:"aiOrders", detail:"一次识别多条微信需求，AI 对话修改并自由拆合科目", metric:`${state.parsedDraftOrders.length} 条待发布草稿`},
-    {id:"bulkImport", detail:"微信多文件导入、AI 分批拆单、重复核查、状态更新及人工审核", metric:"支持数百条历史消息"},
     {id:"manual", detail:"按九字段模板手动新建或编辑家教单", metric:"规范录入"},
     {id:"teachers", detail:"老师档案、历史接单记录、投递与推荐匹配", metric:"管理员专用"},
     {id:"aiSite", detail:"通过对话预览并确认修改网站设置和已有订单", metric:"修改前确认"},
@@ -875,7 +857,6 @@ function renderAdminView() {
       </form>
     </div>
 
-    <section class="admin-module-page" data-admin-page="bulkImport" ${openedPage==="bulkImport"?"":"hidden"}><div id="wechatBulkImportSlot" class="panel"><p class="admin-helper">正在加载批量导入模块…</p></div></section>
 
     <div class="panel admin-module-page" data-admin-page="aiOrders" ${openedPage==="aiOrders"?"":"hidden"}>
       <h2>✨ AI 零散信息一键整理成家教单</h2>
@@ -887,8 +868,8 @@ function renderAdminView() {
         <button class="btn btn-sm" id="btnCopyDrafts" style="display:${state.parsedDraftOrders.length ? "inline-flex" : "none"};">复制全部标准文案</button>
       </div>
       <div class="field" style="margin-top:12px;">
-        <label for="csvImportInput">📄 从飞书导出的 CSV / TSV 批量导入（只生成草稿，不自动发布）</label>
-        <input type="file" id="csvImportInput" accept=".csv,.tsv,.txt,text/csv,text/plain" />
+        <label for="csvImportInput">📄 导入结构化家教单（CSV / TSV 生成草稿；标准 JSON 可去重批量入库）</label>
+        <input type="file" id="csvImportInput" accept=".csv,.tsv,.txt,.json,text/csv,text/plain,application/json" />
       </div>
       <div class="ai-chat-panel" id="aiDraftHistory" aria-live="polite"></div>
       <div class="ai-chat-compose" id="aiDraftCompose" ${state.parsedDraftOrders.length ? "" : "hidden"}>
@@ -1145,6 +1126,60 @@ function renderAdminView() {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
+      if (/\.json$/i.test(file.name)) {
+        if (!Store.isCloudMode()) throw new Error("云端存储不可用，未写入任何数据");
+        const doc = JSON.parse(await file.text());
+        if (doc.schema !== "tutorhub-structured-orders-v1" || !Array.isArray(doc.orders) || doc.orders.length > 2000)
+          throw new Error("不是有效的 TutorHub 标准家教单文件");
+        // 将静态单（包括已隐藏单）和云端记录一同纳入重复检查，不覆盖现有状态。
+        const staticResponse = await fetch("./data/imported-orders.json", {cache:"no-store"});
+        if (!staticResponse.ok) throw new Error("无法核对历史静态单，已停止导入");
+        const staticOrders = await staticResponse.json();
+        if (!Array.isArray(staticOrders)) throw new Error("历史单格式异常");
+        const existing = [...staticOrders, ...Store.getOrders()];
+        const label = o => String(o.orderNumber || o.id || "").match(/#?(\d+(?:-\d+)?)/)?.[1] || "";
+        const base = o => label(o).split("-")[0];
+        const subject = o => {
+          const s = String(o.subject || "").replace(/数理化/g,"数学物理化学").replace(/道德与法治/g,"道法");
+          const core = ["数学","语文","英语","物理","化学","生物","历史","地理","政治","道法","全科","陪读","作业","奥数","编程","钢琴"].filter(x=>s.includes(x));
+          return core.length ? core.sort().join("|") : s.replace(/[、，,\s]/g,"");
+        };
+        const accepted = [];
+        let skipped = 0;
+        for (const raw of doc.orders) {
+          if (!raw || !/^#\d+(?:-\d+)?$/.test(raw.orderNumber || "") || !raw.grade || !raw.subject)
+            throw new Error("文件包含无效编号、年级或科目");
+          const related = [...existing,...accepted].filter(o=>base(o)===base(raw));
+          const same = related.some(o=>subject(o)===subject(raw) && (label(o)===label(raw) || !label(o).includes("-") || !label(raw).includes("-")));
+          if (same) { skipped++; continue; }
+          let number = raw.orderNumber;
+          const used = new Set([...existing,...accepted].map(label));
+          if (used.has(label(raw))) {
+            let suffix=1; while(used.has(base(raw)+"-"+suffix)) suffix++;
+            number="#"+base(raw)+"-"+suffix;
+          }
+          const allowed = ["title","grade","studentGender","subject","teacherCount","currentScores","address","publicAddress","district","weeklyFrequency","hoursPerSession","requirements","salaryText","trialTime","notes","mode","onlineAllowed","urgent","createdAt"];
+          const record=Object.fromEntries(allowed.filter(k=>raw[k]!==undefined).map(k=>[k,raw[k]]));
+          accepted.push(normalizeOrder({...record,id:number,orderNumber:number,source:"structured-history",status:"待确认（暂停招募）"}));
+        }
+        if (!accepted.length) { showToast("全部记录已存在，无需重复导入"); return; }
+        if (!confirm("标准文件共 "+doc.orders.length+" 条，跳过已存在 "+skipped+" 条，新增 "+accepted.length+" 条历史单（待确认、暂停招募，不覆盖旧状态）。确认写入云端？")) return;
+        const input=event.target;
+        input.disabled=true;
+        let saved=0;
+        try {
+          for(let i=0;i<accepted.length;i+=80) {
+            await Store.addOrders(accepted.slice(i,i+80));
+            saved+=Math.min(80,accepted.length-i);
+          }
+          renderAll();
+          showToast("已新增 "+saved+" 条，跳过 "+skipped+" 条；请在家教单管理核实后上架");
+        } catch(error) {
+          renderAll();
+          showToast("已新增 "+saved+" 条，后续写入失败："+error.message+"；可重新导入同一文件");
+        } finally { input.disabled=false; }
+        return;
+      }
       state.parsedDraftOrders = importOrderTable(await file.text(), [...Store.getOrders(), { orderNumber: `#${Store.getOrderSequence()}` }]);
       if (!state.parsedDraftOrders.length) throw new Error("文件中没有识别到有效家教单");
       renderAdminView();
@@ -1327,7 +1362,6 @@ function renderAdminView() {
     };
   });
   hydrateTeacherPool();
-  hydrateWechatBulkImport();
   hydrateAIModelManager();
 }
 
