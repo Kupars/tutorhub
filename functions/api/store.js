@@ -206,7 +206,7 @@ export async function onRequest(context) {
       const id=String(raw.id||"").trim();
       const original=id?records.find(o=>o.id===id):null;
       if(id && !original) return jsonResp({ok:false,error:"老师档案不存在，请刷新后重试"},404);
-      for(const key of ["school","contact","agentName","canTeach","preferredDistricts","gradeLevels","availableTimes","preferences","departureLandmark","recentOrderRefs","note"]) {
+      for(const key of ["school","contact","agentName","canTeach","preferredDistricts","gradeLevels","availableTimes","preferences","departureLandmark","recentOrderRefs","interestLocations","note"]) {
         if(raw[key]!=null && (typeof raw[key]!=="string" || raw[key].length>(key==="note"?800:300)))
           return jsonResp({ok:false,error:"老师档案字段长度超限："+key},400);
       }
@@ -222,6 +222,7 @@ export async function onRequest(context) {
         preferences:String(raw.preferences??original?.preferences??"").trim().slice(0,300),
         departureLandmark:String(raw.departureLandmark??original?.departureLandmark??"").trim().slice(0,120),
         recentOrderRefs:String(raw.recentOrderRefs??original?.recentOrderRefs??"").trim().slice(0,300),
+        interestLocations:String(raw.interestLocations??original?.interestLocations??"").trim().slice(0,200),
         availability:raw.availability||original?.availability||"待确认",
         availabilityConfirmedAt:raw.availability && raw.availability!==original?.availability?now:original?.availabilityConfirmedAt||"",
         contact:String(raw.contact||"").trim().slice(0,150),

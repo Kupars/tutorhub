@@ -12,7 +12,7 @@ export const DEFAULT_SALARY = {
 };
 
 const subjectNames = ["数学", "物理", "化学", "生物", "英语", "语文", "地理", "历史", "政治", "编程", "全科"];
-const gradeNames = ["高三", "高二", "高一", "初三", "初二", "初一", "小学", "五年级", "四年级", "三年级", "六年级"];
+const gradeNames = ["高三", "高二", "高一", "初三", "初二", "初一", "五年级", "四年级", "三年级", "六年级", "二年级", "一年级", "小学"];
 const str = (value) => String(value ?? "").trim();
 const pick = (...values) => values.map(str).find(Boolean) || "";
 

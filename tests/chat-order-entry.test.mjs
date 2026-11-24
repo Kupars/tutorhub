@@ -29,3 +29,8 @@ test("历史主单拆分保留主编号并关联原单",()=>{
   assert.deepEqual(result.map(o=>o.orderNumber),["#2770-1","#2770-2"]);
   assert(result.every(o=>o.splitFromId==="old-1"));
 });
+
+test("子单排序跟随原文科目顺序而不是模型输出顺序",()=>{
+  const r=prepareAIDrafts("数学物理分成两单",{orders:[{...sample,subject:"物理"},{...sample,subject:"数学"}]},[{orderNumber:"#3062"}]);
+  assert.deepEqual(r.map(x=>[x.orderNumber,x.subject]),[["#3063-1","数学"],["#3063-2","物理"]]);
+});

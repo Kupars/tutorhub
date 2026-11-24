@@ -56,10 +56,11 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
     if(preference.strict && teacher.gender!==preference.gender)continue;
     const levels=gradeTokens(teacher.gradeLevels),targetGrade=trim(target.grade);
     if(levels.length && targetGrade && !levels.some(x=>gradeMatches(x,targetGrade)))continue;
-    const teacherDays=days(teacher.availableTimes),targetDays=days(target.weeklyFrequency);
+    const teacherDays=days(teacher.availableTimes||teacher.preferences),targetDays=days(target.weeklyFrequency);
     if(teacherDays.length&&targetDays.length&&!targetDays.some(d=>teacherDays.includes(d)))continue;
     const taught=subjectTokens(teacher.canTeach);
     const districts=districtTokens(teacher.preferredDistricts);
+    const interest=trim(teacher.interestLocations).split(/[、，,；;\n]/).map(x=>x.trim()).filter(x=>x&&!/\d{5,}|门牌|室|单元|楼栋|号楼/.test(x));
     const history=candidacies.filter(x=>x.teacherId===teacher.id);
     const previousOrders=history.map(c=>byOrder.get(trim(c.orderId))).filter(Boolean);
     const recentRefs=new Set(String(teacher.recentOrderRefs||"").match(/#\d{3,7}(?:-\d+)?/g)||[]);
@@ -67,7 +68,7 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
     // A repeated historical display label is ambiguous; don't pick an arbitrary address.
     for(const o of recentOrders)if(recentOrders.filter(x=>trim(x.orderNumber||x.id)===trim(o.orderNumber||o.id)).length===1)previousOrders.push(o);
     const legacy=legacyAssignments.filter(a=>trim(a.teacherName)===trim(teacher.name) && trim(a.teacherContact)===trim(teacher.contact));
-    const evidence=previousOrders.concat(legacy);
+    const evidence=previousOrders.concat(legacy,interest.map(publicAddress=>({publicAddress,district:publicAddress.match(/和平区|河西区|南开区|河东区|河北区|红桥区|津南区|西青区|东丽区|北辰区|武清区|滨海新区|宝坻区|静海区|宁河区|蓟州区/)?.[0]||""})));
     let score=0;
     const reasons=[],checks=[];
     if(levels.length&&targetGrade){score+=3;reasons.push("明确可教该年级");}else checks.push("核对可教年级");
@@ -84,7 +85,7 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
       score+=needsAll?10:7;
       reasons.push(needsAll?"明确可教全部要求科目":"可教部分科目："+overlaps.join("、"));
     }
-    if(districts.includes(targetDistrict) && targetDistrict) {
+    if(targetDistrict && (districts.includes(targetDistrict)||trim(teacher.preferences).includes(targetDistrict))) {
       score+=6;reasons.push("明确愿意在该区授课");
     }
     const samePlace=evidence.some(o=>location(o.publicAddress||o.address)===targetAddress && targetAddress.length>=5);
@@ -106,7 +107,7 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
       const distances=evidence.map(o=>km(point(o.publicAddress||o.address,o.district),targetPoint)).filter(d=>d!==null);
       if(distances.length){distanceKm=Math.min(...distances);distanceBasis="历史订单地址与本单地址的直线距离（非老师通勤）";}
     }
-    if(distanceKm!==null){score+=Math.max(0,8-distanceKm/2);reasons.push(distanceBasis+"约"+distanceKm.toFixed(1)+"公里");}
+    if(distanceKm!==null){score+=Math.max(0,8-distanceKm/2);reasons.unshift(distanceBasis+"约"+distanceKm.toFixed(1)+"公里");}
     if(!score)continue;
     result.push({
       teacherId:teacher.id,name:trim(teacher.name),school:trim(teacher.school),

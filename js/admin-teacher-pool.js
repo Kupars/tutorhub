@@ -46,7 +46,7 @@ export function renderTeacherPool(orders,profiles,applications,legacyAssignments
       <div class="teacher-profile-editor" id="teacherProfileEditor">
         <h3>${editing?"编辑老师 · "+h(editing.name):"新增储备老师（无需对应订单）"}</h3>
         <div class="field">
-          <label for="teacherResumeText">粘贴老师简历 / 自荐文字（可选）</label>
+          <label for="teacherResumeText">粘贴老师简历、近期投递或接过的单（可选）</label>
           <textarea id="teacherResumeText" rows="3" placeholder="直接粘贴简历，或写：姓名张某，天津大学在读，男老师，可带数学物理。不必包含微信、手机号。">${h(resumeInput)}</textarea>
         </div>
         <div class="teacher-resume-actions">
@@ -68,6 +68,7 @@ export function renderTeacherPool(orders,profiles,applications,legacyAssignments
           <div class="field"><label for="teacherTimes">明确可上课时段</label><input id="teacherTimes" maxlength="200" value="${h(editing?.availableTimes||"")}" placeholder="例如周六下午、周日"/></div>
           <div class="field"><label for="teacherDeparture">明确出发地（公开地标）</label><input id="teacherDeparture" maxlength="120" value="${h(editing?.departureLandmark||"")}" placeholder="可选，不填私人住址"/></div>
           <div class="field"><label for="teacherRecentOrders">近期投递 / 接过的单号</label><input id="teacherRecentOrders" maxlength="300" value="${h(editing?.recentOrderRefs||"")}" placeholder="#3061 #3062-1；仅作为意向线索"/></div>
+          <div class="field"><label for="teacherInterestLocations">历史订单公开地点</label><input id="teacherInterestLocations" maxlength="200" value="${h(editing?.interestLocations||"")}" placeholder="历史订单的区、小区或公共地标，不是老师住址"/></div>
           <div class="field"><label for="teacherPreferences">接单偏好</label><input id="teacherPreferences" maxlength="300" value="${h(editing?.preferences||"")}" placeholder="例如只接周末，优先附近"/></div>
           <div class="field"><label for="teacherDistricts">明确希望接单的区（可选）</label><input id="teacherDistricts" maxlength="200" value="${h(editing?.preferredDistricts||"")}" placeholder="津南区、河西区，不填也可入库"/></div>
           <div class="field"><label for="teacherAvailability">现在能否接新单</label><select id="teacherAvailability">${statusOpts(editing?.availability)}</select></div>
@@ -227,7 +228,7 @@ export function bindTeacherPool(container,store,rerender,showToast) {
   const readProfile=()=>({id:editingTeacherId||undefined,name:formValue("teacherName"),school:formValue("teacherSchool"),
     gender:formValue("teacherGender"),canTeach:formValue("teacherCanTeach"),gradeLevels:formValue("teacherGrades"),
     availableTimes:formValue("teacherTimes"),preferredDistricts:formValue("teacherDistricts"),departureLandmark:formValue("teacherDeparture"),
-    recentOrderRefs:formValue("teacherRecentOrders"),preferences:formValue("teacherPreferences"),
+    recentOrderRefs:formValue("teacherRecentOrders"),interestLocations:formValue("teacherInterestLocations"),preferences:formValue("teacherPreferences"),
     availability:formValue("teacherAvailability")});
   const matchOrders=()=>{
     const profile=readProfile(),target=document.getElementById("teacherOrderMatches");
@@ -268,7 +269,7 @@ export function bindTeacherPool(container,store,rerender,showToast) {
       if(["在校生","专职老师"].includes(ai.teacherType))document.getElementById("teacherType").value=ai.teacherType;
       if(ai.canTeach&&!document.getElementById("teacherCanTeach").value.trim())
         document.getElementById("teacherCanTeach").value=ai.canTeach;
-      for(const [field,id] of [["gradeLevels","teacherGrades"],["preferredDistricts","teacherDistricts"],["availableTimes","teacherTimes"],["preferences","teacherPreferences"]]){
+      for(const [field,id] of [["gradeLevels","teacherGrades"],["preferredDistricts","teacherDistricts"],["availableTimes","teacherTimes"],["preferences","teacherPreferences"],["recentOrderRefs","teacherRecentOrders"],["interestLocations","teacherInterestLocations"]]){
         if(ai[field]&&!document.getElementById(id).value.trim())document.getElementById(id).value=ai[field];
       }
       matchOrders();

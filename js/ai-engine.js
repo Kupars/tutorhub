@@ -70,7 +70,10 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
   const mainId=singleFamily?root(explicitIds[0]||prev[0]?.id||nextOrderId(reserved)):"";
   const explicitSplit=Boolean(mainId);
   const allocated=new Set();
-  return rawOrders.map((raw,index)=>{
+  const source=String(rawText||"");
+  const position=o=>Math.min(...getSubjectList(o.subject).map(sub=>source.includes(sub)?source.indexOf(sub):Infinity));
+  const ordered=singleFamily?[...rawOrders].sort((a,b)=>position(a)-position(b)):rawOrders;
+  return ordered.map((raw,index)=>{
     const candidate = normalizeOrder(raw || {});
     const stated = String(raw.orderNumber || raw.id || "");
     const old=prev.find(o=>o.id===stated||o.orderNumber===stated) ||
@@ -93,16 +96,16 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
     const known=existingOrders.filter(o=>o.id && String(o.orderNumber||o.id)===id);
     const exactKeys=["grade","subject","studentGender","currentScores","publicAddress","weeklyFrequency","hoursPerSession","teacherCount","requirements","salaryText"];
     const complete=!/待补充|待协商/.test([candidate.grade,candidate.subject,candidate.studentGender,candidate.currentScores,candidate.publicAddress,candidate.weeklyFrequency].join(" "));
-    const exact=!explicitSplit && !explicitIds.length && !old && complete ? existingOrders.filter(o=>o.id&&exactKeys.every(k=>String(normalizeOrder(o)[k])===String(candidate[k]))) : [];
+    const exact=!explicitSplit && !old && complete && !/新学生|另一个学生|重号新单/.test(rawText) ? existingOrders.filter(o=>o.id&&(!explicitIds.length||explicitIds.includes(String(o.orderNumber||o.id)))&&exactKeys.every(k=>String(normalizeOrder(o)[k])===String(candidate[k]))) : [];
     if(exact.length===1&&!allocated.has(String(exact[0].orderNumber||exact[0].id))){
       id=String(exact[0].orderNumber||exact[0].id);
       candidate.existingOrderId=exact[0].id;
     } else if(old?.existingOrderId && id===prevId){
       candidate.existingOrderId=old.existingOrderId;
-    } else if(known.length && explicitIds.includes(id) && /新增|新单|新学生|另一个学生/.test(rawText)){
-      candidate.explicitNumberReuse=true;
     } else if(known.length && explicitIds.includes(id) && /修改|补充|更新|重新发布|重新上架|改为|改成/.test(rawText) && known.length===1){
       candidate.existingOrderId=known[0].id;
+    } else if(known.length && explicitIds.includes(id) && !/修改|补充|更新|重新发布|重新上架|改为|改成/.test(rawText)){
+      candidate.explicitNumberReuse=true;
     }
     if(explicitSplit && prev.length===1 && prev[0].existingOrderId && !/-\d+$/.test(prevId))
       candidate.splitFromId=prev[0].existingOrderId;
