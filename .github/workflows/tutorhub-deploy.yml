@@ -1,0 +1,41 @@
+name: Deploy TutorHub
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '.github/workflows/tutorhub-deploy.yml'
+permissions:
+  contents: read
+concurrency:
+  group: tutorhub-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run tests
+        run: node --test
+      - name: Deploy over restricted SSH
+        shell: bash
+        env:
+          DEPLOY_KEY: ${{ secrets.TUTORHUB_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.TUTORHUB_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/tutorhub_actions"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/tutorhub_known_hosts"
+          trap 'rm -f "$HOME/.ssh/tutorhub_actions" "$HOME/.ssh/tutorhub_known_hosts"' EXIT
+          { printf '%s\n' "$GITHUB_SHA"; git archive --format=tar.gz "$GITHUB_SHA"; } |
+            ssh -T -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/tutorhub_known_hosts" -o ConnectTimeout=15 -i "$HOME/.ssh/tutorhub_actions" -p 36464 tutorhub-deploy@103.236.84.10 deploy
