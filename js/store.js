@@ -185,6 +185,12 @@ export const Store = {
     cloudState.teacherProfiles=response.teacherProfiles;
     return response.profileId;
   },
+  async setTeacherStar(teacherId,starred) {
+    if(!cloudReady || this.getCurrentUser()?.role!=="admin")throw new Error("仅管理员可设置星标");
+    const response=await apiPost({action:"admin_set_teacher_star",teacherId,starred});
+    if(!response?.ok)throw new Error(response?.error||"星标保存失败");
+    cloudState.teacherProfiles=response.teacherProfiles;
+  },
   async setTeacherAvailability(teacherId,availability) {
     if(!cloudReady || this.getCurrentUser()?.role!=="admin")throw new Error("请先登录云端管理员");
     const response=await apiPost({action:"admin_set_teacher_availability",teacherId,availability});
