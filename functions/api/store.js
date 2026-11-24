@@ -206,7 +206,7 @@ export async function onRequest(context) {
       const id=String(raw.id||"").trim();
       const original=id?records.find(o=>o.id===id):null;
       if(id && !original) return jsonResp({ok:false,error:"老师档案不存在，请刷新后重试"},404);
-      for(const key of ["school","contact","agentName","canTeach","preferredDistricts","note"]) {
+      for(const key of ["school","contact","agentName","canTeach","preferredDistricts","gradeLevels","availableTimes","preferences","departureLandmark","recentOrderRefs","note"]) {
         if(raw[key]!=null && (typeof raw[key]!=="string" || raw[key].length>(key==="note"?800:300)))
           return jsonResp({ok:false,error:"老师档案字段长度超限："+key},400);
       }
@@ -217,7 +217,13 @@ export async function onRequest(context) {
         gender:raw.gender||"未知",teacherType:raw.teacherType||"未知",
         canTeach:String(raw.canTeach||"").trim().slice(0,200),
         preferredDistricts:String(raw.preferredDistricts||"").trim().slice(0,200),
-        availability:raw.availability||"待确认",
+        gradeLevels:String(raw.gradeLevels??original?.gradeLevels??"").trim().slice(0,120),
+        availableTimes:String(raw.availableTimes??original?.availableTimes??"").trim().slice(0,200),
+        preferences:String(raw.preferences??original?.preferences??"").trim().slice(0,300),
+        departureLandmark:String(raw.departureLandmark??original?.departureLandmark??"").trim().slice(0,120),
+        recentOrderRefs:String(raw.recentOrderRefs??original?.recentOrderRefs??"").trim().slice(0,300),
+        availability:raw.availability||original?.availability||"待确认",
+        availabilityConfirmedAt:raw.availability && raw.availability!==original?.availability?now:original?.availabilityConfirmedAt||"",
         contact:String(raw.contact||"").trim().slice(0,150),
         agentName:String(raw.agentName||"").trim().slice(0,100),
         note:String(raw.note||"").trim().slice(0,800),
@@ -233,7 +239,7 @@ export async function onRequest(context) {
       if(!statuses.includes(body.availability))return jsonResp({ok:false,error:"老师状态无效"},400);
       const profiles=await kvGet(env.TUTOR_KV,"teacher_profiles",[]);
       if(!profiles.some(p=>p.id===body.teacherId))return jsonResp({ok:false,error:"找不到老师档案"},404);
-      const next=profiles.map(p=>p.id===body.teacherId?{...p,availability:body.availability,updatedAt:new Date().toISOString()}:p);
+      const next=profiles.map(p=>p.id===body.teacherId?{...p,availability:body.availability,availabilityConfirmedAt:new Date().toISOString(),updatedAt:new Date().toISOString()}:p);
       await kvPut(env.TUTOR_KV,"teacher_profiles",next);
       return jsonResp({ok:true,teacherProfiles:next});
     }
