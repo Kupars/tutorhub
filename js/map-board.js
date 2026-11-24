@@ -7,6 +7,11 @@ let originLayer = null;
 let pendingOrders = [];
 let mapLoading = null;
 let firstTilesReady = null;
+let baseTiles = null;
+let schematicLabels = null;
+let tileStatus = null;
+let retryTiles = null;
+let geocodeRetryAfter = 0;
 const GEO_CACHE_KEY = "tutorhub_public_address_geocodes_v2";
 let geocodeCache = {};
 let verifiedIndexLoading = null;
@@ -91,18 +96,14 @@ function loadLeaflet() {
       const stylesheet = document.createElement("link");
       stylesheet.id = "leaflet-map-styles";
       stylesheet.rel = "stylesheet";
-      stylesheet.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-      // 固定官方 Leaflet 1.9.4 SRI，禁止被篡改的第三方脚本运行。
-      stylesheet.integrity = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=";
-      stylesheet.crossOrigin = "anonymous";
+      stylesheet.href = "./css/vendor/leaflet.css?v=1.9.4";
       document.head.append(stylesheet);
     }
     const script = document.createElement("script");
-    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-    script.integrity = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=";
-    script.crossOrigin = "anonymous";
-    script.onload = () => globalThis.L ? resolve(globalThis.L) : reject(new Error("地图脚本不可用"));
-    script.onerror = () => reject(new Error("地图服务加载失败，请检查网络"));
+    script.src = "./js/vendor/leaflet.js?v=1.9.4";
+    const timer = setTimeout(() => { script.remove(); reject(new Error("本站地图组件加载超时")); }, 8000);
+    script.onload = () => { clearTimeout(timer); globalThis.L ? resolve(globalThis.L) : reject(new Error("地图脚本不可用")); };
+    script.onerror = () => { clearTimeout(timer); script.remove(); reject(new Error("本站地图组件加载失败，请刷新页面")); };
     document.head.append(script);
   }).catch((error) => { mapLoading = null; throw error; });
   return mapLoading;
@@ -343,7 +344,7 @@ export function updateMapOrders(orders) {
 }
 
 async function geocodePublicAddresses() {
-  if (geocodeStarted) return;
+  if (geocodeStarted || Date.now() < geocodeRetryAfter) return;
   geocodeStarted = true;
   // 控制并发；仅在地图被打开时请求公开地址，不发送任何内部后台字段。
   const addresses = [...new Set(pendingOrders.map((order) => mapGeocodeQuery(publicAddress(order), order.district)))]
@@ -361,10 +362,11 @@ async function geocodePublicAddresses() {
           body: JSON.stringify({ action: "geocode", address }),
           signal: AbortSignal.timeout(7000) });
         const body = await res.json();
-        if (body?.error?.includes("AMAP_KEY")) {
+        if (body?.error?.includes("AMAP_KEY") || isGeocodeServiceUnavailable(body)) {
           missingKey = true;
           const info = document.getElementById("mapLocationNote");
-          if (info) info.textContent = "当前未配置高德地理编码 Key，地图根据公开地标或区域示意定位；配置 Cloudflare AMAP_KEY 后可按公开地址更精确定位。";
+          geocodeRetryAfter = Date.now() + 120000;
+          if (info) info.textContent = "高德实时地址服务暂不可用（"+(body.errorCode||"未配置或连接失败")+"）；已保留本地地标和区域示意定位。";
           break;
         }
         if (body?.ok && Number.isFinite(body.lat) && Number.isFinite(body.lng)) {
@@ -376,7 +378,7 @@ async function geocodePublicAddresses() {
             renderOrderMarkers();
           } else geocodeCache[address] = { failedAt: Date.now() };
         } else geocodeCache[address] = { failedAt: Date.now() };
-      } catch { geocodeCache[address] = { failedAt: Date.now() }; }
+      } catch { missingKey = true; geocodeRetryAfter = Date.now()+120000; }
     }
   };
   await Promise.all([worker(), worker(), worker()]);
@@ -386,6 +388,58 @@ async function geocodePublicAddresses() {
   if (!missingKey && addresses.length) document.dispatchEvent(new Event("tutorhub-geocodes-updated"));
 }
 
+// Do not negative-cache addresses when the entire upstream service is unavailable.
+export function isGeocodeServiceUnavailable(body) {
+  return Boolean(body && !body.ok && /^(?:AMAP_KEY_NOT_CONFIGURED|AMAP_UPSTREAM_UNREACHABLE|AMAP_UPSTREAM_HTTP|AMAP_INVALID_RESPONSE|100\d{2}|100\d{2}\d)$/.test(String(body.errorCode||"")));
+}
+const SCHEMATIC_DISTRICTS=["和平区","河西区","南开区","河东区","河北区","红桥区","津南区","西青区","东丽区","北辰区","滨海新区","武清区","宝坻区","静海区","宁河区","蓟州区"];
+function showSchematic(L, message) {
+  if(baseTiles){map.removeLayer(baseTiles);baseTiles=null;}
+  map.getContainer().classList.add("map-schematic");
+  if(!schematicLabels){
+    schematicLabels=L.layerGroup();
+    for(const district of SCHEMATIC_DISTRICTS){
+      const point=inferCoordsFromText(district);
+      if(!point)continue;
+      L.marker([point.lat,point.lng],{interactive:false,keyboard:false,zIndexOffset:-100,
+        icon:L.divIcon({className:"map-schematic-label",html:district,iconSize:[68,20],iconAnchor:[34,10]})}).addTo(schematicLabels);
+    }
+  }
+  if(!map.hasLayer(schematicLabels))schematicLabels.addTo(map);
+  tileStatus.textContent=message||"区域分布示意 · 非街道底图";
+  retryTiles.hidden=false;
+}
+function tryStreetTiles(L) {
+  if(baseTiles)return Promise.resolve(false);
+  retryTiles.hidden=true;
+  tileStatus.textContent="尝试加载在线街道底图…";
+  const layer=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'});
+  baseTiles=layer;
+  return new Promise(resolve=>{
+    let settled=false,success=0,failed=0,timer;
+    const finish=ok=>{
+      if(settled)return;settled=true;clearTimeout(timer);
+      layer.off("tileload",onLoad);layer.off("tileerror",onError);layer.off("load",onBatch);
+      if(ok){
+        map.getContainer().classList.remove("map-schematic");
+        if(schematicLabels&&map.hasLayer(schematicLabels))map.removeLayer(schematicLabels);
+        tileStatus.textContent="在线街道底图";
+      }else showSchematic(L,"街道底图不可达 · 当前为区域分布示意");
+      resolve(ok);
+    };
+    const onLoad=()=>{success++;};
+    const onError=()=>{failed++;if(failed>=4&&!success)finish(false);};
+    const onBatch=()=>finish(success>0&&success>=failed);
+    timer=setTimeout(()=>finish(success>0&&success>=failed),4500);
+    layer.on("tileload",onLoad);layer.on("tileerror",onError);layer.on("load",onBatch);
+    layer.addTo(map);
+    // Subsequent viewport changes may also lose access. Never present an empty map as street coverage.
+    let laterFailures=0;
+    layer.on("tileload",()=>{laterFailures=0;});
+    layer.on("tileerror",()=>{if(settled&&baseTiles===layer&&++laterFailures>=5)showSchematic(L,"街道底图暂不可达 · 当前为区域分布示意");});
+  });
+}
 export function updateMapOrigin(origin) {
   if (!map || !originLayer) return;
   originLayer.clearLayers();
@@ -404,23 +458,21 @@ export async function openMapBoard(origin) {
     // 手机初次进入要一眼看见若干家教标记，不要因为默认过度放大而像空地图。
     const initialZoom = globalThis.matchMedia?.("(max-width: 640px)").matches ? 10 : 11;
     map = L.map("tutorMap", { zoomControl: true }).setView(hasOrigin ? [origin.lat, origin.lng] : [39.115, 117.215], initialZoom);
-    const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 18,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
-    });
-    // 地图区域单独等待首批底图瓦片；不会遮挡已经可用的家教列表。
-    firstTilesReady = new Promise((resolve) => {
-      let settled = false;
-      const done = (loaded) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(loaded);
-      };
-      const timer = setTimeout(() => done(false), 7000);
-      tiles.once("load", () => done(true));
-    });
-    tiles.addTo(map);
+    const control=L.control({position:"topright"});
+    control.onAdd=()=>{
+      const box=L.DomUtil.create("div","map-basemap-control");
+      tileStatus=L.DomUtil.create("span","map-basemap-status",box);
+      retryTiles=L.DomUtil.create("button","map-basemap-retry",box);
+      retryTiles.type="button";retryTiles.textContent="尝试街道底图";
+      L.DomEvent.disableClickPropagation(box);
+      retryTiles.onclick=()=>{void tryStreetTiles(L);};
+      return box;
+    };
+    control.addTo(map);
+    // Immediate first paint works without external CDN, tiles or geocoding.
+    showSchematic(L,"区域分布示意 · 非街道底图");
+    firstTilesReady=Promise.resolve(false);
+    void tryStreetTiles(L);
     orderLayer = L.layerGroup().addTo(map);
     originLayer = L.layerGroup().addTo(map);
     map.on("zoomend", renderOrderMarkers);

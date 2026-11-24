@@ -1,10 +1,10 @@
-// Cloudflare Pages Function: /api/commute
-// 可选配置高德地图 Web 服务 Key（环境变量 AMAP_KEY），支持地址地理编码与骑行/公交实时耗时
+// /api/commute (Cloudflare Pages or VPS)
+// Server-side AMap Web Service key. Never return the key or upstream request URLs.
 
 export async function onRequestPost(context) {
   const { request, env } = context;
   if (!env.AMAP_KEY) {
-    return jsonResp({ ok: false, error: "AMAP_KEY 未配置，使用前端估算" });
+    return jsonResp({ ok: false, error: "AMAP_KEY 未配置，使用前端估算", errorCode:"AMAP_KEY_NOT_CONFIGURED" });
   }
   try {
     const body = await request.json();
@@ -19,7 +19,8 @@ export async function onRequestPost(context) {
       suggestUrl.searchParams.set("datatype", "poi");
       suggestUrl.searchParams.set("key", env.AMAP_KEY);
       const response = await fetch(suggestUrl.toString(), { signal: AbortSignal.timeout(6500) });
-      const data = await response.json();
+      const data = await readAmap(response);
+      if(data.status!=="1")return amapFailure(data,{suggestions:[]});
       const suggestions = (Array.isArray(data.tips) ? data.tips : []).slice(0, 10).flatMap((tip) => {
         if (typeof tip.location !== "string") return [];
         const [lng, lat] = tip.location.split(",").map(Number);
@@ -42,7 +43,8 @@ export async function onRequestPost(context) {
       searchUrl.searchParams.set("offset", "10");
       searchUrl.searchParams.set("key", env.AMAP_KEY);
       const result = await fetch(searchUrl.toString(), { signal: AbortSignal.timeout(20000) });
-      const data = await result.json();
+      const data = await readAmap(result);
+      if(data.status!=="1")return amapFailure(data,{candidates:[]});
       const candidates = (Array.isArray(data.pois) ? data.pois : []).flatMap((poi) => {
         if (typeof poi.location !== "string") return [];
         const [lng, lat] = poi.location.split(",").map(Number);
@@ -64,7 +66,8 @@ export async function onRequestPost(context) {
       if (city) geoUrl.searchParams.set("city", city);
       geoUrl.searchParams.set("key", env.AMAP_KEY);
       const geoRes = await fetch(geoUrl.toString(), { signal: AbortSignal.timeout(9000) });
-      const geoData = await geoRes.json();
+      const geoData = await readAmap(geoRes);
+      if(geoData.status!=="1")return amapFailure(geoData);
       const place = geoData?.geocodes?.[0];
       const loc = place?.location;
       if (geoData?.status !== "1" || typeof loc !== "string") return jsonResp({ ok: false, error: geoData?.info || "未找到匹配地址" });
@@ -79,31 +82,44 @@ export async function onRequestPost(context) {
 
     // 2. 骑行 + 公交耗时估算
     const { origin, dest, city = "天津" } = body;
+    if(![origin?.lat,origin?.lng,dest?.lat,dest?.lng].every(Number.isFinite)||Math.abs(origin.lat)>90||Math.abs(dest.lat)>90||Math.abs(origin.lng)>180||Math.abs(dest.lng)>180)return jsonResp({ok:false,error:"请求参数无效",errorCode:"INVALID_COORDINATES"},400);
     const oStr = `${origin.lng},${origin.lat}`;
     const dStr = `${dest.lng},${dest.lat}`;
 
     const [bikeRes, transitRes] = await Promise.all([
-      fetch(`https://restapi.amap.com/v4/direction/bicycling?origin=${oStr}&destination=${dStr}&key=${env.AMAP_KEY}`),
-      fetch(`https://restapi.amap.com/v3/direction/transit/integrated?origin=${oStr}&destination=${dStr}&city=${encodeURIComponent(city)}&key=${env.AMAP_KEY}`)
+      fetch(`https://restapi.amap.com/v4/direction/bicycling?origin=${oStr}&destination=${dStr}&key=${encodeURIComponent(env.AMAP_KEY)}`,{signal:AbortSignal.timeout(9000)}),
+      fetch(`https://restapi.amap.com/v3/direction/transit/integrated?origin=${oStr}&destination=${dStr}&city=${encodeURIComponent(city)}&key=${encodeURIComponent(env.AMAP_KEY)}`,{signal:AbortSignal.timeout(9000)})
     ]);
 
-    const bikeData = await bikeRes.json();
-    const transitData = await transitRes.json();
+    const bikeData = await readAmap(bikeRes);
+    const transitData = await readAmap(transitRes);
+    if(String(bikeData.errcode??"0")!=="0" && transitData.status!=="1")return amapFailure(transitData);
 
     const bikePath = bikeData?.data?.paths?.[0];
     const transitPath = transitData?.route?.transits?.[0];
 
     return jsonResp({
-      ok: true,
+      ok: Boolean(bikePath||transitPath),
+      ...(!bikePath&&!transitPath?{error:"未找到可用路线",errorCode:"NO_ROUTE"}:{}),
       distanceKm: bikePath ? Number((Number(bikePath.distance) / 1000).toFixed(1)) : null,
       bikeMin: bikePath ? Math.max(3, Math.round(Number(bikePath.duration) / 60)) : null,
       transitMin: transitPath ? Math.max(5, Math.round(Number(transitPath.duration) / 60)) : null
     });
   } catch (err) {
-    return jsonResp({ ok: false, error: String(err) }, 500);
+    const code=["AMAP_UPSTREAM_HTTP","AMAP_INVALID_RESPONSE"].includes(err?.message)?err.message:"AMAP_UPSTREAM_UNREACHABLE";
+    return jsonResp({ok:false,error:"高德服务连接或响应异常",errorCode:code},502);
   }
 }
 
+async function readAmap(response){
+ if(!response.ok)throw new Error("AMAP_UPSTREAM_HTTP");
+ try{return await response.json();}catch{throw new Error("AMAP_INVALID_RESPONSE");}
+}
+function amapFailure(data,extra={}){
+ const code=String(data?.infocode??data?.errcode??"AMAP_INVALID_RESPONSE");
+ const safeCode=/^\d{5}$/.test(code)?code:"AMAP_INVALID_RESPONSE";
+ return jsonResp({ok:false,...extra,error:"高德服务返回错误（"+safeCode+"）",errorCode:safeCode});
+}
 function jsonResp(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,

@@ -1,7 +1,7 @@
 import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=5";
-import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=10";
+import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=11";
 import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=10";
 import { Store } from "./store.js?v=9";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
@@ -1560,6 +1560,7 @@ async function suggestMapCandidates(text) {
     });
     const result = await res.json();
     if (version !== mapSearchVersion || $("mapSearchInput").value.trim() !== text) return;
+    if (!result.ok && result.errorCode) $( "mapLocationNote" ).textContent = "高德地点搜索暂不可用（"+result.errorCode+"），仍可选择本地预设和已知地点。";
     if (result.ok && Array.isArray(result.suggestions)) {
       const combined = [...result.suggestions, ...local];
       showMapCandidates(combined.filter((place, i) => combined.findIndex((other) => other.name === place.name && other.district === place.district) === i).slice(0, 10));
