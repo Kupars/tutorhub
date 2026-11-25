@@ -206,9 +206,9 @@ export function splitOrderBySubject(order) {
   const o = normalizeOrder(order);
   const subjects = getSubjectList(o.subject);
   if (subjects.length <= 1) return [o];
-  const parentId = o.id.replace(/-\d+$/, "");
+  const parentId = (o.orderNumber||o.id).replace(/-\d+$/, "");
   return subjects.map((subject, i) => normalizeOrder({
-    ...o, id: `${parentId}-${i + 1}`, subject,
+    ...o, id: `${parentId}-${i + 1}`, orderNumber: `${parentId}-${i + 1}`, subject,
     currentScores: o.currentScores.includes(subject)
       ? (o.currentScores.split(/[，,；;]/).find((part) => part.includes(subject)) || o.currentScores)
       : (o.currentScores === "成绩待补充" ? o.currentScores : "成绩待补充"),
@@ -216,7 +216,14 @@ export function splitOrderBySubject(order) {
   }));
 }
 
+export function assertMergeConditions(orders){
+  const normalized=orders.map(o=>normalizeOrder(o));
+  const names={salaryText:"薪资",weeklyFrequency:"时间频率",hoursPerSession:"课时",mode:"授课方式",onlineAllowed:"网课",trialTime:"试课时间",genderPref:"教师性别",notes:"备注"};
+  const conflicts=Object.keys(names).filter(k=>new Set(normalized.map(o=>String(o[k]??""))).size>1);
+  if(conflicts.length)throw new Error("授课条件不同："+conflicts.map(k=>names[k]).join("、")+"；请先统一再合并");
+}
 export function mergeOrders(orders, mainId) {
+  assertMergeConditions(orders);
   if (!orders.length) throw new Error("没有可合并的家教单");
   const base = normalizeOrder(orders.find((o) => o.id === mainId) || orders[0]);
   const subjects = [...new Set(orders.flatMap((o) => getSubjectList(o.subject)))].join("、");

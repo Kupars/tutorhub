@@ -3,7 +3,7 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=14";
-import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=13";
+import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=14";
 import { Store } from "./store.js?v=9";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
@@ -13,7 +13,7 @@ import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
 import { MULTI_FILTER_LABELS, MULTI_FILTER_OPTIONS, matchesMultiFilters, normalizeMultiSelection, countSelectedFilters } from "./multi-filter.js?v=1";
 
-import { splitDraftSubjects, mergeDraftSubjects, groupDraftsUnderParent, checkDraftIds, missingDraftFields } from "./draft-grouping.js?v=4";
+import { splitDraftSubjects, mergeDraftSubjects, groupDraftsUnderParent, checkDraftIds, missingDraftFields } from "./draft-grouping.js?v=5";
 
 const state = {
   view: "hall",
@@ -686,8 +686,8 @@ function renderPartTime() {
 
 function fillManualOrder(order) {
   const o = normalizeOrder(order);
-  $("manualId").value = o.id;
-  $("manualId").readOnly = true;
+  $("manualId").value = o.orderNumber||o.id;
+  $("manualId").readOnly = false;
   if (![...$("manualGrade").options].some((option) => option.value === o.grade)) {
     $("manualGrade").add(new Option(o.grade, o.grade));
   }
@@ -718,6 +718,7 @@ function collectManualOrder(original = {}) {
   return normalizeOrder({
     ...original,
     id: original.id || ($("manualId").value.trim().startsWith("#") ? $("manualId").value.trim() : `#${$("manualId").value.trim()}`),
+    orderNumber: "#"+$("manualId").value.trim().replace(/^#/,""),
     grade, subject, title,
     studentGender: $("manualStudentGender").value,
     teacherCount: Number($("manualTeacherCount").value),
@@ -873,7 +874,7 @@ function renderAdminView() {
 
     <div class="panel admin-module-page" data-admin-page="manual" ${openedPage==="manual"?"":"hidden"}>
       <h2>✍️ ${state.editingOrderId ? "编辑已有家教单" : "新增家教单"} <span class="chip">九字段标准模板</span></h2>
-      <p class="admin-helper">家长微信可以直接粘贴到下方 AI 整理区；也可以手动填表。发布时自动优化公开地址表述，不会猜测未提供的小区或门牌。</p>
+      <p class="admin-helper">家长微信可以直接粘贴到下方 AI 整理区；也可以手动填表。手动录单无需 AI 即可保存；请只填写公开地址。</p>
       <form id="manualOrderForm">
         <div class="admin-manual-grid">
           <div class="field"><label for="manualId">编号</label><input id="manualId" required value="${escapeHtml(state.editingOrderId || nextOrderId([...orders, { orderNumber: `#${Store.getOrderSequence()}` }]))}" placeholder="#2992" /></div>
@@ -1060,10 +1061,12 @@ function renderAdminView() {
     const saveButton = $("btnSaveManual");
     const saveLabel = saveButton.textContent;
     saveButton.disabled = true;
-    saveButton.textContent = "正在优化公开地址…";
+    saveButton.textContent = "正在保存…";
     try {
       const old = orders.find((o) => o.id === state.editingOrderId);
-      const [item] = await optimizeOrderAddressesWithAI([collectManualOrder(old || {})]);
+      const item=collectManualOrder(old||{});
+      if(!/^#\d{3,7}(?:-\d+)?$/.test(item.orderNumber))return showToast("请填写有效编号");
+      if(Store.getOrders().some(o=>o.id!==old?.id&&o.orderNumber===item.orderNumber))return showToast("编号已被其他订单使用");
       if (!item.subject || item.subject === "科目待补充") return showToast("请填写补习科目");
       if (!confirmDuplicateRisks([item], old ? [old.id] : [])) return;
       if (old) await Store.updateOrder(old.id, item);
@@ -1380,11 +1383,16 @@ function renderAdminView() {
     btn.onclick = () => {
       const item = Store.getOrders().find((o) => o.id === btn.dataset.splitOrder);
       if (!item) return;
-      state.parsedDraftOrders = splitOrderBySubject(item);
+      if(state.aiDraftBusy)return;
+      if(state.parsedDraftOrders.length&&!confirm("拆单将替换当前草稿，继续吗？"))return;
+      const children=splitOrderBySubject(item);
+      if(children.length<2)return showToast("只有一个科目，无需拆单");
+      state.parsedDraftOrders=children.map(o=>({...o,splitFromId:item.id}));
+      state.aiDraftHistory=[];state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
       state.adminPage = "aiOrders";
       renderAdminView();
       $("parsedPreview").scrollIntoView({ behavior: "smooth", block: "start" });
-      showToast("已生成子编号草稿；发布后原单保留，可手动下架");
+      showToast("已生成子编号草稿；发布时自动下架原主单");
     };
   });
   $("btnMergeSelected").onclick = async () => {
@@ -1520,7 +1528,7 @@ function renderParsedPreview() {
       const i=Number(btn.dataset.splitDraft);
       const keys=getSubjectList(state.parsedDraftOrders[i].subject).map(s=>i+"::"+s);
       state.parsedDraftOrders=splitDraftSubjects(state.parsedDraftOrders,keys);
-      state.selectedDraftSubjects.clear();renderAdminView();
+      state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();renderAdminView();
     };
   });
   wrap.querySelectorAll("[data-copy-draft]").forEach(btn=>{
@@ -1530,7 +1538,7 @@ function renderParsedPreview() {
     btn.onclick=()=>{
       syncDraftTextareas();
       state.parsedDraftOrders.splice(Number(btn.dataset.removeDraft),1);
-      state.selectedDraftSubjects.clear();renderAdminView();
+      state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();renderAdminView();
     };
   });
 }

@@ -86,8 +86,9 @@ export async function recommendOrdersWithAI(orders, preference = "balanced") {
 export function explicitDraftRenumber(instruction, previousDrafts = []) {
   if (!previousDrafts.length) return null;
   const text = String(instruction || "").normalize("NFKC").trim();
-  const pair = text.match(/(?:把|将)?\s*#(\d{3,7}(?:-\d+)?)\s*(?:的)?\s*(?:编号|单号)?\s*(?:改为|改成|改到|改作|更正为|调整为|换成|换为|应为|应该是|不是)\s*#?(\d{3,7}(?:-\d+)?)(?=$|[\s，。；、,.!?！？])/);
-  const named = [...text.matchAll(/(?:编号|单号)\s*(?:应该是|应为|不是|改为|改成|改到|更正为|调整为|换成|换为|就是|是|为|[:：])?\s*#?(\d{3,7}(?:-\d+)?)(?=$|[\s，。；、,.!?！？])/g)];
+  if(/(?:编号|单号)\s*(?:不是|不要|别改|不改)|(?:不要|别|不用)\s*(?:修改|改|调整).{0,6}(?:编号|单号)/.test(text)&&!/(?:而是|正确的是|应该是|改成|改为)\s*#?\d{3,7}/.test(text))return null;
+  const pair = text.match(/(?:把|将)?\s*#(\d{3,7}(?:-\d+)?)\s*(?:的)?\s*(?:编号|单号)?\s*(?:改为|改成|改到|改作|更正为|调整为|换成|换为|应为|应该是)\s*#?(\d{3,7}(?:-\d+)?)(?=$|[\s，。；、,.!?！？])/);
+  const named = [...text.matchAll(/(?:编号|单号)\s*(?:应该是|应为|改为|改成|改到|更正为|调整为|换成|换为|就是|是|为|[:：])?\s*#?(\d{3,7}(?:-\d+)?)(?=$|[\s，。；、,.!?！？])/g)];
   const standalone = text.match(/(?:^|[。！？；;,\n，])\s*(?:嗯[，,]?\s*)?(?:应该是|应为|就是|是|改成|改为|更正为)?\s*#?(\d{3,7}(?:-\d+)?)\s*[。！？.!?]?\s*$/);
   const targets = [...new Set((pair ? [pair[2]] : named.length ? named.map(m=>m[1]) : standalone ? [standalone[1]] : []).map(n=>"#"+n))];
   if (!targets.length) return null;
@@ -109,6 +110,12 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
   const reserved = [...existingOrders];
   let explicitIds = [...new Set([...String(rawText || "").matchAll(/#\d{3,7}(?:-\d+)?/g)].map(m=>m[0]))];
   const prev = Array.isArray(previousDrafts) ? previousDrafts : [];
+  if(!prev.length){
+    const text=String(rawText||"").normalize("NFKC");
+    const named=[...text.matchAll(/(?:编号|单号)\s*(?:是|为|[:：])?\s*#?(\d{3,7}(?:-\d+)?)(?=$|[\s，。；、,.!?！？])/g)].map(m=>"#"+m[1]);
+    const last=text.match(/(?:^|[。；;,\n，])\s*(?:编号|单号|是|就是|应该是)\s*[:：]?\s*#?(\d{3,7}(?:-\d+)?)\s*[。！？.!?]?\s*$/);
+    explicitIds=[...new Set([...explicitIds,...named,...(last?["#"+last[1]]:[])])];
+  }
   const renumber = explicitDraftRenumber(rawText,prev);
   if (renumber && (existingOrders.some(o=>o.id && (o.id===renumber.number || o.orderNumber===renumber.number)) ||
     prev.some(o=>o!==renumber.old && (o.id===renumber.number || o.orderNumber===renumber.number))))
@@ -207,11 +214,57 @@ export async function parseMessyOrders(rawText, existingOrders = [], history = [
     orders:prepareAIDrafts(rawText,result,existingOrders)};
 }
 
+const patchFields=new Set(["grade","subject","studentGender","teacherCount","currentScores","address","publicAddress","district","weeklyFrequency","sessionsPerWeek","hoursPerSession","requirements","salaryText","mode","onlineAllowed","trialTime","notes","genderPref","urgent","omitStudentGender","groupingDecision","groupingReason"]);
+export function applyDraftPatches(instruction,result,drafts,existingOrders=[]){
+  const rename=explicitDraftRenumber(instruction,drafts);
+  const items=result?.orders;
+  if(!Array.isArray(items)||!items.length||items.length>30)throw new Error("AI 未返回有效修改，原草稿保留");
+  const changes=new Map();
+  for(const item of items){
+    const id=String(item?.id||item?.orderNumber||"");
+    if(drafts.filter(o=>(o.orderNumber||o.id)===id).length!==1||changes.has(id))throw new Error("AI 修改对象不明确，原草稿保留");
+    const patch=item.changes;
+    if(!patch||typeof patch!=="object"||Array.isArray(patch))throw new Error("模型未按字段返回修改，请重试，原草稿保留");
+    for(const [k,v] of Object.entries(patch)){
+      if(!patchFields.has(k))throw new Error("不允许修改字段："+k);
+      if(["teacherCount","sessionsPerWeek","hoursPerSession"].includes(k)){if(typeof v!=="number"||!Number.isFinite(v)||v<0||(k!=="sessionsPerWeek"&&v===0))throw new Error("无效数值："+k);}
+      else if(["onlineAllowed","urgent","omitStudentGender"].includes(k)){if(typeof v!=="boolean")throw new Error("无效开关："+k);}
+      else if(typeof v!=="string"||v.length>2000)throw new Error("无效字段："+k);
+      if(["grade","subject"].includes(k)&&!v.trim())throw new Error("年级科目不可清空");
+    }
+    changes.set(id,patch);
+  }
+  if(rename&&(existingOrders.some(o=>o.id&&(o.id===rename.number||o.orderNumber===rename.number))||drafts.some(o=>o!==rename.old&&(o.id===rename.number||o.orderNumber===rename.number))))throw new Error("编号 "+rename.number+" 已存在");
+  return drafts.map(old=>{
+    const patch=changes.get(old.orderNumber||old.id)||{};
+    if(!Object.keys(patch).length&&rename?.old!==old)return old;
+    const raw={...old,...patch},fields=new Set(Object.keys(patch));
+    if("address" in patch||"publicAddress" in patch){
+      if(!("publicAddress" in patch))raw.publicAddress=patch.address;
+      if(!("address" in patch))raw.address=patch.publicAddress;
+      if(!("district" in patch))delete raw.district;
+      for(const k of ["address","publicAddress","district"])fields.add(k);
+    }
+    if("weeklyFrequency" in patch){if(!("sessionsPerWeek" in patch))delete raw.sessionsPerWeek;fields.add("sessionsPerWeek");}
+    if("salaryText" in patch){raw.hourlyRate=0;fields.add("hourlyRate");}
+    if("grade" in patch||"subject" in patch){delete raw.title;fields.add("title");}
+    if(rename?.old===old){raw.id=raw.orderNumber=rename.number;fields.add("id");fields.add("orderNumber");}
+    const next=normalizeOrder(raw),out={...old};
+    for(const k of fields)out[k]=next[k];
+    if(rename?.old===old){delete out.explicitNumberReuse;delete out.splitFromId;}
+    return out;
+  });
+}
+export function structuralDraftRevision(text){
+  return /拆单|拆分|分成.{0,12}单|合并|合成.{0,8}单|另加.{0,8}单|新增.{0,8}单|删除.{0,8}草稿|移除.{0,8}草稿|分别招|各科.{0,6}老师|每科.{0,6}老师/.test(String(text||""));
+}
 export async function reviseDraftsWithAI(instruction, drafts, history = [], existingOrders = [], onProgress) {
   if (!Array.isArray(drafts) || !drafts.length) throw new Error("请先整理出草稿");
   const renumber=explicitDraftRenumber(instruction,drafts);
   const result = await callServerlessAI("revise_drafts", { instruction, drafts, history },onProgress);
-  const orders=prepareAIDrafts(instruction,result,existingOrders,drafts);
+  const structural=structuralDraftRevision(instruction);
+  if(structural&&renumber)throw new Error("拆合单与改号请分别操作");
+  const orders=structural?prepareAIDrafts(instruction,result,existingOrders,drafts):applyDraftPatches(instruction,result,drafts,existingOrders);
   const reply=renumber ? "草稿编号已由 "+renumber.oldNumber+" 更新为 "+renumber.number+"，请核对其余字段后发布。" : String(result.reply || "");
   return {source:result.provider || "外部模型 API", reply,
     groupingNotes:result.groupingNotes || [], questions:result.questions || [], timing:result.timing, orders};

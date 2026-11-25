@@ -1,6 +1,6 @@
 // 管理员自己决定科目的拆分与合并。只改变未发布草稿，不修改已发布订单。
 // 正式单号由每次发布前的序号检查保护，不把不同家庭自动合并。
-import { getSubjectList, normalizeOrder, nextOrderId } from "./order-format.js";
+import { getSubjectList, normalizeOrder, nextOrderId, assertMergeConditions } from "./order-format.js";
 
 const text = (x) => String(x || "").trim();
 const rootId = (id) => text(id).replace(/-\d+$/,"");
@@ -36,7 +36,8 @@ export function splitDraftSubjects(drafts, selected) {
     const left=subs.filter(s=>!hit.includes(s));
     const groups=left.length?[...hit.map(s=>[s]),left]:hit.map(s=>[s]);
     if(groups.length<2){result.push(draft);continue;}
-    const root=rootId(draft.id);
+    if(draft.existingOrderId||draft.splitFromId)throw new Error("历史关联草稿请在订单管理拆分");
+    const root=rootId(draft.orderNumber||draft.id);
     const ids=groups.map(()=>newSuffix(root,occupied));
     result.push(...groups.map((parts,j)=>rewrite(draft,parts,ids[j])));
   }
@@ -58,6 +59,8 @@ export function mergeDraftSubjects(drafts, selected, confirmSameStudent=false) {
     else if(left.length)remnants.push(rewrite(o,left,newSuffix(rootId(o.id),occupied)));
   }
   if(selectedChunks.length<2) throw new Error("至少从两条草稿中各选一个科目，才能合并");
+  assertMergeConditions(selectedChunks.map(x=>x.o));
+  if(selectedChunks.some(x=>x.o.existingOrderId||x.o.splitFromId))throw new Error("历史关联草稿请在订单管理处理");
   const base=selectedChunks[0].o;
   const grade=text(base.grade),gender=text(base.studentGender);
   const address=text(base.publicAddress||base.address).replace(/天津市|\s/g,"");
@@ -113,6 +116,7 @@ export function groupDraftsUnderParent(drafts,indices,existingOrders=[]) {
   const list=Array.isArray(drafts)?drafts:[];
   const selected=[...new Set(indices||[])].map(Number).filter(i=>Number.isInteger(i)&&i>=0&&i<list.length).sort((a,b)=>a-b);
   if(selected.length<2)throw new Error("请先勾选至少两条属于同一来源需求的草稿");
+  if(selected.some(i=>list[i].existingOrderId||list[i].splitFromId))throw new Error("历史关联草稿不能重新编组");
   const first=list[selected[0]];
   const id=text(first.orderNumber||first.id);
   const root=/^#\d{3,7}(?:-\d+)?$/.test(id)?rootId(id):
