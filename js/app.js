@@ -828,9 +828,10 @@ function renderAdminView() {
 
   restoreDraftWorkspace();
   const orders = Store.getOrders();
-  const addressQueue = orders.filter((o) => o.mode !== "线上" && (!getPublicMapLocation(o) || getPublicMapLocation(o)?.fallback));
+  const addressQueue = orders.filter((o) => o.status!=="已删除" && o.mode !== "线上" && (!getPublicMapLocation(o) || getPublicMapLocation(o)?.fallback));
   const search = state.adminQuery.toLowerCase().trim();
   const adminFilteredOrders = orders.filter((o) => {
+    if(state.adminStatus==="trash"?o.status!=="已删除":o.status==="已删除")return false;
     if (state.adminStatus === "open" && !isPubliclyOpenOrder(o)) return false;
     if (state.adminStatus === "closed" && isPubliclyOpenOrder(o)) return false;
     if (state.adminStatus === "address" && !addressQueue.some((item) => item.id === o.id)) return false;
@@ -993,14 +994,16 @@ function renderAdminView() {
       <div class="admin-bulk-toolbar">
         <input id="adminOrderSearch" type="search" aria-label="搜索后台家教单" placeholder="搜索单号 / 小区 / 科目 / 要求" value="${escapeHtml(state.adminQuery)}" />
         <select id="adminOrderStatus" aria-label="按状态筛选后台家教单">
-          <option value="all" ${state.adminStatus === "all" ? "selected" : ""}>全部（${orders.length}）</option>
+          <option value="all" ${state.adminStatus === "all" ? "selected" : ""}>全部（${orders.filter(o=>o.status!=="已删除").length}）</option>
           <option value="open" ${state.adminStatus === "open" ? "selected" : ""}>展示中（${orders.filter(isPubliclyOpenOrder).length}）</option>
-          <option value="closed" ${state.adminStatus === "closed" ? "selected" : ""}>已关闭（${orders.filter((o) => !isPubliclyOpenOrder(o)).length}）</option>
+          <option value="closed" ${state.adminStatus === "closed" ? "selected" : ""}>已关闭（${orders.filter(o=>o.status!=="已删除"&&!isPubliclyOpenOrder(o)).length}）</option>
+          <option value="trash" ${state.adminStatus === "trash" ? "selected" : ""}>回收站（${orders.filter(o=>o.status==="已删除").length}）</option>
           <option value="address" ${state.adminStatus === "address" ? "selected" : ""}>地址待核验（${addressQueue.length}）</option>
         </select>
         <button class="btn btn-sm" type="button" id="btnAdminSelectPage">选中本页</button>
         <button class="btn btn-sm" type="button" id="btnAdminClearSelected">取消选中</button>
       </div>
+      <details class="ai-workspace-advanced"><summary>备份与操作日志</summary><div class="admin-bulk-toolbar"><button class="btn btn-sm" id="btnExportBackup" type="button">下载当前备份</button><input id="backupDate" type="date" aria-label="备份日期（UTC）"/><button class="btn btn-sm" id="btnExportPastBackup" type="button">下载指定日期备份</button><button class="btn btn-sm" id="btnAuditLog" type="button">查看操作日志</button></div><p class="admin-helper">每日首次写入前保存快照（UTC日期，保留30天）。备份包含私人档案，请妥善保存；不包含模型密钥。</p><div id="adminAuditOutput" class="admin-helper"></div></details>
       <div class="admin-bulk-toolbar">
         <span id="adminSelectedCount">已选择 ${adminCheckedOrders.size} 条 · 当前筛选 ${adminFilteredOrders.length} 条</span>
         <button class="btn btn-sm" id="btnAdminBatchClose" type="button">批量关闭展示</button>
@@ -1013,7 +1016,7 @@ function renderAdminView() {
           <div style="border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <div>
               <label style="display:inline-flex;gap:8px;align-items:center;">
-                <input type="checkbox" data-merge-id="${escapeHtml(o.id)}" ${adminCheckedOrders.has(o.id) ? "checked" : ""} style="width:auto;" aria-label="选中 ${escapeHtml(o.id)} 用于批量管理" />
+                <input type="checkbox" data-merge-id="${escapeHtml(o.id)}" ${o.status==="已删除"?"disabled":""} ${adminCheckedOrders.has(o.id) ? "checked" : ""} style="width:auto;" aria-label="选中 ${escapeHtml(o.id)} 用于批量管理" />
                 <strong>${escapeHtml(o.orderNumber||o.id)}</strong>
               </label>
               · ${escapeHtml(o.title)} <span class="chip">${escapeHtml(o.salaryText)}</span>
@@ -1021,12 +1024,12 @@ function renderAdminView() {
               ${addressQueue.some((item) => item.id === o.id) ? `<span class="chip">📍 区/镇中心示意</span><small style="display:block;color:var(--muted)">公开地点：${escapeHtml(o.publicAddress || o.address || o.district || "未提供")}</small>` : ""}
             </div>
             <div style="display:flex;gap:6px;">
-              <button class="btn btn-sm" data-edit-order="${escapeHtml(o.id)}">编辑</button>
+              ${o.status==="已删除"?`<small class="admin-helper">${escapeHtml(String(o.deletedAt||"").slice(0,10))} 移入回收站</small><button class="btn btn-sm" data-restore-order="${escapeHtml(o.id)}">恢复</button>`:`<button class="btn btn-sm" data-edit-order="${escapeHtml(o.id)}">编辑</button>
               <button class="btn btn-sm" data-open-app="${escapeHtml(o.id)}">登记投递</button>
               ${addressQueue.some((item) => item.id === o.id) ? `<button class="btn btn-sm" data-fix-address="${escapeHtml(o.id)}">核对地址</button>` : ""}
               ${getSubjectList(o.subject).length > 1 ? `<button class="btn btn-sm" data-split-order="${escapeHtml(o.id)}">按科目拆单</button>` : ""}
               <button class="btn btn-sm" data-toggle-status="${escapeHtml(o.id)}">${isPubliclyOpenOrder(o) ? "关闭展示" : "重新上架"}</button>
-              <button class="btn btn-danger btn-sm" data-del-order="${o.id}">删除</button>
+              <button class="btn btn-danger btn-sm" data-del-order="${escapeHtml(o.id)}">移入回收站</button>`}
             </div>
           </div>
         `).join("") : '<p class="admin-helper">当前筛选条件下没有家教单。</p>'}
@@ -1217,22 +1220,25 @@ function renderAdminView() {
     if(items.some(o=>{const m=String(o.salaryText||"").match(/(\d+(?:\.\d+)?)\s*[～~—-]\s*(\d+(?:\.\d+)?)/);return m&&Number(m[1])>Number(m[2]);}))return showToast("薪资区间上下限颠倒，请先核对");
     const missing=items.filter(o=>missingDraftFields(o).length);
     if(missing.length&&!confirm("有 "+missing.length+" 条草稿含待核实字段。确认按实际已知信息发布，不自动补造？"))return;
+    const fingerprint=JSON.stringify(items);
+    const retrying=state.pendingPublish?.fingerprint===fingerprint;
     const ordinary=items.filter(o=>!o.existingOrderId&&!o.explicitNumberReuse);
     const idIssues = checkDraftIds(ordinary,Store.getOrders());
-    if(idIssues.length) return showToast("单号重复或不合法："+idIssues.slice(0,3).join("、")+"；请核对草稿编号");
+    if(idIssues.length&&!retrying) return showToast("单号重复或不合法："+idIssues.slice(0,3).join("、")+"；请核对草稿编号");
     if(items.some(o=>o.grade==="年级待补充"||o.subject==="科目待补充"))
       return showToast("请先补全所有草稿的年级和科目，再发布");
-    if(!confirmDuplicateRisks(ordinary))return;
+    if(!retrying&&!confirmDuplicateRisks(ordinary))return;
     if(items.some(o=>o.existingOrderId||o.explicitNumberReuse||o.splitFromId) && !confirm("此批含原单更新、历史拆单或明确指定的重号新单。请核对编号及学生身份；发布将保留原记录关联，历史拆单会下架原主单，重号新单不会覆盖旧单。继续吗？"))return;
     if(!Store.isCloudMode())return showToast("服务器存储不可用，未发布");
-    state.aiDraftBusy=true;lockDraftControls();
+    if(!retrying)state.pendingPublish={fingerprint,key:crypto.randomUUID()};
+    state.aiDraftBusy=true;persistDraftWorkspace();lockDraftControls();
     const button = $("btnPublishDrafts");
     button.disabled=true;
     button.textContent="正在写入云端…";
     try {
       // API 模型已经处理过结构化地址；不再额外发起一次容易失败的 AI 解析调用。
-      const published=await Store.publishAIDrafts(items);
-      const count=items.length;
+      const published=await Store.publishAIDrafts(items,state.pendingPublish.key);
+      const count=published.length;state.pendingPublish=null;
       state.lastPublishedDrafts=published;workspaceHistory=[];state.pendingDraftText={};
       state.aiRawText="";
       state.parsedDraftOrders=[];
@@ -1410,7 +1416,7 @@ function renderAdminView() {
     renderAdminView();
   };
   const batchChangeStatus = async (status) => {
-    const items = Store.getOrders().filter((o) => adminCheckedOrders.has(o.id) &&
+    const items = Store.getOrders().filter((o) => o.status!=="已删除"&&adminCheckedOrders.has(o.id) &&
       (status === "招募中" ? !isPubliclyOpenOrder(o) : isPubliclyOpenOrder(o)));
     if (!items.length) return showToast("请先选中需要变更状态的家教单");
     if (items.length > 100) return showToast("每次最多批量处理100条，请分批选择");
@@ -1480,7 +1486,8 @@ function renderAdminView() {
   $("btnMergeSelected").onclick = async () => {
     const ids = [...adminCheckedOrders];
     if (ids.length < 2) return showToast("请至少选中两条需要合并的家教单");
-    const chosen = Store.getOrders().filter((o) => ids.includes(o.id));
+    const chosen = Store.getOrders().filter((o) => ids.includes(o.id)&&o.status!=="已删除");
+    if(chosen.length<2)return showToast("请选择至少两条非回收站订单");
     if (new Set(chosen.map((o) => `${o.grade}|${o.address}|${o.studentGender}`)).size !== 1) {
       return showToast("只能合并同一学生的家教单（年级、地址及学生性别需一致）");
     }
@@ -1493,14 +1500,27 @@ function renderAdminView() {
       showToast("合并完成，已保留主编号");
     } catch (err) { renderAll(); showToast(`合并失败，请核对订单：${err.message}`); }
   };
+  async function downloadAdminBackup(date=""){
+    const backup=await Store.exportBackup(date);
+    if(!backup)throw new Error("没有可用备份");
+    const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob),link=document.createElement("a");
+    link.href=url;link.download="tutorhub-backup-"+(date||String(backup.createdAt).slice(0,10))+".json";
+    document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  $("btnExportBackup").onclick=async()=>{try{await downloadAdminBackup();showToast("备份已导出，请妥善保存");}catch(e){showToast(e.message);}};
+  $("btnExportPastBackup").onclick=async()=>{const date=$("backupDate").value;if(!date)return showToast("请选择备份日期");try{await downloadAdminBackup(date);}catch(e){showToast(e.message);}};
+  $("btnAuditLog").onclick=async()=>{const target=$("adminAuditOutput");target.textContent="正在读取日志…";try{const entries=await Store.getAuditLog();target.replaceChildren();if(!entries?.length)target.textContent="暂无操作记录";for(const entry of entries||[]){const line=document.createElement("p");line.textContent=new Date(entry.at).toLocaleString()+" · "+entry.action+(entry.ids?.length?" · "+entry.ids.join("、"):"");target.append(line);}}catch(e){target.textContent=e.message;}};
+  box.querySelectorAll("[data-restore-order]").forEach(btn=>{btn.onclick=async()=>{btn.disabled=true;try{await Store.restoreOrder(btn.dataset.restoreOrder);renderAdminView();showToast("订单已恢复至删除前状态");}catch(e){showToast("恢复失败："+e.message);btn.disabled=false;}}});
   box.querySelectorAll("[data-del-order]").forEach((btn) => {
     btn.onclick = async () => {
-      if (!confirm(`确定删除家教单 ${btn.dataset.delOrder} 吗？此操作不能撤销。`)) return;
+      if (!confirm("确定移入回收站？该单将停止公开展示，可在回收站恢复。")) return;
+      btn.disabled=true;
       try {
-        await Store.deleteOrder(btn.dataset.delOrder);
+        await Store.trashOrder(btn.dataset.delOrder);adminCheckedOrders.delete(btn.dataset.delOrder);
         renderAll();
-        showToast("已从云端删除该家教单");
-      } catch (err) { showToast(`删除失败：${err.message}`); }
+        showToast("已移入回收站");
+      } catch (err) { showToast(`删除失败：${err.message}`);btn.disabled=false; }
     };
   });
   hydrateTeacherPool();
