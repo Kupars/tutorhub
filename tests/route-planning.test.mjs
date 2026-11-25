@@ -20,7 +20,7 @@ test("real routes replace distance bonus without removing eligibility or star re
  const match={score:20,distanceKm:2,reasons:["星标老师","老师明确出发地与订单地标的直线距离约2公里"]};
  const out=applyPlannedRoute(match,{source:"amap",bestMin:30,bikeMin:30,transitMin:40});
  assert.equal(out.score,18);assert(out.reasons[0].includes("高德规划"));assert(out.reasons.includes("星标老师"));
- assert(routeLabel({source:"estimate",bikeMin:10,transitMin:20}).startsWith("本地估算"));
+ assert.equal(routeLabel({source:"estimate",bikeMin:10,transitMin:20}),"通勤查询暂不可用");
  assert.match(routeLink({lat:39.1,lng:117.2},{lat:39.2,lng:117.3},"bus"),/^https:\/\/uri\.amap\.com\/navigation\?/);
 });
 test("client worker concurrency is bounded",async()=>{
@@ -40,5 +40,25 @@ test("new public geocode is immediately usable for route calculation and card re
   const p=await resolveRoutePoint(o);assert(p);assert(orderRoutePoint(o));
   await requestRoute(origin,p);
   assert.equal(commuteForOrder(origin,o).bikeMin,12);
+ }finally{globalThis.fetch=orig;}
+});
+
+test("no synthetic commute time is exposed before AMap succeeds or when location is missing",async()=>{
+ const {commuteForOrder,routeLabel,queryOrderCommute}=await import("../js/route-client.js");
+ const {estimateCommuteLocal}=await import("../js/commute.js");
+ const origin={lat:39.1,lng:117.2},order={id:"unknown-address",mode:"线下",publicAddress:"天津市河西区",district:"河西区"};
+ assert.equal(estimateCommuteLocal(origin,order),null);
+ assert.equal(commuteForOrder(origin,order).bestMin,undefined);
+ assert.equal(routeLabel(commuteForOrder(origin,order)),"家教地址待核实");
+ assert.equal(routeLabel(commuteForOrder(null,order)),"请先设置出发地");
+ assert.equal(commuteForOrder(null,{mode:"线上"}).bestMin,0);
+ const orig=globalThis.fetch;
+ try{
+   globalThis.fetch=async()=>new Response(JSON.stringify({ok:false,errorCode:"AMAP_UPSTREAM_UNREACHABLE"}));
+   const validOrder={...order,id:"failure-address",publicAddress:"天津市河西区不存在测试花园"};
+   assert.equal(commuteForOrder(origin,validOrder).status,"unqueried");
+   const r=await queryOrderCommute(origin,validOrder);
+   assert.equal(r.bestMin,undefined);
+   assert.equal(commuteForOrder(origin,validOrder).status,"location_unverified");
  }finally{globalThis.fetch=orig;}
 });

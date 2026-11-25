@@ -2,7 +2,7 @@ import {formatOrderText} from "./order-format.js";
 import {TEACHER_TYPES,STAGES,SUBJECT_OPTIONS,STUDY_LEVELS,LOCAL_GAOKAO,cleanTeachingPairs,cleanCompanionOptions,schoolTag,profileCapabilities,filterTeacherProfile} from "../shared/teacher-capabilities.js?v=1";
 import { callServerlessAI, parseMessyOrders } from "./ai-engine.js?v=10";
 import { ageOfOpenOrder } from "./assignment-utils.js";
-import { recommendTeacherProfiles, recommendOrdersForTeacher, recommendTeacherProfilesWithRoutes, recommendOrdersForTeacherWithRoutes, TEACHER_AVAILABILITIES, TEACHER_GENDERS, wantedTeacherGender } from "./teacher-profile-utils.js?v=6";
+import { recommendTeacherProfiles, recommendOrdersForTeacher, recommendTeacherProfilesWithRoutes, recommendOrdersForTeacherWithRoutes, TEACHER_AVAILABILITIES, TEACHER_GENDERS, wantedTeacherGender } from "./teacher-profile-utils.js?v=7";
 
 let activeOrderId="";
 let editingTeacherId="";

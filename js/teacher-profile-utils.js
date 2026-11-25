@@ -1,4 +1,4 @@
-import {resolveRoutePoint,resolveDepartureLandmark,requestRoute,runLimited,routeLabel} from "./route-client.js?v=1";
+import {resolveRoutePoint,resolveDepartureLandmark,requestRoute,runLimited,routeLabel} from "./route-client.js?v=2";
 import {stageOf,cleanTeachingPairs,cleanCompanionOptions} from "../shared/teacher-capabilities.js";
 // 老师档案推荐：仅利用管理员录入的偏好与历史投递/接单，不获取老师实时位置。
 import { verifiedPublicLandmarkCoords, inferNamedLandmarkCoords } from "./commute.js";
@@ -131,7 +131,8 @@ export function recommendTeacherProfiles(target,profiles=[],candidacies=[],order
       const distances=evidence.map(o=>km(point(o.publicAddress||o.address,o.district),targetPoint)).filter(d=>d!==null);
       if(distances.length){distanceKm=Math.min(...distances);distanceBasis="历史订单地址与本单地址的直线距离（非老师通勤）";}
     }
-    if(distanceKm!==null){score+=Math.max(0,8-distanceKm/2);reasons.unshift(distanceBasis+"约"+distanceKm.toFixed(1)+"公里");}
+    if(distanceKm!==null){score+=Math.max(0,8-distanceKm/2);reasons.unshift(distanceBasis+"约"+distanceKm.toFixed(1)+"公里（非路线耗时）");}
+    if(teacher.departureLandmark)checks.push("未取得高德路线时，不提供通勤耗时");
     if(!score)continue;
     if(teacher.starred===true){score+=6;reasons.unshift("星标老师（历史合作优先）");}
     result.push({

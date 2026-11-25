@@ -1,7 +1,7 @@
-import {commuteForOrder,orderRoutePoint,resolveRoutePoint,requestRoute,routeLabel,routeLink,runLimited} from "./route-client.js?v=1";
+import {commuteForOrder,orderRoutePoint,queryOrderCommute,routeLabel,routeLink,runLimited} from "./route-client.js?v=2";
 import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
-import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
+import { inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=14";
 import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=10";
 import { Store } from "./store.js?v=9";
@@ -44,7 +44,7 @@ let teacherPoolModulePromise=null;
 let pendingTeacherApplicationScroll=false;
 function loadTeacherPoolModule() {
   // 只在打开管理后台时下载老师档案和推荐模块，不影响普通老师的首屏加载。
-  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=10")
+  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=11")
     .catch(err=>{teacherPoolModulePromise=null;throw err;});
   return teacherPoolModulePromise;
 }
@@ -95,8 +95,13 @@ async function showNewTeacherRecommendations(orders) {
 const adminCheckedOrders = new Set();
 let visibleBoardOrders = [];
 let routeBatchBusy=false;
-const routeAttempted=new Set();
 let routeOriginKey="";
+let routeObserver=null;
+const autoRouteQueue=new Set();
+let autoRouteTimer=null;
+const autoAttempted=new Set();
+let autoRouteEnabled=true;
+try{autoRouteEnabled=localStorage.getItem("tutorhub_auto_amap_routes")!=="off";}catch{}
 let expandedOrderId = null;
 // 升级展示偏好版本：之前的默认列表偏好不影响新版默认卡片。
 const BOARD_LAYOUT_KEY = "tutorhub_board_layout_v2";
@@ -368,31 +373,62 @@ function switchView(viewName) {
 }
 
 // ---------------- 视图 1：招募大厅 ----------------
-async function planVisibleRoutes(single){
+function originRouteKey(origin){return JSON.stringify([origin.lat,origin.lng,Boolean(origin.gcj02)]);}
+function resetRouteOrigin(origin){
+ const key=originRouteKey(origin);
+ if(routeOriginKey!==key){routeOriginKey=key;autoAttempted.clear();autoRouteQueue.clear();}
+ return key;
+}
+function queueVisibleRoutes(grid){
+ routeObserver?.disconnect();routeObserver=null;
+ if(!autoRouteEnabled||state.view!=="hall")return;
+ const origin=Store.getOrigin();resetRouteOrigin(origin);
+ if(origin.lat==null||origin.lng==null)return;
+ const enqueue=id=>{
+   const o=visibleBoardOrders.find(x=>x.id===id);
+   const key=o&&JSON.stringify([o.id,o.publicAddress,o.district]);
+   if(!o||autoAttempted.has(key)||commuteForOrder(origin,o).status!=="unqueried")return;
+   autoRouteQueue.add(id);
+   clearTimeout(autoRouteTimer);autoRouteTimer=setTimeout(drainAutoRoutes,120);
+ };
+ const nodes=grid.querySelectorAll("[data-route-order]");
+ if(!window.IntersectionObserver){[...nodes].slice(0,6).forEach(n=>enqueue(n.dataset.routeOrder));return;}
+ routeObserver=new IntersectionObserver(entries=>{
+   for(const entry of entries)if(entry.isIntersecting){enqueue(entry.target.dataset.routeOrder);routeObserver?.unobserve(entry.target);}
+ },{rootMargin:"200px 0px"});
+ nodes.forEach(n=>routeObserver.observe(n));
+}
+async function drainAutoRoutes(){
+ if(!autoRouteEnabled||routeBatchBusy||state.view!=="hall"){return;}
+ const origin=Store.getOrigin();resetRouteOrigin(origin);
+ const items=[...autoRouteQueue].map(id=>visibleBoardOrders.find(o=>o.id===id)).filter(Boolean).slice(0,6);
+ autoRouteQueue.clear();
+ if(items.length)await planVisibleRoutes(items,true);
+}
+async function planVisibleRoutes(single,automatic=false){
  if(routeBatchBusy)return;
  const origin=Store.getOrigin();
- if(origin.lat==null||origin.lng==null)return showToast("请先在地图上选择出发地");
- const originKey=JSON.stringify([origin.lat,origin.lng]);
- if(routeOriginKey!==originKey){routeOriginKey=originKey;routeAttempted.clear();}
- const eligible=visibleBoardOrders.filter(o=>o.mode!=="线上"&&o.commute?.source!=="amap"&&!routeAttempted.has(o.id));
+ if(origin.lat==null||origin.lng==null){if(!automatic)showToast("请先在地图上选择出发地");return;}
+ const originKey=resetRouteOrigin(origin);
+ const eligible=visibleBoardOrders.filter(o=>!["origin_missing","address_missing","loading"].includes(commuteForOrder(origin,o).status)&&o.mode!=="线上"&&commuteForOrder(origin,o).source!=="amap");
  const orders=single||eligible.slice(0,10);
- if(!orders.length){
-   if(visibleBoardOrders.some(o=>o.mode!=="线上"&&o.commute?.source!=="amap")){
-     routeAttempted.clear();return showToast("已尝试当前订单，可再次点击重试");
-   }
-   return showToast("当前没有需要查询的线下订单");
- }
+ if(!orders.length){if(!automatic)showToast("当前没有需要查询的线下订单");return;}
  routeBatchBusy=true;const btn=$("btnPlanRoutes");if(btn)btn.disabled=true;
  try{
    const results=await runLimited(orders,async o=>{
-     if(routeOriginKey!==originKey)return null;
-     const dest=await resolveRoutePoint(o);
-     routeAttempted.add(o.id);
-     return dest?requestRoute(origin,dest):null;
+     if(originRouteKey(Store.getOrigin())!==originKey||state.view!=="hall"||(automatic&&!autoRouteEnabled))return null;
+     autoAttempted.add(JSON.stringify([o.id,o.publicAddress,o.district]));
+     const job=queryOrderCommute(origin,o,{retry:!automatic});
+     // Update only the status chip while a request runs; do not disturb the scroll position.
+     for(const node of document.querySelectorAll("[data-route-label]"))if(node.dataset.routeLabel===o.id)node.textContent=routeLabel(commuteForOrder(origin,o));
+     return job;
    });
-   if(state.view==="hall"&&JSON.stringify([Store.getOrigin().lat,Store.getOrigin().lng])===originKey)renderHall();
-   showToast("已获取 "+results.filter(Boolean).length+" / "+orders.length+" 条高德路线，其余保留估算或待定位");
- }finally{routeBatchBusy=false;if(btn)btn.disabled=false;}
+   if(state.view==="hall")renderHall();
+   if(!automatic)showToast("已获取 "+results.filter(x=>x?.source==="amap").length+" / "+orders.length+" 条高德路线");
+ }finally{
+   routeBatchBusy=false;if(btn)btn.disabled=false;
+   if(state.view==="hall"&&autoRouteQueue.size)void drainAutoRoutes();
+ }
 }
 function renderHall() {
   const publicOrders = Store.getOrders().filter(isPubliclyOpenOrder);
@@ -446,10 +482,9 @@ function renderHall() {
 
   items = sortBoardOrders(items, sort);
   visibleBoardOrders = items;
-  const currentOriginKey=JSON.stringify([origin.lat,origin.lng]);
-  if(routeOriginKey!==currentOriginKey){routeOriginKey=currentOriginKey;routeAttempted.clear();}
+  resetRouteOrigin(origin);
   const routeNote=$("routeBatchNote");
-  if(routeNote)routeNote.textContent=`${items.filter(o=>o.commute?.source==="amap").length} 条已获高德路线；其余为本地估算或地点待核实。点击查询才发送约百米精度的起终点坐标给高德。`;
+  if(routeNote)routeNote.textContent=`${items.filter(o=>o.commute?.source==="amap").length} 条已获高德路线。${autoRouteEnabled?"自动查询可见订单":"自动查询已关闭"}；查询时发送约百米精度的起终点给高德。`;
   updateMapOrders(items);
 
   const onSiteLocations = items.filter((order) => order.mode !== "线上")
@@ -482,6 +517,7 @@ function renderHall() {
   cardLoadObserver = null;
   grid.classList.toggle("is-list-mode", state.layout === "list");
   if (items.length === 0) {
+    routeObserver?.disconnect();autoRouteQueue.clear();
     const hasOpenOrders = Store.getOrders().some(isPubliclyOpenOrder);
     grid.innerHTML = `<div class="panel" style="grid-column:1/-1;text-align:center;color:var(--muted);">${hasOpenOrders ? "没有符合条件的家教单，试试放宽筛选条件吧。" : "目前暂无正在招募的家教单，可以稍后再来看看。"} </div>`;
     return;
@@ -497,11 +533,11 @@ function renderHall() {
     const titleHtml = `${escapeHtml(title.before)}${title.subject ? `<span class="card-subject">${escapeHtml(title.subject)}</span>` : ""}${escapeHtml(title.after)}`;
     const displayDistrict = o.district === "线上" ? "线上" : canonicalDistrict(o.district) || "地点待补充";
     const dest=orderRoutePoint(o);
-    const commuteHtml = `<span class="chip commute">${escapeHtml(routeLabel(o.commute))}</span>`;
-    const routeActions=o.mode==="线上"?"":`<div class="route-actions"><button type="button" class="btn btn-sm" data-plan-route="${escapeHtml(o.id)}">${o.commute?.source==="amap"?"重新检查路线":"查询高德通勤"}</button>${dest&&origin.lat!=null&&origin.lng!=null?`<a href="${escapeHtml(routeLink(origin,dest,"ride"))}" target="_blank" rel="noopener noreferrer">骑行路线（手机）</a><a href="${escapeHtml(routeLink(origin,dest,"bus"))}" target="_blank" rel="noopener noreferrer">公交路线</a>`:""}</div>`;
+    const commuteHtml = `<span class="chip commute" data-route-label="${escapeHtml(o.id)}">${escapeHtml(routeLabel(o.commute))}</span>`;
+    const routeActions=o.mode==="线上"?"":`<div class="route-actions"><button type="button" class="btn btn-sm" data-plan-route="${escapeHtml(o.id)}">${o.commute?.source==="amap"?"查看已查路线":"重试高德通勤"}</button>${dest&&origin.lat!=null&&origin.lng!=null?`<a href="${escapeHtml(routeLink(origin,dest,"ride"))}" target="_blank" rel="noopener noreferrer">骑行路线（手机）</a><a href="${escapeHtml(routeLink(origin,dest,"bus"))}" target="_blank" rel="noopener noreferrer">公交路线</a>`:""}</div>`;
     const routeDetails=o.commute?.source==="amap"?`<details class="route-details"><summary>路线详情</summary>${o.commute.transitLines?.length?`<p>公交/地铁：${escapeHtml(o.commute.transitLines.join(" → "))}</p>`:""}${o.commute.bikeSteps?.length?`<ol>${o.commute.bikeSteps.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ol>`:""}<p>高德规划耗时，实际以出行时情况为准。</p></details>`:"";
     return `
-      <article class="order-card ${o.selected ? "order-selected" : ""}">
+      <article class="order-card ${o.selected ? "order-selected" : ""}" data-route-order="${escapeHtml(o.id)}">
         <div class="card-head">
           <div>
             <div class="order-number">${escapeHtml(o.orderNumber || o.id)}</div>
@@ -563,6 +599,7 @@ function renderHall() {
         const nextCount = Math.min(items.length, shownCardCount + CARD_BATCH_SIZE);
         loadMore.insertAdjacentHTML("beforebegin", items.slice(shownCardCount, nextCount).map(renderDetailCard).join(""));
         shownCardCount = nextCount;
+        queueVisibleRoutes(grid);
         if (nextCount >= items.length) loadMore.remove();
         else {
           $("btnLoadMoreOrders").textContent = `加载更多家教单 · 还剩 ${items.length - nextCount} 条`;
@@ -587,7 +624,7 @@ function renderHall() {
       const area = o.district === "线上" ? "线上" : canonicalDistrict(o.district) || "待补充";
       const rate = (o.salaryText || "老师报价").replace("（可报价）", "");
       const detailsId = `detail-${String(o.id).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-      return `<div class="orders-list-item ${expanded ? "expanded" : ""} ${o.selected ? "is-selected" : ""}">
+      return `<div class="orders-list-item ${expanded ? "expanded" : ""} ${o.selected ? "is-selected" : ""}" data-route-order="${escapeHtml(o.id)}">
         <button type="button" class="orders-list-row" data-expand-order="${escapeHtml(o.id)}" aria-expanded="${expanded}" aria-controls="${detailsId}">
           <span class="list-cell list-id">${escapeHtml(o.orderNumber || o.id)}</span>
           <span class="list-cell list-area">${escapeHtml(area)}</span>
@@ -595,7 +632,7 @@ function renderHall() {
           <span class="list-cell list-gender">${escapeHtml(o.studentGender)}</span>
           <span class="list-cell list-subject" title="${escapeHtml(o.subject)}">${escapeHtml(o.subject)}</span>
           <span class="list-cell list-rate">${escapeHtml(rate)}</span>
-          <span class="list-cell list-frequency" title="${escapeHtml(o.weeklyFrequency)}">${escapeHtml(o.weeklyFrequency)}</span>
+          <span class="list-cell list-frequency" title="${escapeHtml(o.weeklyFrequency)}">${escapeHtml(o.weeklyFrequency)}<small class="list-route-status" data-route-label="${escapeHtml(o.id)}">${escapeHtml(routeLabel(o.commute))}</small></span>
           <span class="list-cell list-expand">${o.selected ? "✓ 已选 · " : ""}${expanded ? "收起 ▲" : "展开 ▼"}</span>
         </button>
         ${expanded ? `<div id="${detailsId}" class="orders-list-detail">${renderDetailCard(o)}</div>` : ""}
@@ -603,6 +640,7 @@ function renderHall() {
     }).join("")}</div>`;
   }
 
+  queueVisibleRoutes(grid);
   // 事件委托：滚动新增的卡片无需重复绑定监听器。
   grid.onclick = (event) => {
     const routeButton=event.target.closest("[data-plan-route]");
@@ -1772,6 +1810,8 @@ function initControls() {
     if (state.view === "hall") renderHall();
   });
   $("btnPlanRoutes")?.addEventListener("click",()=>void planVisibleRoutes());
+  const autoRouteToggle=$("autoRouteToggle");
+  if(autoRouteToggle){autoRouteToggle.checked=autoRouteEnabled;autoRouteToggle.onchange=()=>{autoRouteEnabled=autoRouteToggle.checked;try{localStorage.setItem("tutorhub_auto_amap_routes",autoRouteEnabled?"on":"off");}catch{}if(!autoRouteEnabled){autoRouteQueue.clear();routeObserver?.disconnect();}renderHall();};}
   initializeMultiFilters();
   loadSavedFilters();
   $("selectedFilterChips").addEventListener("click", event => {
