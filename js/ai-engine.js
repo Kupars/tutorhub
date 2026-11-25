@@ -128,7 +128,7 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
   const root=id=>String(id||"").replace(/-\d+$/,"");
   const addr=o=>String(o.publicAddress||o.address||"").replace(/天津市|\s/g,"");
   const singleFamily=rawOrders.length>1 && explicitIds.length<=1 &&
-    /拆单|拆分|分成.{0,12}单|分别招|单科|每科.*老师|各科.*老师|各.*一位老师/.test(rawText) &&
+    structuralDraftRevision(rawText) && /拆单|拆分|分成.{0,12}单|分别招|单科|每科.*老师|各科.*老师|各.*一位老师/.test(rawText) &&
     !/不同学生|两名学生|两个学生|两个家庭|不同家庭/.test(rawText) &&
     rawOrders.every(o=>o.grade===rawOrders[0].grade && addr(o).length>3 && addr(o)===addr(rawOrders[0]) && o.studentGender===rawOrders[0].studentGender) &&
     new Set(rawOrders.flatMap(o=>getSubjectList(o.subject))).size===rawOrders.reduce((n,o)=>n+getSubjectList(o.subject).length,0) &&
