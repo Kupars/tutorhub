@@ -16,6 +16,24 @@ const gradeNames = ["高三", "高二", "高一", "初三", "初二", "初一", 
 const str = (value) => String(value ?? "").trim();
 const pick = (...values) => values.map(str).find(Boolean) || "";
 
+// 年级别名统一为筛选器使用的标准值，AI 草稿和手动编辑共用。
+export function normalizeGrade(value) {
+  const input = str(value).replace(/\s+/g, "").replace(/[０-９]/g, c => String(c.charCodeAt(0)-0xFF10));
+  const secondary = [
+    ["初一", /初一|初中[一1]年级|七年级|(?<!\d)7年级/],
+    ["初二", /初二|初中[二2]年级|八年级|(?<!\d)8年级/],
+    ["初三", /初三|初中[三3]年级|九年级|(?<!\d)9年级/],
+    ["高一", /高一|高中[一1]年级|十年级|(?<!\d)10年级/],
+    ["高二", /高二|高中[二2]年级|十一年级|(?<!\d)11年级/],
+    ["高三", /高三|高中[三3]年级|十二年级|(?<!\d)12年级/]
+  ];
+  for (const [grade, pattern] of secondary) if (pattern.test(input)) return grade;
+  if (/大学|考研/.test(input)) return "大学/考研";
+  const primary = input.match(/(?<!\d)([1-6])年级/);
+  if (primary) return "一二三四五六"[Number(primary[1])-1]+"年级";
+  return gradeNames.find(name => input.includes(name)) || "";
+}
+
 // 对行政区字段去掉“天津市”等前缀，避免同一区在筛选器里重复；不修改公开街道/小区地址。
 export function canonicalDistrict(value) {
   const input = str(value);
@@ -93,7 +111,7 @@ function recoverLegacyFields(raw) {
   const fields = Object.fromEntries([...source.matchAll(/【([^】]+)】([\s\S]*?)(?=【[^】]+】|$)/g)]
     .map((match) => [match[1], match[2].trim()]));
   const gradeSex = fields["年级性别"] || "";
-  const grade = gradeNames.find((name) => gradeSex.includes(name)) || "";
+  const grade = normalizeGrade(gradeSex);
   const fromHeader = source.match(/^#\S+\/([^【\s]+)/)?.[1] || "";
   const requirements = str(raw.requirements).replace(/^(?:对老师)?要求】/, "")
     .replace(/【薪资】[\s\S]*$/, "").trim();
@@ -111,7 +129,8 @@ function recoverLegacyFields(raw) {
 
 export function normalizeOrder(raw = {}, options = {}) {
   const repaired = recoverLegacyFields(raw);
-  const grade = pick(repaired?.grade, raw.grade, options.grade) || "年级待补充";
+  const rawGrade = pick(repaired?.grade, raw.grade, options.grade);
+  const grade = normalizeGrade(rawGrade) || rawGrade || "年级待补充";
   const subject = getSubjectList(pick(repaired?.subject, raw.subject, raw.subjects, options.subject)).join("、") || "科目待补充";
   const explicitGender = getStudentGender(pick(repaired?.studentGender, raw.studentGender, raw.studentSex, raw.studentInfoGender));
   const studentGender = explicitGender !== "待补充" ? explicitGender : (
@@ -216,7 +235,7 @@ export function parseFormattedOrder(text) {
   if (!fields["补习科目"] && !fields["年级性别"]) return null;
   const header = input.match(/#([\w-]+)\s*\//);
   const gradeSex = fields["年级性别"] || "";
-  const grade = gradeNames.find((name) => gradeSex.includes(name)) || "年级待补充";
+  const grade = normalizeGrade(gradeSex) || "年级待补充";
   const number = Number((fields["需要几个老师"] || "").match(/\d+/)?.[0]) || 1;
   const hours = Number((fields["每次几小时"] || "").match(/\d+(?:\.\d+)?/)?.[0]) || 2;
   return normalizeOrder({
