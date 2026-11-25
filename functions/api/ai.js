@@ -1,5 +1,5 @@
 import {requestAIJSON,AITransportError} from "../../shared/ai-transport.js";
-import {resolveAIProvider} from "../../shared/ai-provider-registry.js";
+import {resolveAIProvider,loadAIRegistry} from "../../shared/ai-provider-registry.js";
 import { formatterPrompt, siteCommandPrompt } from "../../shared/tutoring-order-formatter.js";
 import { teacherResumePrompt, sanitizeTeacherResumeResult } from "../../shared/teacher-resume-skill.js";
 // Cloudflare Pages Function: /api/ai
@@ -10,7 +10,7 @@ import { teacherResumePrompt, sanitizeTeacherResumeResult } from "../../shared/t
 export async function onRequestPost(context) {
   const { request, env } = context;
   const started=Date.now();
-  let upstreamMs=null;
+  let upstreamMs=null,provider="",usage=null,metricsEnabled=false,metricOK=false,metricStart=started;
   try {
     if (Number(request.headers.get("content-length") || 0) > 1500000) {
       return jsonResp({ ok: false, error: "请求内容过长" }, 413);
@@ -58,13 +58,14 @@ export async function onRequestPost(context) {
     // One active relay/model is shared by AI order extraction, revisions, site commands,
     // resume analysis and public recommendations. Only model_probe can target a saved
     // non-active relay; the server never accepts arbitrary URLs or keys per AI request.
-    const selected = await resolveAIProvider(env.TUTOR_KV,env,
+    metricsEnabled=!publicRecommend;
+    let selected = await resolveAIProvider(env.TUTOR_KV,env,
       !publicRecommend && action === "model_probe" ? payload?.providerId : undefined,
       !publicRecommend && action === "model_probe" ? payload?.model : undefined);
     let rawText = "";
-    let provider = "";
     const upstreamStarted=Date.now();
-
+    const invoke=async(selected)=>{
+    metricStart=Date.now();usage=null;
     if (selected?.kind === "openai") {
       const baseUrl = selected.baseUrl;
       const model = selected.model;
@@ -87,6 +88,7 @@ export async function onRequestPost(context) {
           ]
         })
       }, {provider,secret:selected.apiKey,allowRetry:!publicRecommend&&action!=="model_probe"});
+      usage=Number.isFinite(data?.usage?.total_tokens)?data.usage.total_tokens:null;
       const message = data?.choices?.[0]?.message;
       rawText = typeof message?.content === "string" ? message.content :
         Array.isArray(message?.content) ? message.content.map(p=>p?.text || "").join("") : "";
@@ -108,9 +110,20 @@ export async function onRequestPost(context) {
           generationConfig: { temperature: 0.2, responseMimeType: "application/json" }
         })
       }, {provider,secret:selected.apiKey,allowRetry:!publicRecommend&&action!=="model_probe"});
+      usage=Number.isFinite(data?.usageMetadata?.totalTokenCount)?data.usageMetadata.totalTokenCount:null;
       rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
     } else {
-      return jsonResp({ ok: false, error: "没有可用的模型配置，请在后台 AI 模型管理中添加中转站，或配置 Cloudflare 环境变量" }, 503);
+      throw new AITransportError("没有可用的模型配置，请在后台 AI 模型管理中添加中转站，或配置 Cloudflare 环境变量","AI_NOT_CONFIGURED",503);
+    }
+    };
+    try{await invoke(selected);}catch(error){
+      if(!metricsEnabled||![ "parse_orders","revise_drafts","site_command","optimize_addresses"].includes(action)||!(error instanceof AITransportError)||![ "AI_UPSTREAM_GATEWAY","AI_UPSTREAM_NETWORK","AI_UPSTREAM_NON_JSON"].includes(error.code)||error.status!==502||Date.now()-upstreamStarted>18000)throw error;
+      const registry=await loadAIRegistry(env.TUTOR_KV);
+      if(!registry.fallbackId)throw error;
+      const backup=await resolveAIProvider(env.TUTOR_KV,env,registry.fallbackId,registry.fallbackModel||undefined);
+      if(!backup||(backup.name===selected?.name&&backup.model===selected?.model))throw error;
+      await recordAIMetric(env.TUTOR_KV,{provider,ok:false,ms:Date.now()-metricStart,tokens:usage});
+      await invoke(backup);
     }
 
     upstreamMs=Math.max(0,Date.now()-upstreamStarted);
@@ -142,6 +155,7 @@ export async function onRequestPost(context) {
     }
     const timing={upstreamMs,serverMs:Math.max(0,Date.now()-started)};
     if(isOrderParsing||action==="model_probe")console.info("[ai-timing]",action,timing.upstreamMs,timing.serverMs);
+    metricOK=true;
     return jsonResp({ ok: true, result: { ...parsed, provider, ...(isOrderParsing||action==="model_probe"?{timing}:{}) } }, 200);
   } catch (err) {
     if(err instanceof AITransportError){
@@ -150,6 +164,8 @@ export async function onRequestPost(context) {
       return jsonResp({ok:false,error:err.message,errorCode:err.code,requestId},err.status);
     }
     return jsonResp({ ok: false, error: String(err?.message || err) }, 500);
+  } finally {
+    if(metricsEnabled&&provider)await recordAIMetric(env.TUTOR_KV,{provider,ok:metricOK,ms:Date.now()-metricStart,tokens:usage});
   }
 }
 
@@ -263,4 +279,12 @@ function jsonResp(body, status = 200) {
       "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"
     }
   });
+}
+
+async function recordAIMetric(kv,event){
+  if(!kv)return;
+  try{
+    const raw=await kv.get("admin_ai_metrics_v1"),entries=raw?JSON.parse(raw):[];
+    await kv.put("admin_ai_metrics_v1",JSON.stringify([{...event,at:new Date().toISOString()},...(Array.isArray(entries)?entries:[])].slice(0,200)));
+  }catch{console.warn("AI metrics unavailable");}
 }

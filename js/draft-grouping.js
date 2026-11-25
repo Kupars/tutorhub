@@ -105,6 +105,10 @@ export function missingDraftFields(order) {
   if(!order?.address||/待补充/.test(order.address))missing.push("补课地址");
   if(!order?.weeklyFrequency||order.weeklyFrequency==="待协商")missing.push("上课频率");
   if(!order?.currentScores||/待补充/.test(order.currentScores))missing.push("成绩");
+  if(!(Number(order?.teacherCount)>0))missing.push("老师人数");
+  if(!(Number(order?.hoursPerSession)>0))missing.push("每次时长");
+  if(!order?.requirements||/待补充/.test(order.requirements))missing.push("老师要求");
+  if(!order?.salaryText||/待补充|待协商/.test(order.salaryText))missing.push("薪资");
   return missing;
 }
 

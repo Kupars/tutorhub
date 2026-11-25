@@ -4,7 +4,7 @@ import { formatOrderText } from "./order-format.js";
 // 历史飞书单的“待确认”只是导入状态，仍属于公开单；只有后台明确关闭/匹配的单才下架。
 export function isPubliclyOpenOrder(order) {
   const status = String(order?.status || "").trim();
-  return !/(?:已匹配|已关闭|关闭|已结束|结束|已完成|已招满|招满|已下架|下架|已取消|取消|停止招募|暂停招募)/.test(status);
+  return !/(?:已匹配|已关闭|关闭|已结束|结束|已完成|已招满|招满|已下架|下架|已取消|取消|停止招募|暂停招募|已删除)/.test(status);
 }
 
 export function teacherGenderRequirement(order) {

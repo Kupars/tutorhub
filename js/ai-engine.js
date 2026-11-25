@@ -5,17 +5,18 @@ import { guardSiteActions } from "./ai-command-guard.js?v=4";
 
 const gatewayStatus=new Set([502,503,504,520,521,522,523,524]);
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-export async function callServerlessAI(action,payload={},onProgress=()=>{}){
+export async function callServerlessAI(action,payload={},onProgress=()=>{},signal){
  const started=Date.now(),budget=95000;
  const retryAllowed=action!=="recommend_orders"&&action!=="model_probe";
  let token="";try{token=localStorage.getItem("tutorhub_token_v3")||"";}catch{}
  for(let attempt=0;attempt<2;attempt++){
+   if(signal?.aborted)throw new Error("已取消 AI 请求");
    let response,data,error,retry=false;
    try{
      response=await fetch(APP_CONFIG.apiBase+"/ai",{
        method:"POST",headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},
        body:JSON.stringify({action,payload}),
-       signal:AbortSignal.timeout(Math.max(1,budget-(Date.now()-started)))
+       signal:signal?AbortSignal.any([signal,AbortSignal.timeout(Math.max(1,budget-(Date.now()-started)))]):AbortSignal.timeout(Math.max(1,budget-(Date.now()-started)))
      });
      try{data=await response.json();}catch{
        retry=gatewayStatus.has(response.status);
@@ -36,6 +37,7 @@ export async function callServerlessAI(action,payload={},onProgress=()=>{}){
        return result;
      }
    }catch(e){
+     if(signal?.aborted)throw new Error("已取消 AI 请求");
      const timeout=e?.name==="TimeoutError"||e?.name==="AbortError";
      retry=!timeout;
      error=new Error(timeout?"AI 请求超时，请减少单次输入数量或切换更快的模型；原始输入仍保留":"网站 AI 网络连接异常，请检查网络后重试");
@@ -126,7 +128,7 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
   const root=id=>String(id||"").replace(/-\d+$/,"");
   const addr=o=>String(o.publicAddress||o.address||"").replace(/天津市|\s/g,"");
   const singleFamily=rawOrders.length>1 && explicitIds.length<=1 &&
-    /拆单|拆分|分成.{0,12}单|分别招|单科|每科.*老师|各科.*老师|各.*一位老师/.test(rawText) &&
+    structuralDraftRevision(rawText) && /拆单|拆分|分成.{0,12}单|分别招|单科|每科.*老师|各科.*老师|各.*一位老师/.test(rawText) &&
     !/不同学生|两名学生|两个学生|两个家庭|不同家庭/.test(rawText) &&
     rawOrders.every(o=>o.grade===rawOrders[0].grade && addr(o).length>3 && addr(o)===addr(rawOrders[0]) && o.studentGender===rawOrders[0].studentGender) &&
     new Set(rawOrders.flatMap(o=>getSubjectList(o.subject))).size===rawOrders.reduce((n,o)=>n+getSubjectList(o.subject).length,0) &&
@@ -189,7 +191,8 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
     if(old?.explicitNumberReuse&&id===prevId)candidate.explicitNumberReuse=true;
     if (isRename) {
       id=renumber.number;
-      delete candidate.existingOrderId;delete candidate.explicitNumberReuse;delete candidate.splitFromId;
+      delete candidate.explicitNumberReuse;delete candidate.splitFromId;
+      if(old?.existingOrderId){candidate.existingOrderId=old.existingOrderId;candidate.renameFromNumber=old.renameFromNumber||prevId;}else delete candidate.existingOrderId;
     }
     candidate.id = id;
     candidate.orderNumber = id;
@@ -206,9 +209,9 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
   return finalDrafts;
 }
 
-export async function parseMessyOrders(rawText, existingOrders = [], history = [], onProgress) {
+export async function parseMessyOrders(rawText, existingOrders = [], history = [], onProgress, signal) {
   if (!String(rawText || "").trim()) throw new Error("请先输入家长提供的零散需求");
-  const result = await callServerlessAI("parse_orders", { text:String(rawText).slice(0,14000), history },onProgress);
+  const result = await callServerlessAI("parse_orders", { text:String(rawText).slice(0,14000), history:[] },onProgress,signal);
   return {source: result.provider || "外部模型 API", reply:String(result.reply || ""),
     groupingNotes:result.groupingNotes || [], questions:result.questions || [], timing:result.timing,
     orders:prepareAIDrafts(rawText,result,existingOrders)};
@@ -227,7 +230,7 @@ export function applyDraftPatches(instruction,result,drafts,existingOrders=[]){
     if(!patch||typeof patch!=="object"||Array.isArray(patch))throw new Error("模型未按字段返回修改，请重试，原草稿保留");
     for(const [k,v] of Object.entries(patch)){
       if(!patchFields.has(k))throw new Error("不允许修改字段："+k);
-      if(["teacherCount","sessionsPerWeek","hoursPerSession"].includes(k)){if(typeof v!=="number"||!Number.isFinite(v)||v<0||(k!=="sessionsPerWeek"&&v===0))throw new Error("无效数值："+k);}
+      if(["teacherCount","sessionsPerWeek","hoursPerSession"].includes(k)){if(typeof v!=="number"||!Number.isFinite(v)||v<0)throw new Error("无效数值："+k);}
       else if(["onlineAllowed","urgent","omitStudentGender"].includes(k)){if(typeof v!=="boolean")throw new Error("无效开关："+k);}
       else if(typeof v!=="string"||v.length>2000)throw new Error("无效字段："+k);
       if(["grade","subject"].includes(k)&&!v.trim())throw new Error("年级科目不可清空");
@@ -251,18 +254,23 @@ export function applyDraftPatches(instruction,result,drafts,existingOrders=[]){
     if(rename?.old===old){raw.id=raw.orderNumber=rename.number;fields.add("id");fields.add("orderNumber");}
     const next=normalizeOrder(raw),out={...old};
     for(const k of fields)out[k]=next[k];
-    if(rename?.old===old){delete out.explicitNumberReuse;delete out.splitFromId;}
+    if(rename?.old===old){delete out.explicitNumberReuse;delete out.splitFromId;if(old.existingOrderId)out.renameFromNumber=old.renameFromNumber||old.orderNumber||old.id;}
     return out;
   });
 }
 export function structuralDraftRevision(text){
-  return /拆单|拆分|分成.{0,12}单|合并|合成.{0,8}单|另加.{0,8}单|新增.{0,8}单|删除.{0,8}草稿|移除.{0,8}草稿|分别招|各科.{0,6}老师|每科.{0,6}老师/.test(String(text||""));
+  const commands=/拆单|拆分|分成.{0,12}单|合并|合成.{0,8}单|另加.{0,8}单|新增.{0,8}单|删除.{0,8}草稿|移除.{0,8}草稿|分别招|各科.{0,6}老师|每科.{0,6}老师/g;
+  const value=String(text||"");
+  return [...value.matchAll(commands)].some(m=>{
+    const prefix=value.slice(0,m.index).split(/[，。；,;！!？?\n]/).pop()||"";
+    return !/(?:不要|不用|不必|无需|不需要|禁止|别|不准|取消|不想|不)\s*(?:再|进行|自动|把.{0,15}|将.{0,15})?\s*$/.test(prefix);
+  });
 }
-export async function reviseDraftsWithAI(instruction, drafts, history = [], existingOrders = [], onProgress) {
+export async function reviseDraftsWithAI(instruction, drafts, history = [], existingOrders = [], onProgress, signal) {
   if (!Array.isArray(drafts) || !drafts.length) throw new Error("请先整理出草稿");
   const renumber=explicitDraftRenumber(instruction,drafts);
-  const result = await callServerlessAI("revise_drafts", { instruction, drafts, history },onProgress);
   const structural=structuralDraftRevision(instruction);
+  const result = await callServerlessAI("revise_drafts", { instruction, drafts, history, structural },onProgress,signal);
   if(structural&&renumber)throw new Error("拆合单与改号请分别操作");
   const orders=structural?prepareAIDrafts(instruction,result,existingOrders,drafts):applyDraftPatches(instruction,result,drafts,existingOrders);
   const changed=JSON.stringify(orders)!==JSON.stringify(drafts);

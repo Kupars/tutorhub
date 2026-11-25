@@ -3,18 +3,18 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=14";
-import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=15";
-import { Store } from "./store.js?v=10";
+import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=17";
+import { Store } from "./store.js?v=12";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
-import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=4";
+import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=5";
 import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=6";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
-import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
+import { findPotentialDuplicates, orderFreshness } from "./order-extras.js?v=2";
 import { MULTI_FILTER_LABELS, MULTI_FILTER_OPTIONS, matchesMultiFilters, normalizeMultiSelection, countSelectedFilters } from "./multi-filter.js?v=1";
 
-import {workspaceSnapshot,loadWorkspace,saveWorkspace,clearWorkspace,draftDiff,applyManualDraftText} from "./draft-workspace.js?v=1";
-import { splitDraftSubjects, mergeDraftSubjects, groupDraftsUnderParent, checkDraftIds, missingDraftFields } from "./draft-grouping.js?v=5";
+import {workspaceSnapshot,loadWorkspace,saveWorkspace,clearWorkspace,draftDiff,applyManualDraftText} from "./draft-workspace.js?v=2";
+import { splitDraftSubjects, mergeDraftSubjects, groupDraftsUnderParent, checkDraftIds, missingDraftFields } from "./draft-grouping.js?v=6";
 
 const state = {
   view: "hall",
@@ -58,7 +58,7 @@ function hydrateAIModelManager() {
   if(state.adminPage!=="aiModels" || Store.getCurrentUser()?.role!=="admin")return;
   const slot=document.getElementById("aiModelManagerSlot");
   if(!slot)return;
-  if(!aiModelsModulePromise)aiModelsModulePromise=import("./admin-ai-models.js?v=1")
+  if(!aiModelsModulePromise)aiModelsModulePromise=import("./admin-ai-models.js?v=2")
     .catch(error=>{aiModelsModulePromise=null;throw error;});
   void aiModelsModulePromise.then(module=>{
     const target=document.getElementById("aiModelManagerSlot");
@@ -117,6 +117,8 @@ let mapOpenPromise = null;
 let cardResultsKey = "";
 let shownCardCount = 24;
 let cardLoadObserver = null;
+let draftAbortController=null,publicRefreshBusy=false;
+let adminOrderScroll=null;
 const CARD_BATCH_SIZE = 24;
 
 const $ = (id) => document.getElementById(id);
@@ -360,7 +362,8 @@ function checkpointDraftWorkspace(label){
 }
 function lockDraftControls(){
   const panel=document.querySelector('[data-admin-page="aiOrders"]');
-  if(panel)for(const el of panel.querySelectorAll("button,textarea,input"))el.disabled=state.aiDraftBusy;
+  if(panel)for(const el of panel.querySelectorAll("button,textarea,input"))if(el.id!=="btnCancelDraft")el.disabled=state.aiDraftBusy;
+  const cancel=$("btnCancelDraft");if(cancel){cancel.hidden=!draftAbortController;cancel.disabled=!draftAbortController;}
   const undo=$("btnUndoDraft");if(undo)undo.disabled=state.aiDraftBusy||!workspaceHistory.length;
 }
 function renderUserActions() {
@@ -443,7 +446,7 @@ function renderHall() {
   for (const id of ["qMode", "qStudentGender", "qTeacherGender", "qTime"]) {
     renderMultiFilter(id, MULTI_FILTER_OPTIONS[id] || []);
   }
-  const q = $("qSearch").value.trim().toLowerCase();
+  const q = $("qSearch").value.normalize("NFKC").trim().toLowerCase();
 
 
 
@@ -471,9 +474,10 @@ function renderHall() {
       const hay = [o.id, o.orderNumber, o.title, o.subject, o.grade, o.studentGender, o.teacherCount,
         o.currentScores, o.weeklyFrequency, o.trialTime, o.salaryText, o.district, o.address,
         o.studentInfo, o.requirements, ...(o.tags || [])]
-        .join(" ")
-        .toLowerCase();
-      if (!hay.includes(q)) return false;
+        .join(" ").normalize("NFKC").toLowerCase();
+      const aliases={"高一":"高中一年级","高二":"高中二年级","高三":"高中三年级","初一":"初中一年级","初二":"初中二年级","初三":"初中三年级","数学":"数學","物理":"物理","化学":"化學","英语":"英文"};
+      const searchable=hay+" "+Object.entries(aliases).filter(([key])=>hay.includes(key)).map(([,value])=>value).join(" ");
+      if (!q.split(/\s+/).every(term=>searchable.includes(term))) return false;
     }
     return true;
   });
@@ -642,14 +646,15 @@ function renderHall() {
     const selectionButton = event.target.closest("[data-select]");
     if (selectionButton) {
       Store.toggleSelectedOrder(selectionButton.dataset.select);
-      renderHall();
+      const y=window.scrollY;renderHall();window.scrollTo(0,y);
       showToast(Store.getSelectedOrderIds().includes(selectionButton.dataset.select) ? "已加入选单" : "已移出选单");
       return;
     }
     const button = event.target.closest("[data-expand-order]");
     if (button) {
+      const y=window.scrollY;
       expandedOrderId = expandedOrderId === button.dataset.expandOrder ? null : button.dataset.expandOrder;
-      renderHall();
+      renderHall();window.scrollTo(0,y);
       return;
     }
     const copyButton = event.target.closest("[data-copy]");
@@ -676,16 +681,18 @@ function getSelectedOrders() {
 function renderCart() {
   const orders = getSelectedOrders();
   $("cartCount").textContent = String(orders.length);
-  $("cartDock").hidden = state.view !== "hall" || !orders.length;
+  $("cartDock").hidden = state.view !== "hall" || !Store.getSelectedOrderIds().length;
   $("btnCopyCart").disabled = !orders.length;
-  $("btnClearCart").disabled = !orders.length;
+  $("btnClearCart").disabled = !Store.getSelectedOrderIds().length;
   const box = $("cartItems");
+  const stale=Store.getSelectedOrderIds().length-orders.length;
   box.innerHTML = orders.length ? orders.map((o) => `
     <div class="cart-item">
       <div><strong>${escapeHtml(o.orderNumber || o.id)} · ${escapeHtml(o.title)}</strong><p>${escapeHtml(o.address)} · ${escapeHtml(o.salaryText)}</p></div>
       <button class="btn btn-sm" data-remove-selection="${escapeHtml(o.id)}" aria-label="从选单清单移除 ${escapeHtml(o.id)}">移除</button>
     </div>
   `).join("") : `<div class="cart-empty">清单还是空的。回到看板，点击家教卡片上的「🛒 加入选单」就可以开始挑选。</div>`;
+  if(stale>0){const p=document.createElement("p");p.className="admin-helper";p.textContent=stale+" 条已选单不再招募或已删除，不会复制发送。";box.prepend(p);}
   box.querySelectorAll("[data-remove-selection]").forEach((btn) => {
     btn.onclick = () => { Store.toggleSelectedOrder(btn.dataset.removeSelection); renderHall(); };
   });
@@ -721,9 +728,9 @@ function fillManualOrder(order) {
   $("manualGrade").value = o.grade;
   $("manualStudentGender").value = o.studentGender;
   $("manualSubject").value = o.subject;
-  $("manualTeacherCount").value = o.teacherCount;
+  $("manualTeacherCount").value = o.teacherCount>0?o.teacherCount:"";
   $("manualScores").value = o.currentScores;
-  $("manualHours").value = o.hoursPerSession;
+  $("manualHours").value = o.hoursPerSession>0?o.hoursPerSession:"";
   $("manualAddress").value = o.address;
   $("manualMode").value = o.mode;
   $("manualWeekly").value = o.weeklyFrequency;
@@ -821,9 +828,10 @@ function renderAdminView() {
 
   restoreDraftWorkspace();
   const orders = Store.getOrders();
-  const addressQueue = orders.filter((o) => o.mode !== "线上" && (!getPublicMapLocation(o) || getPublicMapLocation(o)?.fallback));
+  const addressQueue = orders.filter((o) => o.status!=="已删除" && o.mode !== "线上" && (!getPublicMapLocation(o) || getPublicMapLocation(o)?.fallback));
   const search = state.adminQuery.toLowerCase().trim();
   const adminFilteredOrders = orders.filter((o) => {
+    if(state.adminStatus==="trash"?o.status!=="已删除":o.status==="已删除")return false;
     if (state.adminStatus === "open" && !isPubliclyOpenOrder(o)) return false;
     if (state.adminStatus === "closed" && isPubliclyOpenOrder(o)) return false;
     if (state.adminStatus === "address" && !addressQueue.some((item) => item.id === o.id)) return false;
@@ -911,14 +919,14 @@ function renderAdminView() {
           <div class="field"><label for="manualGrade">年级</label><select id="manualGrade">${GRADES.map((g) => `<option>${g}</option>`).join("")}</select></div>
           <div class="field"><label for="manualStudentGender">学生性别</label><select id="manualStudentGender"><option value="待补充">待补充</option><option value="男生">男生</option><option value="女生">女生</option></select></div>
           <div class="field wide"><label for="manualSubject">补习科目</label><input id="manualSubject" required placeholder="数学、物理" /></div>
-          <div class="field"><label for="manualTeacherCount">需要几个老师</label><input id="manualTeacherCount" type="number" min="1" max="20" value="1" required /></div>
+          <div class="field"><label for="manualTeacherCount">需要几个老师</label><input id="manualTeacherCount" type="number" min="1" max="20" placeholder="待补充" /></div>
           <div class="field wide"><label for="manualScores">现阶段成绩</label><input id="manualScores" placeholder="数学60分，物理70分；不知道可留空" /></div>
-          <div class="field"><label for="manualHours">每次几小时</label><input id="manualHours" type="number" min="0.5" step="0.5" value="2" required /></div>
+          <div class="field"><label for="manualHours">每次几小时</label><input id="manualHours" type="number" min="0.5" step="any" placeholder="待补充" /></div>
           <div class="field wide"><label for="manualAddress">补课地址（区＋小区）</label><input id="manualAddress" placeholder="天津市河西区某小区" /></div>
           <div class="field"><label for="manualMode">授课方式</label><select id="manualMode"><option>上门</option><option>线上</option><option>均可</option></select></div>
           <div class="field wide"><label for="manualWeekly">一周几次（周中/周末）</label><input id="manualWeekly" placeholder="每周1次，周六下午" /></div>
           <div class="field"><label for="manualSalary">薪资（元/小时）</label><input id="manualSalary" placeholder="110～120元/小时（可报价）" /></div>
-          <div class="field full"><label for="manualRequirements">对老师要求</label><textarea id="manualRequirements" rows="2" placeholder="无特殊要求"></textarea></div>
+          <div class="field full"><label for="manualRequirements">对老师要求</label><textarea id="manualRequirements" rows="2" placeholder="未提供可留空"></textarea></div>
           <div class="field wide"><label for="manualTrial">试课时间（可选）</label><input id="manualTrial" placeholder="仅填写家长明确提供的试课时间" /></div>
           <div class="field"><label for="manualPublishedAt">真实招募开始日期（可选）</label><input id="manualPublishedAt" type="date" title="历史导入单日期未知时，请人工确认后填写；用于超时提醒，不会把导入日期当发单日期" /></div>
           <div class="field"><label for="manualNotes">其他说明（可选）</label><input id="manualNotes" placeholder="只写真实信息" /></div>
@@ -953,6 +961,8 @@ function renderAdminView() {
         <label for="rawOrderInput">${state.parsedDraftOrders.length?"继续说要怎么修改":"输入新家教需求"}</label>
         <textarea id="rawOrderInput" rows="4" placeholder="${state.parsedDraftOrders.length?"例如：数学改周日下午，物理时薪120":"直接粘贴家长需求，例如高一男生，数学74物理48，河西区津沽东里，周末2小时，分成两单"}"></textarea>
         <button class="btn btn-primary" id="btnParseOrders" type="button" ${state.aiDraftBusy?"disabled":""}>${state.aiDraftBusy?"AI 正在整理…":"发送"}</button>
+        <button class="btn btn-sm" id="btnCancelDraft" type="button" hidden>取消本次 AI 请求</button>
+        ${state.parsedDraftOrders.length?`<div class="admin-helper"><label><input type="checkbox" id="draftLockNumber" ${state.draftLockNumber?"checked":""}/> 锁定编号</label> <label><input type="checkbox" id="draftLockSalary" ${state.draftLockSalary?"checked":""}/> 锁定薪资</label> <label><input type="checkbox" id="draftAppendNew"/> 将本次输入作为新单追加</label></div>`:""}
         <p id="aiDraftTiming" class="admin-helper" role="status">${state.aiDraftBusy?"模型正在处理，请勿重复发送。":escapeHtml(aiTimingText(state.aiDraftTiming))}</p>
         <p id="aiDraftError" class="admin-helper" role="alert" ${state.aiDraftError?"":"hidden"}>${state.aiDraftError?escapeHtml("整理失败："+state.aiDraftError+"。输入及原草稿已保留，可直接再次发送。"):""}</p>
       </div>
@@ -984,14 +994,16 @@ function renderAdminView() {
       <div class="admin-bulk-toolbar">
         <input id="adminOrderSearch" type="search" aria-label="搜索后台家教单" placeholder="搜索单号 / 小区 / 科目 / 要求" value="${escapeHtml(state.adminQuery)}" />
         <select id="adminOrderStatus" aria-label="按状态筛选后台家教单">
-          <option value="all" ${state.adminStatus === "all" ? "selected" : ""}>全部（${orders.length}）</option>
+          <option value="all" ${state.adminStatus === "all" ? "selected" : ""}>全部（${orders.filter(o=>o.status!=="已删除").length}）</option>
           <option value="open" ${state.adminStatus === "open" ? "selected" : ""}>展示中（${orders.filter(isPubliclyOpenOrder).length}）</option>
-          <option value="closed" ${state.adminStatus === "closed" ? "selected" : ""}>已关闭（${orders.filter((o) => !isPubliclyOpenOrder(o)).length}）</option>
+          <option value="closed" ${state.adminStatus === "closed" ? "selected" : ""}>已关闭（${orders.filter(o=>o.status!=="已删除"&&!isPubliclyOpenOrder(o)).length}）</option>
+          <option value="trash" ${state.adminStatus === "trash" ? "selected" : ""}>回收站（${orders.filter(o=>o.status==="已删除").length}）</option>
           <option value="address" ${state.adminStatus === "address" ? "selected" : ""}>地址待核验（${addressQueue.length}）</option>
         </select>
         <button class="btn btn-sm" type="button" id="btnAdminSelectPage">选中本页</button>
         <button class="btn btn-sm" type="button" id="btnAdminClearSelected">取消选中</button>
       </div>
+      <details class="ai-workspace-advanced"><summary>备份与操作日志</summary><div class="admin-bulk-toolbar"><button class="btn btn-sm" id="btnExportBackup" type="button">下载当前备份</button><input id="backupDate" type="date" aria-label="备份日期（UTC）"/><button class="btn btn-sm" id="btnExportPastBackup" type="button">下载指定日期备份</button><button class="btn btn-sm" id="btnAuditLog" type="button">查看操作日志</button><button class="btn btn-sm" id="btnMigrateStatic" type="button" ${Store.staticMigrationInfo().migrated?"disabled":""}>${Store.staticMigrationInfo().migrated?"历史单已迁移":"迁移历史静态单"}</button></div><p class="admin-helper">每日首次写入前保存快照（UTC日期，保留30天）。备份包含私人档案，请妥善保存；不包含模型密钥。</p><div id="adminAuditOutput" class="admin-helper"></div></details>
       <div class="admin-bulk-toolbar">
         <span id="adminSelectedCount">已选择 ${adminCheckedOrders.size} 条 · 当前筛选 ${adminFilteredOrders.length} 条</span>
         <button class="btn btn-sm" id="btnAdminBatchClose" type="button">批量关闭展示</button>
@@ -1004,20 +1016,20 @@ function renderAdminView() {
           <div style="border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <div>
               <label style="display:inline-flex;gap:8px;align-items:center;">
-                <input type="checkbox" data-merge-id="${escapeHtml(o.id)}" ${adminCheckedOrders.has(o.id) ? "checked" : ""} style="width:auto;" aria-label="选中 ${escapeHtml(o.id)} 用于批量管理" />
-                <strong>${escapeHtml(o.id)}</strong>
+                <input type="checkbox" data-merge-id="${escapeHtml(o.id)}" ${o.status==="已删除"?"disabled":""} ${adminCheckedOrders.has(o.id) ? "checked" : ""} style="width:auto;" aria-label="选中 ${escapeHtml(o.id)} 用于批量管理" />
+                <strong>${escapeHtml(o.orderNumber||o.id)}</strong>
               </label>
               · ${escapeHtml(o.title)} <span class="chip">${escapeHtml(o.salaryText)}</span>
               <span class="chip">${escapeHtml(o.studentGender)}</span><span class="chip">${escapeHtml(o.status)}</span>
               ${addressQueue.some((item) => item.id === o.id) ? `<span class="chip">📍 区/镇中心示意</span><small style="display:block;color:var(--muted)">公开地点：${escapeHtml(o.publicAddress || o.address || o.district || "未提供")}</small>` : ""}
             </div>
             <div style="display:flex;gap:6px;">
-              <button class="btn btn-sm" data-edit-order="${escapeHtml(o.id)}">编辑</button>
+              ${o.status==="已删除"?`<small class="admin-helper">${escapeHtml(String(o.deletedAt||"").slice(0,10))} 移入回收站</small><button class="btn btn-sm" data-restore-order="${escapeHtml(o.id)}">恢复</button>`:`<button class="btn btn-sm" data-edit-order="${escapeHtml(o.id)}">编辑</button>
               <button class="btn btn-sm" data-open-app="${escapeHtml(o.id)}">登记投递</button>
               ${addressQueue.some((item) => item.id === o.id) ? `<button class="btn btn-sm" data-fix-address="${escapeHtml(o.id)}">核对地址</button>` : ""}
               ${getSubjectList(o.subject).length > 1 ? `<button class="btn btn-sm" data-split-order="${escapeHtml(o.id)}">按科目拆单</button>` : ""}
               <button class="btn btn-sm" data-toggle-status="${escapeHtml(o.id)}">${isPubliclyOpenOrder(o) ? "关闭展示" : "重新上架"}</button>
-              <button class="btn btn-danger btn-sm" data-del-order="${o.id}">删除</button>
+              <button class="btn btn-danger btn-sm" data-del-order="${escapeHtml(o.id)}">移入回收站</button>`}
             </div>
           </div>
         `).join("") : '<p class="admin-helper">当前筛选条件下没有家教单。</p>'}
@@ -1103,13 +1115,19 @@ function renderAdminView() {
       if(!/^#\d{3,7}(?:-\d+)?$/.test(item.orderNumber))return showToast("请填写有效编号");
       if(Store.getOrders().some(o=>o.id!==old?.id&&o.orderNumber===item.orderNumber))return showToast("编号已被其他订单使用");
       if (!item.subject || item.subject === "科目待补充") return showToast("请填写补习科目");
+      if(item.grade==="年级待补充")return showToast("请填写年级");
+      const salary=String(item.salaryText||"").match(/(\d+(?:\.\d+)?)\s*[～~—-]\s*(\d+(?:\.\d+)?)/);
+      if(salary&&Number(salary[1])>Number(salary[2]))return showToast("薪资区间上下限颠倒");
+      if(missingDraftFields(item).length&&!confirm("有待核实字段，确认按实际已知信息保存？"))return;
       if (!confirmDuplicateRisks([item], old ? [old.id] : [])) return;
       if (old) await Store.updateOrder(old.id, item);
       else await Store.addOrders([item]);
+      const savedItem=old?item:(Store.getOrders().find(o=>o.orderNumber===item.orderNumber)||item);
       state.editingOrderId = null;
-      renderAll();
-      if(!old) void showNewTeacherRecommendations([item]);
-      showToast(old ? "家教单已保存修改" : `家教单 ${item.id} 已发布`);
+      if(old&&adminOrderScroll!==null){state.adminPage="orders";renderAll();window.scrollTo(0,adminOrderScroll);adminOrderScroll=null;}
+      else renderAll();
+      if(!old) void showNewTeacherRecommendations([savedItem]);
+      showToast(old ? "家教单已保存修改" : `家教单 ${item.orderNumber||item.id} 已发布`);
     } catch (err) { showToast(`保存失败：${err.message}`); }
     finally { saveButton.disabled = false; saveButton.textContent = saveLabel; }
   };
@@ -1134,6 +1152,9 @@ function renderAdminView() {
     state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
     renderAdminView();$("rawOrderInput")?.focus();
   };
+  $("btnCancelDraft").onclick=()=>draftAbortController?.abort();
+  if($("draftLockNumber"))$("draftLockNumber").onchange=e=>{state.draftLockNumber=e.target.checked;persistDraftWorkspace();};
+  if($("draftLockSalary"))$("draftLockSalary").onchange=e=>{state.draftLockSalary=e.target.checked;persistDraftWorkspace();};
   $("btnParseOrders").onclick = async () => {
     if(state.aiDraftBusy)return;
     const raw=$("rawOrderInput").value.trim();
@@ -1141,6 +1162,9 @@ function renderAdminView() {
     if(!syncDraftTextareas())return;
     state.aiRawText=raw;state.aiDraftError="";state.aiDraftTiming=null;state.aiDraftStarted=Date.now();
     const errorBox=$("aiDraftError");if(errorBox){errorBox.hidden=true;errorBox.textContent="";}
+    const appendNew=$("draftAppendNew")?.checked===true;
+    draftAbortController=new AbortController();
+    const signal=draftAbortController.signal;
     state.aiDraftBusy=true;persistDraftWorkspace();lockDraftControls();
     $("btnParseOrders").disabled=true;$("btnParseOrders").textContent="AI 正在整理…";
     $("btnPublishDrafts").disabled=true;
@@ -1159,19 +1183,36 @@ function renderAdminView() {
         }
       }
       const onProgress=message=>{progressMessage=message;updateElapsed();const btn=$("btnParseOrders");if(btn)btn.textContent=message;};
-      const result=previous.length ?
-        await reviseDraftsWithAI(raw,previous,state.aiDraftHistory,existing,onProgress):
-        await parseMessyOrders(raw,existing,state.aiDraftHistory,onProgress);
+      const explicitNew=/^(?:新单|追加新单|新增家教单)[：:\s]/.test(raw);
+      const newHeader=raw.match(/^\s*(#\d{3,7}(?:-\d+)?)\s*\//)?.[1];
+      const distinctFullOrder=newHeader&&/【补习科目】/.test(raw)&&/【补课地址】/.test(raw)&&!previous.some(o=>o.orderNumber===newHeader);
+      const append=previous.length>0&&(appendNew||explicitNew||(distinctFullOrder&&confirm("这是一个不同编号的完整家教单，作为新单追加并保留原草稿？")));
+      const result=append
+        ? await parseMessyOrders(raw,[...existing,...previous],[],onProgress,signal)
+        : previous.length ? await reviseDraftsWithAI(raw,previous,state.aiDraftHistory,existing,onProgress,signal)
+        : await parseMessyOrders(raw,existing,[],onProgress,signal);
+      if(signal.aborted)throw new Error("已取消 AI 请求");
+      if(append){
+        const used=new Set(previous.map(o=>o.orderNumber||o.id));
+        if(result.orders.some(o=>used.has(o.orderNumber||o.id)))throw new Error("新单与当前草稿编号重复，请先核对编号");
+        result.orders=[...previous,...result.orders];
+      }
+      if(previous.length&&!append&&(state.draftLockNumber||state.draftLockSalary)){
+        const byNumber=new Map(result.orders.map(o=>[o.orderNumber||o.id,o]));
+        if(state.draftLockNumber&&(byNumber.size!==previous.length||previous.some(o=>!byNumber.has(o.orderNumber||o.id))))throw new Error("编号已锁定，未应用本次修改；解除锁定后可拆合或改号");
+        if(state.draftLockSalary&&(previous.length!==result.orders.length||previous.some(o=>byNumber.get(o.orderNumber||o.id)?.salaryText!==o.salaryText)))throw new Error("薪资已锁定，未应用本次修改");
+      }
       const diff=draftDiff(previous,result.orders);
       checkpointDraftWorkspace(diff.join("；").slice(0,600)||"AI 对话");
       state.parsedDraftOrders=result.orders;state.pendingDraftText={};
       state.aiDraftTiming=result.timing||{elapsedMs:Date.now()-state.aiDraftStarted};
       state.aiDraftReply=result.reply;state.aiDraftGroupingNotes=result.groupingNotes;state.aiDraftQuestions=result.questions;
       state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
+      if(append)state.aiDraftHistory=[];
       state.aiDraftHistory.push({role:"user",content:raw},{role:"assistant",content:result.reply||"已整理，请查看标准文案"});
       state.aiDraftHistory=state.aiDraftHistory.slice(-12);state.aiRawText="";
     }catch(error){state.aiDraftTiming={elapsedMs:Date.now()-state.aiDraftStarted};state.aiDraftError=error.message;showToast("AI 整理失败："+error.message);}
-    finally{clearInterval(elapsedTimer);state.aiDraftBusy=false;persistDraftWorkspace();renderAdminView();}
+    finally{clearInterval(elapsedTimer);draftAbortController=null;state.aiDraftBusy=false;persistDraftWorkspace();renderAdminView();}
   };
   $("rawOrderInput").onkeydown=event=>{
     if(event.key==="Enter"&&(event.ctrlKey||event.metaKey)){event.preventDefault();$("btnParseOrders").click();}
@@ -1180,22 +1221,29 @@ function renderAdminView() {
     if(!state.parsedDraftOrders.length||state.aiDraftBusy) return;
     if(!syncDraftTextareas())return;
     const items = state.parsedDraftOrders.map(order => normalizeOrder(order));
+    if(items.some(o=>Number(o.hoursPerSession)>24||Number(o.teacherCount)>20||Number(o.sessionsPerWeek)>7))return showToast("课时、人数或每周次数异常，请先核对");
+    if(items.some(o=>{const m=String(o.salaryText||"").match(/(\d+(?:\.\d+)?)\s*[～~—-]\s*(\d+(?:\.\d+)?)/);return m&&Number(m[1])>Number(m[2]);}))return showToast("薪资区间上下限颠倒，请先核对");
+    const missing=items.filter(o=>missingDraftFields(o).length);
+    if(missing.length&&!confirm("有 "+missing.length+" 条草稿含待核实字段。确认按实际已知信息发布，不自动补造？"))return;
+    const fingerprint=JSON.stringify(items);
+    const retrying=state.pendingPublish?.fingerprint===fingerprint;
     const ordinary=items.filter(o=>!o.existingOrderId&&!o.explicitNumberReuse);
     const idIssues = checkDraftIds(ordinary,Store.getOrders());
-    if(idIssues.length) return showToast("单号重复或不合法："+idIssues.slice(0,3).join("、")+"；请核对草稿编号");
+    if(idIssues.length&&!retrying) return showToast("单号重复或不合法："+idIssues.slice(0,3).join("、")+"；请核对草稿编号");
     if(items.some(o=>o.grade==="年级待补充"||o.subject==="科目待补充"))
       return showToast("请先补全所有草稿的年级和科目，再发布");
-    if(!confirmDuplicateRisks(ordinary))return;
+    if(!retrying&&!confirmDuplicateRisks(ordinary))return;
     if(items.some(o=>o.existingOrderId||o.explicitNumberReuse||o.splitFromId) && !confirm("此批含原单更新、历史拆单或明确指定的重号新单。请核对编号及学生身份；发布将保留原记录关联，历史拆单会下架原主单，重号新单不会覆盖旧单。继续吗？"))return;
     if(!Store.isCloudMode())return showToast("服务器存储不可用，未发布");
-    state.aiDraftBusy=true;lockDraftControls();
+    if(!retrying)state.pendingPublish={fingerprint,key:crypto.randomUUID()};
+    state.aiDraftBusy=true;persistDraftWorkspace();lockDraftControls();
     const button = $("btnPublishDrafts");
     button.disabled=true;
     button.textContent="正在写入云端…";
     try {
       // API 模型已经处理过结构化地址；不再额外发起一次容易失败的 AI 解析调用。
-      const published=await Store.publishAIDrafts(items);
-      const count=items.length;
+      const published=await Store.publishAIDrafts(items,state.pendingPublish.key);
+      const count=published.length;state.pendingPublish=null;
       state.lastPublishedDrafts=published;workspaceHistory=[];state.pendingDraftText={};
       state.aiRawText="";
       state.parsedDraftOrders=[];
@@ -1364,6 +1412,7 @@ function renderAdminView() {
     };
   });
   $("btnAdminSelectPage").onclick = () => {
+    if(state.adminStatus==="trash")return showToast("回收站订单请逐条恢复");
     adminShownOrders.forEach((o) => adminCheckedOrders.add(o.id));
     renderAdminView();
   };
@@ -1373,7 +1422,7 @@ function renderAdminView() {
     renderAdminView();
   };
   const batchChangeStatus = async (status) => {
-    const items = Store.getOrders().filter((o) => adminCheckedOrders.has(o.id) &&
+    const items = Store.getOrders().filter((o) => o.status!=="已删除"&&adminCheckedOrders.has(o.id) &&
       (status === "招募中" ? !isPubliclyOpenOrder(o) : isPubliclyOpenOrder(o)));
     if (!items.length) return showToast("请先选中需要变更状态的家教单");
     if (items.length > 100) return showToast("每次最多批量处理100条，请分批选择");
@@ -1416,6 +1465,7 @@ function renderAdminView() {
   });
   box.querySelectorAll("[data-edit-order]").forEach((btn) => {
     btn.onclick = () => {
+      adminOrderScroll=window.scrollY;
       state.editingOrderId = btn.dataset.editOrder;
       state.adminPage = "manual";
       renderAdminView();
@@ -1442,7 +1492,8 @@ function renderAdminView() {
   $("btnMergeSelected").onclick = async () => {
     const ids = [...adminCheckedOrders];
     if (ids.length < 2) return showToast("请至少选中两条需要合并的家教单");
-    const chosen = Store.getOrders().filter((o) => ids.includes(o.id));
+    const chosen = Store.getOrders().filter((o) => ids.includes(o.id)&&o.status!=="已删除");
+    if(chosen.length<2)return showToast("请选择至少两条非回收站订单");
     if (new Set(chosen.map((o) => `${o.grade}|${o.address}|${o.studentGender}`)).size !== 1) {
       return showToast("只能合并同一学生的家教单（年级、地址及学生性别需一致）");
     }
@@ -1455,14 +1506,28 @@ function renderAdminView() {
       showToast("合并完成，已保留主编号");
     } catch (err) { renderAll(); showToast(`合并失败，请核对订单：${err.message}`); }
   };
+  async function downloadAdminBackup(date=""){
+    const backup=await Store.exportBackup(date);
+    if(!backup)throw new Error("没有可用备份");
+    const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob),link=document.createElement("a");
+    link.href=url;link.download="tutorhub-backup-"+(date||String(backup.createdAt).slice(0,10))+".json";
+    document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  $("btnExportBackup").onclick=async()=>{try{await downloadAdminBackup();showToast("备份已导出，请妥善保存");}catch(e){showToast(e.message);}};
+  $("btnExportPastBackup").onclick=async()=>{const date=$("backupDate").value;if(!date)return showToast("请选择备份日期");try{await downloadAdminBackup(date);}catch(e){showToast(e.message);}};
+  $("btnMigrateStatic").onclick=async()=>{const info=Store.staticMigrationInfo();if(!info.count||info.migrated)return showToast("没有待迁移数据");if(!confirm("将 "+info.count+" 条历史来源记录迁入统一订单存储？现有修改、内部 ID 与已隐藏记录均保留；先下载备份再执行。"))return;const btn=$("btnMigrateStatic");btn.disabled=true;try{await downloadAdminBackup();const added=await Store.migrateStaticOrders();renderAdminView();showToast("迁移完成，新增 "+added+" 条历史记录");}catch(e){showToast("迁移失败："+e.message);btn.disabled=false;}};
+  $("btnAuditLog").onclick=async()=>{const target=$("adminAuditOutput");target.textContent="正在读取日志…";try{const entries=await Store.getAuditLog();target.replaceChildren();if(!entries?.length)target.textContent="暂无操作记录";for(const entry of entries||[]){const line=document.createElement("p");line.textContent=new Date(entry.at).toLocaleString()+" · "+entry.action+(entry.ids?.length?" · "+entry.ids.join("、"):"");target.append(line);}}catch(e){target.textContent=e.message;}};
+  box.querySelectorAll("[data-restore-order]").forEach(btn=>{btn.onclick=async()=>{btn.disabled=true;try{await Store.restoreOrder(btn.dataset.restoreOrder);renderAdminView();showToast("订单已恢复至删除前状态");}catch(e){showToast("恢复失败："+e.message);btn.disabled=false;}}});
   box.querySelectorAll("[data-del-order]").forEach((btn) => {
     btn.onclick = async () => {
-      if (!confirm(`确定删除家教单 ${btn.dataset.delOrder} 吗？此操作不能撤销。`)) return;
+      if (!confirm("确定移入回收站？该单将停止公开展示，可在回收站恢复。")) return;
+      btn.disabled=true;
       try {
-        await Store.deleteOrder(btn.dataset.delOrder);
+        await Store.trashOrder(btn.dataset.delOrder);adminCheckedOrders.delete(btn.dataset.delOrder);
         renderAll();
-        showToast("已从云端删除该家教单");
-      } catch (err) { showToast(`删除失败：${err.message}`); }
+        showToast("已移入回收站");
+      } catch (err) { showToast(`删除失败：${err.message}`);btn.disabled=false; }
     };
   });
   hydrateTeacherPool();
@@ -1502,6 +1567,7 @@ function renderParsedPreview() {
     <div class="ai-group-summary"><strong>AI 生成了 ${drafts.length} 条草稿</strong>
       ${notes.length ? `<p>${notes.map(escapeHtml).join("；")}</p>` : ""}
       <p>直接编辑标准文案或继续对话；核对后即可发布。</p>
+      ${workspaceHistory.length?`<p class="admin-helper"><strong>最近修改：</strong>${escapeHtml(workspaceHistory[workspaceHistory.length-1].label)}</p>`:""}
     </div>
     <details class="ai-workspace-advanced"><summary>手动拆单 / 合并 / 编组（可选）</summary><div class="ai-group-toolbar">
       <button class="btn btn-sm" type="button" id="btnSplitSelectedSubjects">拆分所选科目</button>
@@ -1804,6 +1870,17 @@ function initFloatingWechat(dialog) {
 }
 
 function initControls() {
+  document.addEventListener("visibilitychange",async()=>{
+    if(document.hidden||state.view!=="hall"||publicRefreshBusy||Store.getCurrentUser()?.role==="admin")return;
+    publicRefreshBusy=true;
+    const previous=new Map(getSelectedOrders().map(o=>[o.id,JSON.stringify([o.status,o.salaryText,o.weeklyFrequency,o.address,o.requirements,o.subject])]));
+    try{if(await Store.refreshPublicOrders()){
+      if(document.hidden||state.view!=="hall")return;
+      const current=new Map(getSelectedOrders().map(o=>[o.id,JSON.stringify([o.status,o.salaryText,o.weeklyFrequency,o.address,o.requirements,o.subject])]));
+      if([...previous].some(([id,v])=>current.get(id)!==v))showToast("已选家教单有变化，请在清单中重新核对");
+      const before=window.scrollY;renderHall();window.scrollTo(0,before);
+    }}catch{}finally{publicRefreshBusy=false;}
+  });
   $("btnRetryMap").onclick = () => { void openMap(); };
   $("btnExpandMap").onclick = () => {
     const expanded = $("mapBoard").classList.toggle("map-expanded");

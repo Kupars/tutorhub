@@ -1,5 +1,5 @@
 // Administrator-only model management. API keys are never cached or echoed back.
-import { probeAIProvider } from "./ai-engine.js?v=8";
+import { probeAIProvider } from "./ai-engine.js?v=17";
 let root, Store, toast, registry, editingId=null, notice="", busy=false;
 const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 function activeLabel(){
@@ -18,6 +18,7 @@ function providerCard(p){
     '</select></label></div><div class="ai-provider-actions">'+
     '<button type="button" class="btn btn-sm '+(isActive?'btn-primary':'')+'" data-activate="'+esc(p.id)+'" '+(busy?'disabled':'')+'>'+(isActive?'应用所选模型':'切换使用')+'</button>'+
     '<button type="button" class="btn btn-sm" data-test="'+esc(p.id)+'" '+(busy?'disabled':'')+'>测试连接</button>'+
+    '<button type="button" class="btn btn-sm" data-fallback="'+esc(p.id)+'" '+(busy?'disabled':'')+'>设为备用</button>'+
     '<button type="button" class="btn btn-sm" data-edit="'+esc(p.id)+'" '+(busy?'disabled':'')+'>编辑</button>'+
     '<button type="button" class="btn btn-danger btn-sm" data-delete="'+esc(p.id)+'" '+(busy?'disabled':'')+'>删除</button></div></div>';
 }
@@ -30,7 +31,9 @@ function render(){
     '<div class="ai-model-top"><div><h2>🧠 AI 模型与中转站管理</h2><p class="admin-helper">支持多个 OpenAI 兼容的 HTTPS 中转站，每个中转站都能保存多个自定义模型 ID。</p></div>'+
     '<button class="btn btn-sm" type="button" id="refreshModels" '+(busy?'disabled':'')+'>刷新</button></div>'+
     '<div class="ai-model-active"><span>当前全站 AI</span><strong>'+esc(activeLabel())+'</strong></div>'+
-    '<p class="admin-helper">新请求统一使用所选模型：录单、历史导入、AI 修改、老师智能推荐和简历识别。</p>'+
+    '<p class="admin-helper">新请求统一使用所选模型：录单、AI 修改、老师智能推荐和简历识别。</p>'+
+    '<div class="ai-provider-card"><div><strong>备用模型：'+esc(registry.fallbackId?(registry.fallbackId==='env'?'默认模型':(registry.profiles.find(p=>p.id===registry.fallbackId)?.name||'')+' / '+registry.fallbackModel):'未启用')+'</strong><p class="admin-helper">只在管理员录单或修改请求早期出现网络/网关错误时切换一次；不自动转发简历或公开推荐请求。</p></div><button class="btn btn-sm" id="disableFallback" '+(!registry.fallbackId||busy?'disabled':'')+'>关闭备用</button><button class="btn btn-sm" id="fallbackEnv" '+(!registry.envConfigured||busy?'disabled':'')+'>默认模型作备用</button></div>'+
+    '<details><summary>近期模型调用统计</summary><button class="btn btn-sm" id="loadAIMetrics">读取统计</button><div id="aiMetricsOutput" class="admin-helper"></div><p class="admin-helper">仅记录管理员调用、耗时及服务商返回的 token 用量，不保存提示词或密钥。统计为尽力记录，不估算未知费用。</p></details>'+
     (notice?'<p class="ai-model-notice" role="status">'+esc(notice)+'</p>':'')+
     '<div class="ai-provider-card"><div><strong>Cloudflare 默认模型</strong><p class="admin-helper">'+esc(registry.envProvider)+' · '+esc(registry.envModel||'未配置')+'</p></div>'+
     '<button type="button" id="activateEnv" class="btn btn-sm" '+(busy||!registry.envConfigured?'disabled':'')+'>切换到默认</button></div>'+
@@ -61,6 +64,11 @@ async function operation(call,message){
 function chosenModel(id){return root.querySelector('[data-model-select="'+id+'"]')?.value||registry.profiles.find(p=>p.id===id)?.selectedModel;}
 function bind(){
   root.querySelector('#refreshModels').onclick=refresh;
+  const setFallback=(id,model)=>{if(id&&!confirm('启用后，符合条件的失败请求可能将录单内容发送给备用模型服务商并产生费用。确认启用？'))return;void operation(()=>Store.setAIProviderFallback(id,model),id?'备用模型已设置':'已关闭备用模型');};
+  root.querySelector('#disableFallback').onclick=()=>setFallback('','');
+  root.querySelector('#fallbackEnv').onclick=()=>setFallback('env','');
+  root.querySelectorAll('[data-fallback]').forEach(b=>b.onclick=()=>setFallback(b.dataset.fallback,chosenModel(b.dataset.fallback)));
+  root.querySelector('#loadAIMetrics').onclick=async()=>{const node=root.querySelector('#aiMetricsOutput');node.textContent='正在读取…';try{const entries=await Store.getAIMetrics(),groups=new Map();for(const e of entries||[]){const g=groups.get(e.provider)||{total:0,ok:0,ms:0,tokens:0,known:0};g.total++;g.ok+=e.ok?1:0;g.ms+=Number(e.ms)||0;if(Number.isFinite(e.tokens)){g.tokens+=e.tokens;g.known++;}groups.set(e.provider,g);}node.replaceChildren();if(!groups.size)node.textContent='暂无记录';for(const [name,g] of groups){const row=document.createElement('p');row.textContent=name+' · '+g.ok+'/'+g.total+' 成功 · 平均 '+Math.round(g.ms/g.total)+'ms · '+(g.known?g.tokens+' tokens（'+g.known+'次有用量）':'用量未知');node.append(row);}}catch(e){node.textContent=e.message;}};
   root.querySelector('#activateEnv').onclick=()=>operation(()=>Store.activateAIProvider('env'),'已切换到 Cloudflare 默认模型');
   root.querySelectorAll('[data-activate]').forEach(b=>b.onclick=()=>{
     const id=b.dataset.activate,model=chosenModel(id);

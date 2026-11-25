@@ -2,7 +2,7 @@ import {formatOrderText,parseFormattedOrder,normalizeOrder} from "./order-format
 const KEY="tutorhub_admin_workspace_v3";
 const fields=["id","orderNumber","grade","subject","studentGender","teacherCount","currentScores","address","weeklyFrequency","hoursPerSession","requirements","salaryText","trialTime","notes","onlineAllowed","urgent"];
 export function workspaceSnapshot(state){
-  return JSON.parse(JSON.stringify({parsedDraftOrders:state.parsedDraftOrders||[],aiDraftHistory:state.aiDraftHistory||[],aiRawText:state.aiRawText||"",aiDraftGroupingNotes:state.aiDraftGroupingNotes||[],aiDraftQuestions:state.aiDraftQuestions||[],aiDraftReply:state.aiDraftReply||"",pendingDraftText:state.pendingDraftText||{}}));
+  return JSON.parse(JSON.stringify({parsedDraftOrders:state.parsedDraftOrders||[],aiDraftHistory:state.aiDraftHistory||[],aiRawText:state.aiRawText||"",aiDraftGroupingNotes:state.aiDraftGroupingNotes||[],aiDraftQuestions:state.aiDraftQuestions||[],aiDraftReply:state.aiDraftReply||"",pendingDraftText:state.pendingDraftText||{},draftLockNumber:state.draftLockNumber===true,draftLockSalary:state.draftLockSalary===true,pendingPublish:state.pendingPublish||null}));
 }
 export function loadWorkspace(storage){try{const v=JSON.parse(storage.getItem(KEY)||"null");return v?.current&&Array.isArray(v.current.parsedDraftOrders)?v:null;}catch{return null;}}
 export function saveWorkspace(storage,current,history=[]){try{storage.setItem(KEY,JSON.stringify({current,history:history.slice(-12)}));return true;}catch{return false;}}
