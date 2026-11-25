@@ -13,6 +13,7 @@ import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
 import { MULTI_FILTER_LABELS, MULTI_FILTER_OPTIONS, matchesMultiFilters, normalizeMultiSelection, countSelectedFilters } from "./multi-filter.js?v=1";
 
+import {workspaceSnapshot,loadWorkspace,saveWorkspace,clearWorkspace,draftDiff,applyManualDraftText} from "./draft-workspace.js?v=1";
 import { splitDraftSubjects, mergeDraftSubjects, groupDraftsUnderParent, checkDraftIds, missingDraftFields } from "./draft-grouping.js?v=5";
 
 const state = {
@@ -23,6 +24,7 @@ const state = {
   parsedDraftOrders: [],
   aiRawText: "",
   aiDraftBusy: false,
+  pendingDraftText:{},
   aiDraftError: "",
   aiDraftTiming: null,
   aiDraftStarted: 0,
@@ -339,11 +341,36 @@ function applySiteConfig() {
   $("modeBadge").textContent = Store.isCloudMode() ? "🟢 云端已同步" : "⚠️ 数据服务暂不可用，已暂停显示家教单";
 }
 
+let workspaceLoaded=false,workspaceHistory=[],workspaceSaveOK=true;
+function persistDraftWorkspace(){
+  if(!workspaceLoaded||Store.getCurrentUser()?.role!=="admin")return;
+  try{workspaceSaveOK=saveWorkspace(sessionStorage,workspaceSnapshot(state),workspaceHistory);}catch{workspaceSaveOK=false;}
+  const node=$("draftSaveStatus");if(node)node.textContent=workspaceSaveOK?"本标签页自动保存，刷新可恢复":"本地保存不可用，请先复制草稿";
+  const undo=$("btnUndoDraft");if(undo)undo.disabled=state.aiDraftBusy||!workspaceHistory.length;
+}
+function restoreDraftWorkspace(){
+  if(workspaceLoaded)return;workspaceLoaded=true;
+  try{const saved=loadWorkspace(sessionStorage);if(saved){Object.assign(state,saved.current);workspaceHistory=Array.isArray(saved.history)?saved.history.slice(-12):[];}}catch{}
+}
+function checkpointDraftWorkspace(label){
+  const snapshot=workspaceSnapshot(state);
+  snapshot.pendingDraftText={};
+  if(!snapshot.parsedDraftOrders.length&&!snapshot.aiRawText&&!snapshot.aiDraftHistory.length)return;
+  workspaceHistory.push({label,at:new Date().toISOString(),snapshot});workspaceHistory=workspaceHistory.slice(-12);
+}
+function lockDraftControls(){
+  const panel=document.querySelector('[data-admin-page="aiOrders"]');
+  if(panel)for(const el of panel.querySelectorAll("button,textarea,input"))el.disabled=state.aiDraftBusy;
+  const undo=$("btnUndoDraft");if(undo)undo.disabled=state.aiDraftBusy||!workspaceHistory.length;
+}
 function renderUserActions() {
   const user = Store.getCurrentUser();
   const wrap = $("userActions");
   wrap.innerHTML = user?.role === "admin" ? `<button class="btn btn-sm" id="btnLogout">退出管理</button>` : "";
   $("btnLogout")?.addEventListener("click", () => {
+    if(state.aiDraftBusy)return showToast("草稿正在处理，请稍后再退出");
+    try{clearWorkspace(sessionStorage);}catch{}
+    workspaceLoaded=false;workspaceHistory=[];Object.assign(state,{parsedDraftOrders:[],aiDraftHistory:[],aiRawText:"",aiDraftGroupingNotes:[],aiDraftQuestions:[],aiDraftReply:"",pendingDraftText:{}});
     Store.logout();
     switchView("hall");
     renderAll();
@@ -790,6 +817,7 @@ function renderAdminView() {
     return;
   }
 
+  restoreDraftWorkspace();
   const orders = Store.getOrders();
   const addressQueue = orders.filter((o) => o.mode !== "线上" && (!getPublicMapLocation(o) || getPublicMapLocation(o)?.fallback));
   const search = state.adminQuery.toLowerCase().trim();
@@ -909,6 +937,8 @@ function renderAdminView() {
     <div class="panel admin-module-page" data-admin-page="aiOrders" ${openedPage==="aiOrders"?"":"hidden"}>
 
       <div class="ai-workspace-title"><div><h2>AI 编单</h2><p class="admin-helper">发送需求，继续对话修改；满意后复制到微信或一键发布。</p></div><button class="btn btn-sm" id="btnNewAIOrder" type="button">＋ 新单</button></div>
+      <div class="ai-workspace-actions"><button class="btn btn-sm" id="btnUndoDraft" type="button">撤销上次修改</button><button class="btn btn-sm" id="btnDraftHistory" type="button">草稿修改记录</button><span id="draftSaveStatus" class="admin-helper"></span></div>
+      <div id="draftChangeLog" class="admin-helper"></div>
       <div class="ai-chat-panel ai-order-history" id="aiDraftHistory" aria-live="polite"></div>
       <div id="parsedPreview" style="margin-top:12px;"></div>
       <div class="ai-workspace-actions">
@@ -1017,7 +1047,10 @@ function renderAdminView() {
   $("aiSiteReply").textContent = state.aiSiteReply;
   $("aiDraftHistory").innerHTML = state.aiDraftHistory.map(entry => `<div class="ai-message ai-message-${entry.role}"><b>${entry.role === "user" ? "管理员" : "AI"}</b> ${escapeHtml(entry.content)}</div>`).join("");
   $("aiSiteHistory").innerHTML = state.aiSiteHistory.map(entry => `<div class="ai-message ai-message-${entry.role}"><b>${entry.role === "user" ? "管理员" : "AI"}</b> ${escapeHtml(entry.content)}</div>`).join("");
-  $("rawOrderInput").oninput = (event) => { state.aiRawText = event.target.value; };
+  $("rawOrderInput").oninput = (event) => { state.aiRawText = event.target.value;persistDraftWorkspace(); };
+  $("btnUndoDraft").onclick=()=>{if(state.aiDraftBusy||!workspaceHistory.length)return;const prev=workspaceHistory.pop();Object.assign(state,prev.snapshot);state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();persistDraftWorkspace();renderAdminView();showToast("已撤销："+prev.label.slice(0,90));};
+  $("btnDraftHistory").onclick=()=>{if(state.aiDraftBusy)return;const el=$("draftChangeLog");if(el.childNodes.length){el.replaceChildren();return;}if(!workspaceHistory.length){el.textContent="暂无修改记录";return;}for(const item of workspaceHistory.slice().reverse()){const p=document.createElement("p");p.textContent=new Date(item.at).toLocaleTimeString()+" "+item.label;el.append(p);}};
+  persistDraftWorkspace();
   $("aiSiteCmd").oninput = (event) => { state.aiSiteInput = event.target.value; };
   if (state.editingPartTimeId) {
     const oldPartTime = Store.getPartTimePosts().find((post) => post.id === state.editingPartTimeId);
@@ -1092,6 +1125,8 @@ function renderAdminView() {
   $("btnNewAIOrder").onclick=()=>{
     if(state.aiDraftBusy)return;
     if(state.parsedDraftOrders.length && !confirm("当前草稿尚未发布，开始新单会清空草稿。继续吗？"))return;
+    if(!syncDraftTextareas())return;
+    checkpointDraftWorkspace("开始新单");state.pendingDraftText={};
     state.parsedDraftOrders=[];state.aiDraftHistory=[];state.aiRawText="";state.aiDraftError="";state.aiDraftTiming=null;
     state.aiDraftGroupingNotes=[];state.aiDraftQuestions=[];
     state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
@@ -1101,10 +1136,10 @@ function renderAdminView() {
     if(state.aiDraftBusy)return;
     const raw=$("rawOrderInput").value.trim();
     if(!raw)return showToast("请输入家教需求或修改指令");
-    syncDraftTextareas();
+    if(!syncDraftTextareas())return;
     state.aiRawText=raw;state.aiDraftError="";state.aiDraftTiming=null;state.aiDraftStarted=Date.now();
     const errorBox=$("aiDraftError");if(errorBox){errorBox.hidden=true;errorBox.textContent="";}
-    state.aiDraftBusy=true;
+    state.aiDraftBusy=true;persistDraftWorkspace();lockDraftControls();
     $("btnParseOrders").disabled=true;$("btnParseOrders").textContent="AI 正在整理…";
     $("btnPublishDrafts").disabled=true;
     let progressMessage="AI 正在整理";
@@ -1125,21 +1160,23 @@ function renderAdminView() {
       const result=previous.length ?
         await reviseDraftsWithAI(raw,previous,state.aiDraftHistory,existing,onProgress):
         await parseMessyOrders(raw,existing,state.aiDraftHistory,onProgress);
-      state.parsedDraftOrders=result.orders;
+      const diff=draftDiff(previous,result.orders);
+      checkpointDraftWorkspace(diff.join("；").slice(0,600)||"AI 对话");
+      state.parsedDraftOrders=result.orders;state.pendingDraftText={};
       state.aiDraftTiming=result.timing||{elapsedMs:Date.now()-state.aiDraftStarted};
       state.aiDraftReply=result.reply;state.aiDraftGroupingNotes=result.groupingNotes;state.aiDraftQuestions=result.questions;
       state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
       state.aiDraftHistory.push({role:"user",content:raw},{role:"assistant",content:result.reply||"已整理，请查看标准文案"});
       state.aiDraftHistory=state.aiDraftHistory.slice(-12);state.aiRawText="";
     }catch(error){state.aiDraftTiming={elapsedMs:Date.now()-state.aiDraftStarted};state.aiDraftError=error.message;showToast("AI 整理失败："+error.message);}
-    finally{clearInterval(elapsedTimer);state.aiDraftBusy=false;renderAdminView();}
+    finally{clearInterval(elapsedTimer);state.aiDraftBusy=false;persistDraftWorkspace();renderAdminView();}
   };
   $("rawOrderInput").onkeydown=event=>{
     if(event.key==="Enter"&&(event.ctrlKey||event.metaKey)){event.preventDefault();$("btnParseOrders").click();}
   };
   $("btnPublishDrafts").onclick = async () => {
     if(!state.parsedDraftOrders.length||state.aiDraftBusy) return;
-    syncDraftTextareas();
+    if(!syncDraftTextareas())return;
     const items = state.parsedDraftOrders.map(order => normalizeOrder(order));
     const ordinary=items.filter(o=>!o.existingOrderId&&!o.explicitNumberReuse);
     const idIssues = checkDraftIds(ordinary,Store.getOrders());
@@ -1149,7 +1186,7 @@ function renderAdminView() {
     if(!confirmDuplicateRisks(ordinary))return;
     if(items.some(o=>o.existingOrderId||o.explicitNumberReuse||o.splitFromId) && !confirm("此批含原单更新、历史拆单或明确指定的重号新单。请核对编号及学生身份；发布将保留原记录关联，历史拆单会下架原主单，重号新单不会覆盖旧单。继续吗？"))return;
     if(!Store.isCloudMode())return showToast("服务器存储不可用，未发布");
-    state.aiDraftBusy=true;
+    state.aiDraftBusy=true;lockDraftControls();
     const button = $("btnPublishDrafts");
     button.disabled=true;
     button.textContent="正在写入云端…";
@@ -1157,7 +1194,7 @@ function renderAdminView() {
       // API 模型已经处理过结构化地址；不再额外发起一次容易失败的 AI 解析调用。
       const published=await Store.publishAIDrafts(items);
       const count=items.length;
-      state.lastPublishedDrafts=published;
+      state.lastPublishedDrafts=published;workspaceHistory=[];state.pendingDraftText={};
       state.aiRawText="";
       state.parsedDraftOrders=[];
       state.aiDraftHistory=[];
@@ -1169,16 +1206,17 @@ function renderAdminView() {
       showToast("已发布 "+count+" 条家教单，可复制上次已发布单");
       void showNewTeacherRecommendations(published);
     }catch(error){showToast("发布失败："+error.message);}
-    finally {state.aiDraftBusy=false;renderAdminView();}
+    finally {state.aiDraftBusy=false;persistDraftWorkspace();renderAdminView();}
   };
   $("btnCopyDrafts").onclick = () => {
-    syncDraftTextareas();
+    if(!syncDraftTextareas())return;
     copyText(state.parsedDraftOrders.map(formatOrderText).join("\n\n"),"已复制全部九字段草稿");
   };
-  $("btnMatchDrafts").onclick=()=>{if(state.aiDraftBusy)return;syncDraftTextareas();void showNewTeacherRecommendations(state.parsedDraftOrders);};
+  $("btnMatchDrafts").onclick=()=>{if(state.aiDraftBusy||!syncDraftTextareas())return;void showNewTeacherRecommendations(state.parsedDraftOrders);};
   if($("btnCopyPublishedDrafts"))$("btnCopyPublishedDrafts").onclick=()=>copyText(state.lastPublishedDrafts.map(formatOrderText).join("\n\n"),"已复制已发布家教单");
   if($("btnMatchPublishedDrafts"))$("btnMatchPublishedDrafts").onclick=()=>void showNewTeacherRecommendations(state.lastPublishedDrafts);
   $("csvImportInput").onchange = async (event) => {
+    if(state.aiDraftBusy)return;
     const file = event.target.files?.[0];
     if (!file) return;
     try {
@@ -1236,8 +1274,11 @@ function renderAdminView() {
         } finally { input.disabled=false; }
         return;
       }
-      state.parsedDraftOrders = importOrderTable(await file.text(), [...Store.getOrders(), { orderNumber: `#${Store.getOrderSequence()}` }]);
-      if (!state.parsedDraftOrders.length) throw new Error("文件中没有识别到有效家教单");
+      const imported=importOrderTable(await file.text(), [...Store.getOrders(), { orderNumber: `#${Store.getOrderSequence()}` }]);
+      if (!imported.length) throw new Error("文件中没有识别到有效家教单");
+      if(state.aiDraftBusy)return;
+      if(state.parsedDraftOrders.length&&!confirm("导入将替换当前草稿，继续吗？"))return;
+      checkpointDraftWorkspace("导入草稿");state.parsedDraftOrders=imported;state.pendingDraftText={};state.aiDraftHistory=[];state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
       renderAdminView();
       showToast(`已导入 ${state.parsedDraftOrders.length} 条草稿，请校对后发布`);
     } catch (err) { showToast(`导入失败：${err.message}`); }
@@ -1387,6 +1428,7 @@ function renderAdminView() {
       if(state.parsedDraftOrders.length&&!confirm("拆单将替换当前草稿，继续吗？"))return;
       const children=splitOrderBySubject(item);
       if(children.length<2)return showToast("只有一个科目，无需拆单");
+      checkpointDraftWorkspace("拆分历史订单");state.pendingDraftText={};
       state.parsedDraftOrders=children.map(o=>({...o,splitFromId:item.id}));
       state.aiDraftHistory=[];state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
       state.adminPage = "aiOrders";
@@ -1427,24 +1469,33 @@ function renderAdminView() {
 }
 
 
-function syncDraftTextareas() {
+function syncDraftTextareas(quiet=false) {
   const wrap=$("parsedPreview");
-  if(!wrap)return;
-  wrap.querySelectorAll("[data-draft-text]").forEach(el=>{
-    const i=Number(el.dataset.draftText),parsed=parseFormattedOrder(el.value);
-    const old=state.parsedDraftOrders[i];
-    if(parsed&&old){
-      const next={...old,...parsed,orderNumber:parsed.id||old.orderNumber,mode:old.mode,publicAddress:parsed.address};
-      if(next.orderNumber!==old.orderNumber){delete next.existingOrderId;delete next.explicitNumberReuse;delete next.splitFromId;}
-      state.parsedDraftOrders[i]=next;
+  if(!wrap)return true;
+  if(state.aiDraftBusy)return false;
+  try{
+    const next=[...state.parsedDraftOrders];
+    for(const el of wrap.querySelectorAll("[data-draft-text]")){
+      const i=Number(el.dataset.draftText);if(next[i])next[i]=applyManualDraftText(next[i],el.value);
     }
-  });
+    if(new Set(next.map(o=>o.orderNumber||o.id)).size!==next.length)throw new Error("草稿编号重复");
+    if(next.some((o,i)=>o!==state.parsedDraftOrders[i])){
+      checkpointDraftWorkspace(draftDiff(state.parsedDraftOrders,next).join("；").slice(0,600)||"手动编辑");
+      state.parsedDraftOrders=next;
+      state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
+      wrap.querySelectorAll("[data-subject-key],[data-group-family]").forEach(el=>el.checked=false);
+      if($("selectedSubjectCount"))$("selectedSubjectCount").textContent="0";
+      for(const [i,o] of next.entries()){const head=wrap.querySelector('[data-draft-heading="'+i+'"]');if(head)head.textContent=(o.existingOrderId?"更新原单":o.splitFromId?"历史拆单":"草稿 "+(i+1))+" · "+o.orderNumber+" · "+o.grade;}
+    }
+    state.pendingDraftText={};persistDraftWorkspace();
+    return true;
+  }catch(error){if(!quiet)showToast(error.message);return false;}
 }
 function renderParsedPreview() {
   const wrap=$("parsedPreview");
   if(!wrap)return;
   const drafts=state.parsedDraftOrders;
-  if(!drafts.length){wrap.innerHTML="";return;}
+  if(!drafts.length){wrap.innerHTML="";lockDraftControls();return;}
   const notes=[...state.aiDraftGroupingNotes,...state.aiDraftQuestions.map(s=>"待确认："+s)];
   wrap.innerHTML=`
     <div class="ai-group-summary"><strong>AI 生成了 ${drafts.length} 条草稿</strong>
@@ -1460,7 +1511,7 @@ function renderParsedPreview() {
     </div></details>
     ${drafts.map((o,index)=>`
       <div class="order-draft">
-        <div class="ai-draft-head"><label class="ai-family-label"><input type="checkbox" data-group-family="${index}" ${state.selectedDraftFamilies.has(index)?"checked":""} />编为一组</label><strong>${o.existingOrderId?"更新原单":o.explicitNumberReuse?"指定重号新单":o.splitFromId?"历史拆单":"草稿 "+(index+1)} · ${escapeHtml(o.orderNumber||o.id)} · ${escapeHtml(o.grade)}</strong>
+        <div class="ai-draft-head"><label class="ai-family-label"><input type="checkbox" data-group-family="${index}" ${state.selectedDraftFamilies.has(index)?"checked":""} />编为一组</label><strong data-draft-heading="${index}">${o.existingOrderId?"更新原单":o.explicitNumberReuse?"指定重号新单":o.splitFromId?"历史拆单":"草稿 "+(index+1)} · ${escapeHtml(o.orderNumber||o.id)} · ${escapeHtml(o.grade)}</strong>
           <div class="ai-draft-actions">
             <button class="btn btn-sm" type="button" data-split-draft="${index}">全部按单科拆分</button>
             <button class="btn btn-sm" type="button" data-copy-draft="${index}">复制</button>
@@ -1478,21 +1529,24 @@ function renderParsedPreview() {
         ${missingDraftFields(o).length ? `<p class="admin-helper ai-draft-warning">待核实：${escapeHtml(missingDraftFields(o).join("、"))}</p>`:""}
         ${!o.existingOrderId && findPotentialDuplicates([o],Store.getOrders()).length ?
           `<p class="admin-helper ai-draft-warning">疑似重复单：${escapeHtml(findPotentialDuplicates([o],Store.getOrders()).slice(0,3).map(x=>x.existing.orderNumber||x.existing.id).join("、"))}</p>`:""}
-        <textarea data-draft-text="${index}" aria-label="草稿 ${index+1} 的标准九字段">${escapeHtml(formatOrderText(o))}</textarea>
+        <textarea data-draft-text="${index}" aria-label="草稿 ${index+1} 的标准九字段">${escapeHtml(state.pendingDraftText?.[index]??formatOrderText(o))}</textarea>
         <p class="admin-helper">可手动编辑九字段。只有确认发布才会保存到云端。</p>
       </div>`).join("")}
   `;
-  wrap.querySelectorAll("[data-draft-text]").forEach(el=>el.onchange=syncDraftTextareas);
+  wrap.querySelectorAll("[data-draft-text]").forEach(el=>{
+    el.oninput=()=>{state.pendingDraftText[el.dataset.draftText]=el.value;persistDraftWorkspace();};
+    el.onchange=()=>syncDraftTextareas();
+  });
   wrap.querySelectorAll("[data-group-family]").forEach(box=>box.onchange=()=>{
     const i=Number(box.dataset.groupFamily);
     if(box.checked)state.selectedDraftFamilies.add(i);else state.selectedDraftFamilies.delete(i);
   });
   $("btnGroupRelatedDrafts").onclick=()=>{
-    syncDraftTextareas();
+    if(!syncDraftTextareas())return;
     if(state.selectedDraftFamilies.size<2)return showToast("请选择至少两条同来源需求的草稿");
     if(!confirm("确认这几条草稿属于同一组家长需求吗？\n仅改变显示编号为 #主单号-1、-2 等，不会把不同学生合并为同一条单。"))return;
     try{
-      state.parsedDraftOrders=groupDraftsUnderParent(state.parsedDraftOrders,[...state.selectedDraftFamilies],Store.getOrders());
+      checkpointDraftWorkspace("编组草稿");state.parsedDraftOrders=groupDraftsUnderParent(state.parsedDraftOrders,[...state.selectedDraftFamilies],Store.getOrders());
       state.selectedDraftFamilies.clear();renderAdminView();showToast("已按同一主编号编组，独立需求和科目未改变");
     }catch(err){showToast("编组失败："+err.message);}
   };
@@ -1503,31 +1557,31 @@ function renderParsedPreview() {
       $("selectedSubjectCount").textContent=String(state.selectedDraftSubjects.size);
     };
   });
-  $("btnClearSubjectSelections").onclick=()=>{state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();renderParsedPreview();};
+  $("btnClearSubjectSelections").onclick=()=>{if(state.aiDraftBusy||!syncDraftTextareas())return;state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();renderParsedPreview();};
   $("btnSplitSelectedSubjects").onclick=()=>{
-    syncDraftTextareas();
+    if(!syncDraftTextareas())return;
     if(!state.selectedDraftSubjects.size)return showToast("请先勾选要拆开的科目");
-    state.parsedDraftOrders=splitDraftSubjects(state.parsedDraftOrders,[...state.selectedDraftSubjects]);
+    try{checkpointDraftWorkspace("拆分科目");state.parsedDraftOrders=splitDraftSubjects(state.parsedDraftOrders,[...state.selectedDraftSubjects]);}catch(err){return showToast(err.message);}
     state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();renderAdminView();
     showToast("已拆分科目，未勾选的科目仍保留");
   };
   $("btnMergeSelectedSubjects").onclick=()=>{
-    syncDraftTextareas();
+    if(!syncDraftTextareas())return;
     const keys=[...state.selectedDraftSubjects];
     if(keys.length<2)return showToast("请至少从两条草稿中分别选中科目");
     if(!confirm("请确认这些科目来自同一名学生、希望由一位老师授课。确认合并吗？"))return;
     try{
-      state.parsedDraftOrders=mergeDraftSubjects(state.parsedDraftOrders,keys,true);
+      checkpointDraftWorkspace("合并科目");state.parsedDraftOrders=mergeDraftSubjects(state.parsedDraftOrders,keys,true);
       state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();renderAdminView();
       showToast("已合并选定科目，其余科目保留");
     }catch(err){showToast("合并失败："+err.message);}
   };
   wrap.querySelectorAll("[data-split-draft]").forEach(btn=>{
     btn.onclick=()=>{
-      syncDraftTextareas();
+      if(!syncDraftTextareas())return;
       const i=Number(btn.dataset.splitDraft);
       const keys=getSubjectList(state.parsedDraftOrders[i].subject).map(s=>i+"::"+s);
-      state.parsedDraftOrders=splitDraftSubjects(state.parsedDraftOrders,keys);
+      try{checkpointDraftWorkspace("按单科拆分");state.parsedDraftOrders=splitDraftSubjects(state.parsedDraftOrders,keys);}catch(err){return showToast(err.message);}
       state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();renderAdminView();
     };
   });
@@ -1536,11 +1590,12 @@ function renderParsedPreview() {
   });
   wrap.querySelectorAll("[data-remove-draft]").forEach(btn=>{
     btn.onclick=()=>{
-      syncDraftTextareas();
-      state.parsedDraftOrders.splice(Number(btn.dataset.removeDraft),1);
+      if(!syncDraftTextareas())return;
+      checkpointDraftWorkspace("移除草稿");state.parsedDraftOrders.splice(Number(btn.dataset.removeDraft),1);
       state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();renderAdminView();
     };
   });
+  lockDraftControls();
 }
 
 // ---------------- 弹窗与初始化 ----------------
