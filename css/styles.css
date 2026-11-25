@@ -1058,3 +1058,27 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 .route-batch-bar,.route-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0}.route-actions a{font-size:12px;color:var(--primary);text-decoration:underline}.route-details{font-size:12px;line-height:1.6;margin:6px 0}.route-details ol{padding-left:22px;max-height:180px;overflow:auto}.route-details summary{cursor:pointer}.route-batch-bar .map-note{flex:1;min-width:180px}
 
 .list-route-status{display:block;font-size:11px;color:var(--muted);white-space:normal;line-height:1.4;margin-top:3px}.route-batch-bar label{display:flex;align-items:center;gap:5px;font-size:12px}.route-batch-bar label input{width:auto;min-width:14px}
+
+/* 管理员家教单表格：沿用看板颜色，独立横向滚动，不影响页面布局。 */
+.admin-order-table-scroll{max-width:100%;max-height:68vh;overflow:auto;border:1px solid var(--border);border-radius:12px;background:var(--surface);}
+.admin-order-table{width:100%;min-width:1030px;border-collapse:separate;border-spacing:0;font-size:13px;text-align:left;}
+.admin-order-table th,.admin-order-table td{padding:10px 9px;border-bottom:1px solid var(--border);vertical-align:top;line-height:1.5;}
+.admin-order-table th{position:sticky;top:0;z-index:2;background:var(--surface-muted);white-space:nowrap;color:var(--muted);}
+.admin-order-table tbody tr:last-child td{border-bottom:0;}
+.admin-order-table tbody tr:hover td{background:var(--surface-alt);}
+.admin-order-table th:first-child,.admin-order-table td:first-child{width:38px;text-align:center;}
+.admin-order-table input[type=checkbox]{width:auto;min-width:0;accent-color:var(--primary);}
+.admin-table-number{font-weight:700;color:var(--primary);white-space:nowrap;}
+.admin-sort-button{font:inherit;font-weight:700;color:var(--primary);background:transparent;border:0;cursor:pointer;padding:0;white-space:nowrap;}
+.admin-sort-button:focus-visible{outline:2px solid var(--primary);outline-offset:3px;}
+.admin-table-status{display:inline-block;white-space:nowrap;font-weight:600;}
+.admin-table-status.is-open{color:var(--primary);}
+.admin-table-status.is-closed{color:var(--muted);}
+.admin-order-table td small{display:block;color:var(--muted);}
+.admin-table-actions{display:flex;flex-wrap:wrap;gap:5px;min-width:170px;}
+.admin-table-actions .btn{white-space:nowrap;}
+.admin-table-details{margin-top:6px;max-width:245px;color:var(--muted);}
+.admin-table-details summary{cursor:pointer;font-size:12px;}
+.admin-table-details p{margin:6px 0;overflow-wrap:anywhere;}
+.admin-table-empty{text-align:center!important;color:var(--muted);}
+@media(max-width:700px){.admin-order-table-scroll{max-height:65vh;}.admin-order-table th,.admin-order-table td{padding:9px 7px;}}

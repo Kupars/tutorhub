@@ -7,6 +7,7 @@ import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrd
 import { Store } from "./store.js?v=10";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
+import { sortAdminOrders } from "./admin-order-table.js?v=1";
 import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=4";
 import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=6";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
@@ -42,6 +43,7 @@ const state = {
   editingPartTimeId: null,
   adminQuery: "",
   adminStatus: "all",
+  adminOrderSort: "desc",
   adminPageSize: 40,
   adminPage: "home"
 };
@@ -807,6 +809,8 @@ function navigateAdminPage(page) {
 function renderAdminView() {
   const user = Store.getCurrentUser();
   const box = $("adminContainer");
+  const previousTable = box.querySelector(".admin-order-table-scroll");
+  const tableScroll = previousTable ? {top:previousTable.scrollTop,left:previousTable.scrollLeft} : null;
   if (!user || user.role !== "admin") {
     box.innerHTML = `
       <div class="panel">
@@ -831,7 +835,9 @@ function renderAdminView() {
     return [o.id, o.orderNumber, o.title, o.grade, o.subject, o.district, o.publicAddress, o.address, o.requirements]
       .some((value) => String(value || "").toLowerCase().includes(search));
   });
-  const adminShownOrders = adminFilteredOrders.slice(0, state.adminPageSize);
+  const currentIds = new Set(orders.map(o => o.id));
+  for (const id of adminCheckedOrders) if (!currentIds.has(id)) adminCheckedOrders.delete(id);
+  const adminShownOrders = sortAdminOrders(adminFilteredOrders,state.adminOrderSort).slice(0, state.adminPageSize);
 
   const openedPage = Object.hasOwn(ADMIN_PAGES, state.adminPage) ? state.adminPage : "home";
   const activeLabel = ADMIN_PAGES[openedPage].name;
@@ -999,28 +1005,36 @@ function renderAdminView() {
         <button class="btn btn-sm" id="btnMergeSelected" type="button">合并选中的同学多科单</button>
       </div>
       ${state.adminStatus === "address" ? `<p class="admin-helper">这些单只有区/镇中心示意点或无法定位，不能当作已核验小区。请点“核对地址”，对照家长确认的信息修改公开地点；没有更具体信息的继续留在区/镇中心即可。</p>` : ""}
-      <div style="display:flex;flex-direction:column;gap:8px;">
-        ${adminShownOrders.length ? adminShownOrders.map((o) => `
-          <div style="border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-            <div>
-              <label style="display:inline-flex;gap:8px;align-items:center;">
-                <input type="checkbox" data-merge-id="${escapeHtml(o.id)}" ${adminCheckedOrders.has(o.id) ? "checked" : ""} style="width:auto;" aria-label="选中 ${escapeHtml(o.id)} 用于批量管理" />
-                <strong>${escapeHtml(o.id)}</strong>
-              </label>
-              · ${escapeHtml(o.title)} <span class="chip">${escapeHtml(o.salaryText)}</span>
-              <span class="chip">${escapeHtml(o.studentGender)}</span><span class="chip">${escapeHtml(o.status)}</span>
-              ${addressQueue.some((item) => item.id === o.id) ? `<span class="chip">📍 区/镇中心示意</span><small style="display:block;color:var(--muted)">公开地点：${escapeHtml(o.publicAddress || o.address || o.district || "未提供")}</small>` : ""}
-            </div>
-            <div style="display:flex;gap:6px;">
-              <button class="btn btn-sm" data-edit-order="${escapeHtml(o.id)}">编辑</button>
-              <button class="btn btn-sm" data-open-app="${escapeHtml(o.id)}">登记投递</button>
-              ${addressQueue.some((item) => item.id === o.id) ? `<button class="btn btn-sm" data-fix-address="${escapeHtml(o.id)}">核对地址</button>` : ""}
-              ${getSubjectList(o.subject).length > 1 ? `<button class="btn btn-sm" data-split-order="${escapeHtml(o.id)}">按科目拆单</button>` : ""}
-              <button class="btn btn-sm" data-toggle-status="${escapeHtml(o.id)}">${isPubliclyOpenOrder(o) ? "关闭展示" : "重新上架"}</button>
-              <button class="btn btn-danger btn-sm" data-del-order="${o.id}">删除</button>
-            </div>
-          </div>
-        `).join("") : '<p class="admin-helper">当前筛选条件下没有家教单。</p>'}
+      <div class="admin-order-table-scroll" role="region" aria-label="家教单管理表格" tabindex="0">
+        <table class="admin-order-table">
+          <thead><tr><th scope="col"><input id="adminPageCheckbox" type="checkbox" aria-label="选中或取消本页所有家教单" ${adminShownOrders.length && adminShownOrders.every(o=>adminCheckedOrders.has(o.id)) ? "checked" : ""} ${adminShownOrders.length ? "" : "disabled"} /></th>
+            <th scope="col" aria-sort="${state.adminOrderSort==="asc"?"ascending":"descending"}"><button type="button" class="admin-sort-button" id="btnAdminSortNumber" aria-label="单号排序，当前${state.adminOrderSort==="asc"?"正序，点击切换倒序":"倒序，点击切换正序"}">单号 ${state.adminOrderSort==="asc"?"↑":"↓"}</button></th>
+            <th scope="col">区域</th><th scope="col">年级</th><th scope="col">性别</th><th scope="col">科目</th><th scope="col">时薪</th><th scope="col">频率</th><th scope="col">状态</th><th scope="col">详情与操作</th></tr></thead>
+          <tbody>${adminShownOrders.length ? adminShownOrders.map((o) => {
+            const id=escapeHtml(o.id), number=escapeHtml(o.orderNumber||o.id), open=isPubliclyOpenOrder(o);
+            const needsAddress=addressQueue.some(item=>item.id===o.id);
+            return `<tr>
+              <td><input type="checkbox" data-merge-id="${id}" ${adminCheckedOrders.has(o.id)?"checked":""} aria-label="选中 ${number} 用于批量管理" /></td>
+              <td class="admin-table-number">${number}</td>
+              <td>${escapeHtml(o.district==="线上"?"线上":canonicalDistrict(o.district)||"待补充")}</td>
+              <td>${escapeHtml(o.grade||"待补充")}</td><td>${escapeHtml(o.studentGender||"待补充")}</td>
+              <td>${escapeHtml(o.subject||"待补充")}</td><td>${escapeHtml(o.salaryText||"老师报价")}</td><td>${escapeHtml(o.weeklyFrequency||"待补充")}</td>
+              <td><span class="admin-table-status ${open?"is-open":"is-closed"}">${open?"展示中":"已关闭"}</span><small>${escapeHtml(o.status||"待确认")}</small></td>
+              <td><div class="admin-table-actions">
+                <button type="button" class="btn btn-sm" data-edit-order="${id}">编辑</button>
+                <button type="button" class="btn btn-sm" data-toggle-status="${id}">${open?"下架":"上架"}</button>
+                <button type="button" class="btn btn-danger btn-sm" data-del-order="${id}">删除</button>
+              </div><details class="admin-table-details"><summary>详情与更多操作</summary>
+                <p>${escapeHtml(o.title)} · ${escapeHtml(o.publicAddress||o.address||"地点待补充")}</p>
+                <p>${escapeHtml(o.currentScores||"")} ${escapeHtml(o.requirements||"")} ${escapeHtml(o.trialTime||"")}</p>
+                ${needsAddress?'<span class="chip">📍 区/镇中心示意</span>':""}
+                <div class="admin-table-actions"><button type="button" class="btn btn-sm" data-open-app="${id}">登记投递</button>
+                ${needsAddress?`<button type="button" class="btn btn-sm" data-fix-address="${id}">核对地址</button>`:""}
+                ${getSubjectList(o.subject).length>1?`<button type="button" class="btn btn-sm" data-split-order="${id}">按科目拆单</button>`:""}</div>
+              </details></td>
+            </tr>`;
+          }).join("") : '<tr><td colspan="10" class="admin-table-empty">当前筛选条件下没有家教单。</td></tr>'}</tbody>
+        </table>
       </div>
       ${adminFilteredOrders.length > adminShownOrders.length ? `<div class="admin-editor-actions"><button class="btn btn-sm" id="btnAdminLoadMore">再显示 ${Math.min(40, adminFilteredOrders.length - adminShownOrders.length)} 条（剩余 ${adminFilteredOrders.length - adminShownOrders.length} 条）</button></div>` : ""}
 
@@ -1343,6 +1357,26 @@ function renderAdminView() {
     }finally{button.disabled=false;button.textContent="生成修改预览";}
   };
 
+  $("btnAdminSortNumber").onclick = () => {
+    state.adminOrderSort = state.adminOrderSort === "asc" ? "desc" : "asc";
+    state.adminPageSize = 40;
+    if ($("adminOrderSearch")) box.querySelector(".admin-order-table-scroll").scrollTop=0;
+    renderAdminView();
+    $("btnAdminSortNumber")?.focus({preventScroll:true});
+  };
+  const syncAdminSelection = () => {
+    const pageCheckbox = $("adminPageCheckbox");
+    const count = adminShownOrders.filter(o=>adminCheckedOrders.has(o.id)).length;
+    pageCheckbox.checked = adminShownOrders.length>0 && count===adminShownOrders.length;
+    pageCheckbox.indeterminate = count>0 && count<adminShownOrders.length;
+    $("adminSelectedCount").textContent = `已选择 ${adminCheckedOrders.size} 条 · 当前筛选 ${adminFilteredOrders.length} 条`;
+  };
+  $("adminPageCheckbox").onchange = (event) => {
+    adminShownOrders.forEach(o=>event.target.checked?adminCheckedOrders.add(o.id):adminCheckedOrders.delete(o.id));
+    box.querySelectorAll("[data-merge-id]").forEach(input=>{input.checked=adminCheckedOrders.has(input.dataset.mergeId);});
+    syncAdminSelection();
+  };
+  syncAdminSelection();
   $("adminOrderSearch").oninput = (event) => {
     const cursor = event.target.selectionStart;
     state.adminQuery = event.target.value;
@@ -1360,7 +1394,7 @@ function renderAdminView() {
     input.onchange = () => {
       if (input.checked) adminCheckedOrders.add(input.dataset.mergeId);
       else adminCheckedOrders.delete(input.dataset.mergeId);
-      $("adminSelectedCount").textContent = `已选择 ${adminCheckedOrders.size} 条 · 当前筛选 ${adminFilteredOrders.length} 条`;
+      syncAdminSelection();
     };
   });
   $("btnAdminSelectPage").onclick = () => {
@@ -1406,12 +1440,14 @@ function renderAdminView() {
   box.querySelectorAll("[data-toggle-status]").forEach((btn) => {
     btn.onclick = async () => {
       const o = Store.getOrders().find((x) => x.id === btn.dataset.toggleStatus);
-      if (!o) return;
+      if (!o || btn.disabled) return;
+      btn.disabled = true;
       try {
         await Store.updateOrder(o.id, { status: isPubliclyOpenOrder(o) ? "已匹配" : "招募中" });
         renderAdminView();
         showToast(isPubliclyOpenOrder(o) ? "已关闭展示，老师端和地图将不再显示此单" : "已重新上架");
       } catch (err) { showToast(`更新失败：${err.message}`); }
+      finally { btn.disabled = false; }
     };
   });
   box.querySelectorAll("[data-edit-order]").forEach((btn) => {
@@ -1446,7 +1482,7 @@ function renderAdminView() {
     if (new Set(chosen.map((o) => `${o.grade}|${o.address}|${o.studentGender}`)).size !== 1) {
       return showToast("只能合并同一学生的家教单（年级、地址及学生性别需一致）");
     }
-    if (!confirm(`将 ${chosen.length} 条单合并到 ${chosen[0].id}，并下架其他选中单？历史记录保留。`)) return;
+    if (!confirm(`将 ${chosen.length} 条单合并到 ${chosen[0].orderNumber||chosen[0].id}，并下架其他选中单？历史记录保留。`)) return;
     try {
       const merged = mergeOrders(chosen, chosen[0].id);
       await Store.mergePublishedOrders(chosen,merged);
@@ -1457,14 +1493,22 @@ function renderAdminView() {
   };
   box.querySelectorAll("[data-del-order]").forEach((btn) => {
     btn.onclick = async () => {
-      if (!confirm(`确定删除家教单 ${btn.dataset.delOrder} 吗？此操作不能撤销。`)) return;
+      const order = Store.getOrders().find(o=>o.id===btn.dataset.delOrder);
+      if (!order || btn.disabled || !confirm(`确定删除家教单 ${order.orderNumber||order.id} 吗？此操作不能撤销。`)) return;
+      btn.disabled = true;
       try {
-        await Store.deleteOrder(btn.dataset.delOrder);
+        await Store.deleteOrder(order.id);
+        adminCheckedOrders.delete(order.id);
         renderAll();
         showToast("已从云端删除该家教单");
       } catch (err) { showToast(`删除失败：${err.message}`); }
+      finally { btn.disabled = false; }
     };
   });
+  if (tableScroll && openedPage==="orders") {
+    const table = box.querySelector(".admin-order-table-scroll");
+    if (table) { table.scrollTop=tableScroll.top; table.scrollLeft=tableScroll.left; }
+  }
   hydrateTeacherPool();
   hydrateAIModelManager();
 }
