@@ -74,7 +74,7 @@ export function nextOrderId(orders = []) {
 export function normalizeSalary(value, grade, hourlyRate) {
   let salary = str(value);
   if (!salary && Number(hourlyRate) > 0) salary = `${Number(hourlyRate)}元/小时`;
-  if (!salary) salary = DEFAULT_SALARY[grade] || "老师报价";
+  if (!salary || /薪资待补充|薪资待协商|^待补充$|^待协商$/.test(salary)) return "薪资待补充";
   salary = salary.replace(/[（(]\s*$/, "");
   if (/\/?(?:天|次)|\d+\s*小时.*\d+\s*元|一共|总共/.test(salary) && !/元\/小时/.test(salary)) {
     return salary.includes("可报价") ? salary : `${salary}（可报价）`;
