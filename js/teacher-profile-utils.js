@@ -185,13 +185,15 @@ export function applyPlannedRoute(match,route){
  const routeBonus=Math.max(0,8-route.bestMin/10);
  return {...match,route,score:match.score-oldBonus+routeBonus,reasons:[routeLabel(route),...match.reasons.filter(x=>!x.includes("直线距离")&&!x.includes("历史订单地址与本单地址"))]};
 }
-export async function recommendTeacherProfilesWithRoutes(target,profiles=[],candidacies=[],orders=[],legacy=[],limit=5){
+export async function recommendTeacherProfilesWithRoutes(target,profiles=[],candidacies=[],orders=[],legacy=[],limit=5,budget={remaining:8}){
  const shortlist=recommendTeacherProfiles(target,profiles,candidacies,orders,legacy,Math.min(12,Math.max(limit,8)));
+ if(!budget.remaining||!shortlist.some(m=>profiles.find(p=>p.id===m.teacherId)?.departureLandmark))return shortlist.slice(0,limit);
  const dest=await resolveRoutePoint(target);
  if(!dest)return shortlist.slice(0,limit);
  const results=await runLimited(shortlist,async m=>{
   const teacher=profiles.find(p=>p.id===m.teacherId);
-  if(!teacher?.departureLandmark)return m;
+  if(!teacher?.departureLandmark||budget.remaining<=0)return m;
+  budget.remaining--;
   const origin=await resolveDepartureLandmark(teacher.departureLandmark);
   return origin?applyPlannedRoute(m,await requestRoute(origin,dest)):m;
  });

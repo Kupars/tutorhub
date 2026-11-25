@@ -27,3 +27,18 @@ test("client worker concurrency is bounded",async()=>{
  let n=0,max=0;const r=await runLimited([1,2,3,4],async x=>{n++;max=Math.max(max,n);await Promise.resolve();n--;return x;});
  assert.deepEqual(r,[1,2,3,4]);assert(max<=2);
 });
+
+test("new public geocode is immediately usable for route calculation and card result",async()=>{
+ const {resolveRoutePoint,requestRoute,commuteForOrder,orderRoutePoint}=await import("../js/route-client.js");
+ const orig=globalThis.fetch;
+ try{
+  globalThis.fetch=async (_url,opts)=>{
+   const q=JSON.parse(opts.body);
+   return new Response(JSON.stringify(q.action==="geocode"?{ok:true,lat:39.12,lng:117.23,district:"河西区",province:"天津市",level:"住宅区",formattedAddress:"天津市河西区测试花园"}:{ok:true,source:"amap",bikeMin:12,transitMin:16,bikeKm:3.2}));
+  };
+  const o={id:"test-route",publicAddress:"天津市河西区测试花园",district:"河西区",mode:"线下"},origin={lat:39.1,lng:117.2};
+  const p=await resolveRoutePoint(o);assert(p);assert(orderRoutePoint(o));
+  await requestRoute(origin,p);
+  assert.equal(commuteForOrder(origin,o).bikeMin,12);
+ }finally{globalThis.fetch=orig;}
+});

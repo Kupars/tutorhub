@@ -322,8 +322,8 @@ export function bindTeacherPool(container,store,rerender,showToast,copyText) {
     quick.disabled=true;target.textContent="正在整理并匹配…";
     try{
       const result=await parseMessyOrders(raw,store.getOrders());
-      const groups=[];
-      for(const o of result.orders.slice(0,10))groups.push({o,matches:await recommendTeacherProfilesWithRoutes(o,store.getTeacherProfiles(),store.getTeacherApplications(),store.getOrders(),store.getAssignments(),5)});
+      const groups=[],budget={remaining:10};
+      for(const o of result.orders)groups.push({o,matches:await recommendTeacherProfilesWithRoutes(o,store.getTeacherProfiles(),store.getTeacherApplications(),store.getOrders(),store.getAssignments(),5,budget)});
       target.innerHTML=groups.map(({o,matches})=>{
         return `<div class="teacher-publish-item"><strong>${h(o.grade)}${h(o.subject)} · ${h(o.publicAddress)}</strong>${matches.length?matches.map(x=>`<p><b>${h(x.name)}</b> · ${h(x.reasons.slice(0,4).join("；"))}<br>待确认：${h(x.checks.join("、"))}</p>`).join(""):"<p>暂无明确空闲且符合要求的老师</p>"}</div>`;
       }).join("");
@@ -446,9 +446,8 @@ export function openTeacherApplication(orderId,rerender) {
 export async function presentTeacherMatches(orders,store) {
   const profiles=store.getTeacherProfiles(),applications=store.getTeacherApplications();
   if(!orders?.length)return;
-  const recommendations=[];
-  for(const order of orders.slice(0,10))recommendations.push({order,candidates:await recommendTeacherProfilesWithRoutes(order,profiles,applications,store.getOrders(),store.getAssignments(),5)});
-  const markup=recommendations.map(({order,candidates})=>`<div class="teacher-publish-item">
+  const recommendations=orders.map(order=>({order,candidates:recommendTeacherProfiles(order,profiles,applications,store.getOrders(),store.getAssignments(),5)}));
+  const renderResults=entries=>entries.map(({order,candidates})=>`<div class="teacher-publish-item">
     <strong>${h(order.orderNumber||order.id)} · ${h(order.grade)}${h(order.subject)}</strong>
     ${candidates.length?candidates.map(x=>`<div class="teacher-match-row"><div><strong>${h(x.name)}</strong> ${x.starred?badge("星标老师","teacher-badge-star"):""}<small>${h(x.school||"")}${x.contact?" · 联系方式："+h(x.contact):""}${x.agentName?" · 代理："+h(x.agentName):""}</small><small>${h(x.reasons.slice(0,4).join("；"))}</small><small>待确认：${h(x.checks.join("、"))}</small></div></div>`).join(""):
       '<p>暂无符合条件、且标为可接单的储备老师。</p>'}
@@ -458,11 +457,21 @@ export async function presentTeacherMatches(orders,store) {
   modal.innerHTML=`<section class="teacher-publish-dialog" role="dialog" aria-modal="true" aria-labelledby="publishMatchTitle">
     <h2 id="publishMatchTitle">按单推荐 · 空闲老师</h2>
     <p class="admin-helper">按已知科目、年级、日期、区域和历史投递筛选。仅推荐已明确空闲者；已填写明确出发地的老师优先查询高德路线，其余保留历史偏好或直线距离。请联系确认具体时间。</p>
-    <div class="teacher-publish-results">${markup}</div>
+    <p class="admin-helper" data-route-progress>先展示基础推荐，正在补充高德通勤数据（本次最多10组）。</p><div class="teacher-publish-results">${renderResults(recommendations)}</div>
     <button class="btn btn-primary" id="closeTeacherPublishedModal" type="button">我知道了</button>
   </section>`;
   document.body.appendChild(modal);
   document.getElementById("closeTeacherPublishedModal")?.addEventListener("click",()=>modal.remove());
   modal.addEventListener("click",e=>{if(e.target===modal)modal.remove();});
   document.getElementById("closeTeacherPublishedModal")?.focus();
+  const budget={remaining:10};
+  try{
+    for(let i=0;i<recommendations.length&&modal.isConnected&&budget.remaining>0;i++){
+      const order=recommendations[i].order;
+      recommendations[i].candidates=await recommendTeacherProfilesWithRoutes(order,profiles,applications,store.getOrders(),store.getAssignments(),5,budget);
+      if(modal.isConnected)modal.querySelector(".teacher-publish-results").innerHTML=renderResults(recommendations);
+    }
+  }finally{
+    if(modal.isConnected)modal.querySelector("[data-route-progress]").textContent="高德通勤补充结束；未查询或无法定位的老师仍按基础匹配排序。";
+  }
 }

@@ -1,5 +1,5 @@
-import {getPublicMapLocation,wgs84ToGcj02,gcj02ToWgs84} from "./map-board.js?v=14";
-import {estimateCommuteLocal,isPlausiblePublicGeocode,verifiedPublicLandmarkCoords,inferNamedLandmarkCoords,adoptVerifiedPublicLocations} from "./commute.js?v=6";
+import {getPublicMapLocation,wgs84ToGcj02,gcj02ToWgs84,adoptPublicRouteLocation} from "./map-board.js?v=14";
+import {estimateCommuteLocal,isPlausiblePublicGeocode,verifiedPublicLandmarkCoords,inferNamedLandmarkCoords} from "./commute.js?v=6";
 import {mapGeocodeQuery,isDistrictOnlyAddress} from "./address-normalizer.js";
 const cache=new Map(),pending=new Map(),places=new Map();
 const valid=p=>p&&p.lat!=null&&p.lng!=null&&Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lng));
@@ -27,7 +27,7 @@ export async function resolveRoutePoint(order){
    if(!data.ok||!valid(data))return null;
    const p={...data,...gcj02ToWgs84(data.lat,data.lng),gcj02:false};
    if(!isPlausiblePublicGeocode({publicAddress:address,district:order.district},p))return null;
-   adoptVerifiedPublicLocations({[query]:p});
+   adoptPublicRouteLocation(query,p);
    return p;
   }catch{return null;}
  })();
@@ -41,7 +41,13 @@ export async function resolveDepartureLandmark(value){
  const local=verifiedPublicLandmarkCoords(address)||inferNamedLandmarkCoords(address,district);
  if(local)return local;
  if(isDistrictOnlyAddress(address,district))return null;
- return resolveRoutePoint({publicAddress:address,district});
+ // Teacher departure landmark: do not persist in the public geocode cache.
+ try{
+   const data=await post({action:"geocode",address:mapGeocodeQuery(address,district)});
+   if(!data.ok||!valid(data))return null;
+   const p={...data,...gcj02ToWgs84(data.lat,data.lng),gcj02:false};
+   return isPlausiblePublicGeocode({publicAddress:address,district},p)?p:null;
+ }catch{return null;}
 }
 export function getRouteResult(origin,dest){
  if(!valid(origin)||!valid(dest))return null;
@@ -75,7 +81,7 @@ export function routeLink(origin,dest,mode){
 export function routeLabel(r){
  if(!r)return "暂无法估算";
  if(r.isOnline)return "线上免通勤";
- return [r.source==="amap"?"高德规划":"本地估算",r.bikeMin!=null?"骑行 "+r.bikeMin+" 分"+(r.bikeKm!=null?" · "+r.bikeKm+" km":""):"骑行暂无路线",r.transitMin!=null?"公交/地铁 "+r.transitMin+" 分"+(r.transitKm!=null?" · "+r.transitKm+" km":""):"公交暂无路线"].join("｜");
+ return [r.source==="amap"?"高德规划":"本地估算"+(Number.isFinite(r.distanceKm)?"（道路约 "+r.distanceKm+" km）":""),r.bikeMin!=null?"骑行 "+r.bikeMin+" 分"+(r.bikeKm!=null?" · "+r.bikeKm+" km":""):"骑行暂无路线",r.transitMin!=null?"公交/地铁 "+r.transitMin+" 分"+(r.transitKm!=null?" · "+r.transitKm+" km":""):"公交暂无路线"].join("｜");
 }
 export async function runLimited(items,worker,limit=2){
  let next=0;const result=new Array(items.length);
