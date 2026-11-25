@@ -1,4 +1,4 @@
-import { adoptVerifiedPublicLocations, inferCoordsFromText, inferNamedLandmarkCoords, isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "./commute.js?v=5";
+import { adoptVerifiedPublicLocations, inferCoordsFromText, inferNamedLandmarkCoords, isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "./commute.js?v=6";
 import { isDistrictOnlyAddress, mapGeocodeQuery } from "./address-normalizer.js";
 
 let map = null;

@@ -1,7 +1,8 @@
+import {commuteForOrder,orderRoutePoint,resolveRoutePoint,requestRoute,routeLabel,routeLink,runLimited} from "./route-client.js?v=1";
 import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
-import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=5";
-import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=13";
+import { estimateCommuteLocal, inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
+import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=14";
 import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=10";
 import { Store } from "./store.js?v=9";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
@@ -43,7 +44,7 @@ let teacherPoolModulePromise=null;
 let pendingTeacherApplicationScroll=false;
 function loadTeacherPoolModule() {
   // 只在打开管理后台时下载老师档案和推荐模块，不影响普通老师的首屏加载。
-  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=9")
+  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=10")
     .catch(err=>{teacherPoolModulePromise=null;throw err;});
   return teacherPoolModulePromise;
 }
@@ -87,12 +88,15 @@ function hydrateTeacherPool() {
 async function showNewTeacherRecommendations(orders) {
   try {
     const module=await loadTeacherPoolModule();
-    module.presentTeacherMatches(orders,Store);
+    await module.presentTeacherMatches(orders,Store);
   }catch(err){showToast("老师推荐面板加载失败："+err.message);}
 }
 
 const adminCheckedOrders = new Set();
 let visibleBoardOrders = [];
+let routeBatchBusy=false;
+const routeAttempted=new Set();
+let routeOriginKey="";
 let expandedOrderId = null;
 // 升级展示偏好版本：之前的默认列表偏好不影响新版默认卡片。
 const BOARD_LAYOUT_KEY = "tutorhub_board_layout_v2";
@@ -364,6 +368,32 @@ function switchView(viewName) {
 }
 
 // ---------------- 视图 1：招募大厅 ----------------
+async function planVisibleRoutes(single){
+ if(routeBatchBusy)return;
+ const origin=Store.getOrigin();
+ if(origin.lat==null||origin.lng==null)return showToast("请先在地图上选择出发地");
+ const originKey=JSON.stringify([origin.lat,origin.lng]);
+ if(routeOriginKey!==originKey){routeOriginKey=originKey;routeAttempted.clear();}
+ const eligible=visibleBoardOrders.filter(o=>o.mode!=="线上"&&o.commute?.source!=="amap"&&!routeAttempted.has(o.id));
+ const orders=single||eligible.slice(0,10);
+ if(!orders.length){
+   if(visibleBoardOrders.some(o=>o.mode!=="线上"&&o.commute?.source!=="amap")){
+     routeAttempted.clear();return showToast("已尝试当前订单，可再次点击重试");
+   }
+   return showToast("当前没有需要查询的线下订单");
+ }
+ routeBatchBusy=true;const btn=$("btnPlanRoutes");if(btn)btn.disabled=true;
+ try{
+   const results=await runLimited(orders,async o=>{
+     if(routeOriginKey!==originKey)return null;
+     const dest=await resolveRoutePoint(o);
+     routeAttempted.add(o.id);
+     return dest?requestRoute(origin,dest):null;
+   });
+   if(state.view==="hall"&&JSON.stringify([Store.getOrigin().lat,Store.getOrigin().lng])===originKey)renderHall();
+   showToast("已获取 "+results.filter(Boolean).length+" / "+orders.length+" 条高德路线，其余保留估算或待定位");
+ }finally{routeBatchBusy=false;if(btn)btn.disabled=false;}
+}
 function renderHall() {
   const publicOrders = Store.getOrders().filter(isPubliclyOpenOrder);
   const subjects = [...new Set([...SUBJECTS, "作业辅导", "陪读", "道法",
@@ -394,7 +424,7 @@ function renderHall() {
 
   let items = Store.getOrders().map((order) => ({
     ...order,
-    commute: estimateCommuteLocal(origin, order),
+    commute: commuteForOrder(origin, order),
     selected: selected.includes(order.id)
   }));
 
@@ -416,6 +446,10 @@ function renderHall() {
 
   items = sortBoardOrders(items, sort);
   visibleBoardOrders = items;
+  const currentOriginKey=JSON.stringify([origin.lat,origin.lng]);
+  if(routeOriginKey!==currentOriginKey){routeOriginKey=currentOriginKey;routeAttempted.clear();}
+  const routeNote=$("routeBatchNote");
+  if(routeNote)routeNote.textContent=`${items.filter(o=>o.commute?.source==="amap").length} 条已获高德路线；其余为本地估算或地点待核实。点击查询才发送约百米精度的起终点坐标给高德。`;
   updateMapOrders(items);
 
   const onSiteLocations = items.filter((order) => order.mode !== "线上")
@@ -462,11 +496,10 @@ function renderHall() {
     const freshness = orderFreshness(o);
     const titleHtml = `${escapeHtml(title.before)}${title.subject ? `<span class="card-subject">${escapeHtml(title.subject)}</span>` : ""}${escapeHtml(title.after)}`;
     const displayDistrict = o.district === "线上" ? "线上" : canonicalDistrict(o.district) || "地点待补充";
-    const commuteHtml = o.commute
-      ? o.commute.isOnline
-        ? `<span class="chip commute">💻 线上免通勤</span>`
-        : `<span class="chip commute">路程约：骑行 ${o.commute.bikeMin} 分 / 公交 ${o.commute.transitMin} 分</span>`
-      : "";
+    const dest=orderRoutePoint(o);
+    const commuteHtml = `<span class="chip commute">${escapeHtml(routeLabel(o.commute))}</span>`;
+    const routeActions=o.mode==="线上"?"":`<div class="route-actions"><button type="button" class="btn btn-sm" data-plan-route="${escapeHtml(o.id)}">${o.commute?.source==="amap"?"重新检查路线":"查询高德通勤"}</button>${dest&&origin.lat!=null&&origin.lng!=null?`<a href="${escapeHtml(routeLink(origin,dest,"ride"))}" target="_blank" rel="noopener noreferrer">骑行路线（手机）</a><a href="${escapeHtml(routeLink(origin,dest,"bus"))}" target="_blank" rel="noopener noreferrer">公交路线</a>`:""}</div>`;
+    const routeDetails=o.commute?.source==="amap"?`<details class="route-details"><summary>路线详情</summary>${o.commute.transitLines?.length?`<p>公交/地铁：${escapeHtml(o.commute.transitLines.join(" → "))}</p>`:""}${o.commute.bikeSteps?.length?`<ol>${o.commute.bikeSteps.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ol>`:""}<p>高德规划耗时，实际以出行时情况为准。</p></details>`:"";
     return `
       <article class="order-card ${o.selected ? "order-selected" : ""}">
         <div class="card-head">
@@ -486,6 +519,7 @@ function renderHall() {
           ${teacherTag ? `<span class="chip teacher-gender-chip">${escapeHtml(teacherTag)}</span>` : ""}
           ${commuteHtml}
         </div>
+        ${routeActions}${routeDetails}
 
         <div class="schedule-summary" aria-label="家教上课频率和上课日期">
           <div class="schedule-metric"><span class="schedule-metric-label">↻ 上课频率</span><strong>${escapeHtml(schedule.frequency)}</strong></div>
@@ -571,6 +605,12 @@ function renderHall() {
 
   // 事件委托：滚动新增的卡片无需重复绑定监听器。
   grid.onclick = (event) => {
+    const routeButton=event.target.closest("[data-plan-route]");
+    if(routeButton){
+      const o=Store.getOrders().find(x=>x.id===routeButton.dataset.planRoute);
+      if(o)void planVisibleRoutes([o]);
+      return;
+    }
     const selectionButton = event.target.closest("[data-select]");
     if (selectionButton) {
       Store.toggleSelectedOrder(selectionButton.dataset.select);
@@ -1731,6 +1771,7 @@ function initControls() {
   document.addEventListener("tutorhub-geocodes-updated", () => {
     if (state.view === "hall") renderHall();
   });
+  $("btnPlanRoutes")?.addEventListener("click",()=>void planVisibleRoutes());
   initializeMultiFilters();
   loadSavedFilters();
   $("selectedFilterChips").addEventListener("click", event => {

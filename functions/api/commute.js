@@ -1,3 +1,4 @@
+import {planCommute} from "../../shared/route-service.js";
 // /api/commute (Cloudflare Pages or VPS)
 // Server-side AMap Web Service key. Never return the key or upstream request URLs.
 
@@ -83,31 +84,10 @@ export async function onRequestPost(context) {
         formattedAddress: typeof place.formatted_address === "string" ? place.formatted_address : "" });
     }
 
-    // 2. 骑行 + 公交耗时估算
-    const { origin, dest, city = "天津" } = body;
-    if(![origin?.lat,origin?.lng,dest?.lat,dest?.lng].every(Number.isFinite)||Math.abs(origin.lat)>90||Math.abs(dest.lat)>90||Math.abs(origin.lng)>180||Math.abs(dest.lng)>180)return jsonResp({ok:false,error:"请求参数无效",errorCode:"INVALID_COORDINATES"},400);
-    const oStr = `${origin.lng},${origin.lat}`;
-    const dStr = `${dest.lng},${dest.lat}`;
-
-    const [bikeRes, transitRes] = await Promise.all([
-      fetch(`https://restapi.amap.com/v4/direction/bicycling?origin=${oStr}&destination=${dStr}&key=${encodeURIComponent(env.AMAP_KEY)}`,{signal:AbortSignal.timeout(9000)}),
-      fetch(`https://restapi.amap.com/v3/direction/transit/integrated?origin=${oStr}&destination=${dStr}&city=${encodeURIComponent(city)}&key=${encodeURIComponent(env.AMAP_KEY)}`,{signal:AbortSignal.timeout(9000)})
-    ]);
-
-    const bikeData = await readAmap(bikeRes);
-    const transitData = await readAmap(transitRes);
-    if(String(bikeData.errcode??"0")!=="0" && transitData.status!=="1")return amapFailure(transitData);
-
-    const bikePath = bikeData?.data?.paths?.[0];
-    const transitPath = transitData?.route?.transits?.[0];
-
-    return jsonResp({
-      ok: Boolean(bikePath||transitPath),
-      ...(!bikePath&&!transitPath?{error:"未找到可用路线",errorCode:"NO_ROUTE"}:{}),
-      distanceKm: bikePath ? Number((Number(bikePath.distance) / 1000).toFixed(1)) : null,
-      bikeMin: bikePath ? Math.max(3, Math.round(Number(bikePath.duration) / 60)) : null,
-      transitMin: transitPath ? Math.max(5, Math.round(Number(transitPath.duration) / 60)) : null
-    });
+    // Route requests use GCJ-02. The caller explicitly supplies approximate coordinates.
+    if(body.action!=="route" && body.action!==undefined)return jsonResp({ok:false,errorCode:"UNKNOWN_ACTION"},400);
+    const result=await planCommute(body,env);
+    return jsonResp(result);
   } catch (err) {
     const code=["AMAP_UPSTREAM_HTTP","AMAP_INVALID_RESPONSE"].includes(err?.message)?err.message:"AMAP_UPSTREAM_UNREACHABLE";
     return jsonResp({ok:false,error:"高德服务连接或响应异常",errorCode:code},502);

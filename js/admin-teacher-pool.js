@@ -2,7 +2,7 @@ import {formatOrderText} from "./order-format.js";
 import {TEACHER_TYPES,STAGES,SUBJECT_OPTIONS,STUDY_LEVELS,LOCAL_GAOKAO,cleanTeachingPairs,cleanCompanionOptions,schoolTag,profileCapabilities,filterTeacherProfile} from "../shared/teacher-capabilities.js?v=1";
 import { callServerlessAI, parseMessyOrders } from "./ai-engine.js?v=10";
 import { ageOfOpenOrder } from "./assignment-utils.js";
-import { recommendTeacherProfiles, recommendOrdersForTeacher, TEACHER_AVAILABILITIES, TEACHER_GENDERS, wantedTeacherGender } from "./teacher-profile-utils.js?v=5";
+import { recommendTeacherProfiles, recommendOrdersForTeacher, recommendTeacherProfilesWithRoutes, recommendOrdersForTeacherWithRoutes, TEACHER_AVAILABILITIES, TEACHER_GENDERS, wantedTeacherGender } from "./teacher-profile-utils.js?v=6";
 
 let activeOrderId="";
 let editingTeacherId="";
@@ -166,7 +166,7 @@ export function renderTeacherPool(orders,profiles,applications,legacyAssignments
             return `<div class="teacher-linked-item"><span><strong>${h(p?.name||"档案已删除")}</strong> · ${h(c.status||"已投递")} ${h(p?.school||"")} ${c.agentName?" · 代理："+h(c.agentName):""}<small>${h(c.note||"")}</small></span><div class="teacher-link-actions"><button class="btn btn-sm" data-edit-application="${h(c.id)}" type="button">编辑进展</button><button class="btn btn-sm" data-remove-application="${h(c.id)}" type="button">取消关联</button></div></div>`;
           }).join(""):'<p class="admin-helper">本单尚未登记投递老师</p>'}
         </div>
-        <div class="teacher-recommend-panel"><h4>优先联系的老师（可接单）</h4>
+        <div class="teacher-recommend-panel"><h4>优先联系的老师（可接单）</h4><button class="btn btn-sm" id="teacherPlanRoutes" type="button">按高德实际通勤重新推荐</button>
           ${matched.length?matched.map(t=>`<div class="teacher-match-row">
             <div><strong>${h(t.name)}</strong> ${t.starred?badge("星标老师","teacher-badge-star"):""} <small>${h(t.school)} · ${h(t.gender)} · ${h(t.reasons.join("、"))}</small><small>待确认：${h(t.checks.join("、"))}</small></div>
             <button class="btn btn-sm" type="button" data-use-recommendation="${h(t.teacherId)}">登记投递</button>
@@ -214,6 +214,8 @@ export function selectTeacherApplication(orderId) {
 }
 
 export function bindTeacherPool(container,store,rerender,showToast,copyText) {
+  const routeButton=container.querySelector("#teacherPlanRoutes");
+  if(routeButton)routeButton.onclick=()=>{const o=store.getOrders().find(x=>x.id===activeOrderId);if(o)void presentTeacherMatches([o],store);};
   const reveal=(id)=>{
     activeOrderId=id;
     rerender();
@@ -299,11 +301,15 @@ export function bindTeacherPool(container,store,rerender,showToast,copyText) {
     availableTimes:formValue("teacherTimes"),preferredDistricts:formValue("teacherDistricts"),departureLandmark:formValue("teacherDeparture"),
     recentOrderRefs:formValue("teacherRecentOrders"),interestLocations:formValue("teacherInterestLocations"),preferences:formValue("teacherPreferences"),
     availability:formValue("teacherAvailability")});
-  const matchOrders=()=>{
+  let matchVersion=0;
+  const matchOrders=async()=>{
+    const version=++matchVersion;
     const profile=readProfile(),target=document.getElementById("teacherOrderMatches");
     if(!target)return;
     if(!profile.canTeach&&!profile.teachingPairs.length&&!profile.companionOptions.length){target.textContent="先读取简历，或选择明确科目与学段或陪读类型。";return;}
-    const matches=recommendOrdersForTeacher(profile,store.getOrders(),store.getTeacherApplications(),store.getAssignments());
+    target.textContent="正在筛选订单并查询可用的高德通勤路线…";
+    const matches=await recommendOrdersForTeacherWithRoutes(profile,store.getOrders(),store.getTeacherApplications(),store.getAssignments());
+    if(version!==matchVersion||!target.isConnected)return;
     target.innerHTML=matches.length?'<div class="teacher-link-actions"><h4>推荐家教单（不自动入库）</h4><button type="button" class="btn btn-sm" id="copyTeacherAllMatches">复制全部推荐单</button></div>'+matches.map((x,i)=>`<div class="teacher-match-row"><div><strong>${showOrderName(x.order)}</strong><small>${h(x.order.publicAddress||x.order.address)} · ${h(x.order.weeklyFrequency)} · ${h(x.order.salaryText)}</small><small>${h(x.reasons.slice(0,4).join("；"))}</small><small>待确认：${h(x.checks.join("、"))}</small></div><button type="button" class="btn btn-sm" data-copy-teacher-match="${i}">复制家教单</button></div>`).join(""):"没有符合已知科目、学段及上课日期的待匹配订单。";
     target.querySelectorAll("[data-copy-teacher-match]").forEach(btn=>btn.onclick=()=>copyText(formatOrderText(matches[Number(btn.dataset.copyTeacherMatch)].order),"已复制家教单"));
     target.querySelector("#copyTeacherAllMatches")?.addEventListener("click",()=>copyText(matches.map(x=>formatOrderText(x.order)).join("\n\n"),"已复制全部推荐单"));
@@ -316,8 +322,9 @@ export function bindTeacherPool(container,store,rerender,showToast,copyText) {
     quick.disabled=true;target.textContent="正在整理并匹配…";
     try{
       const result=await parseMessyOrders(raw,store.getOrders());
-      target.innerHTML=result.orders.map(o=>{
-        const matches=recommendTeacherProfiles(o,store.getTeacherProfiles(),store.getTeacherApplications(),store.getOrders(),store.getAssignments(),5);
+      const groups=[];
+      for(const o of result.orders.slice(0,10))groups.push({o,matches:await recommendTeacherProfilesWithRoutes(o,store.getTeacherProfiles(),store.getTeacherApplications(),store.getOrders(),store.getAssignments(),5)});
+      target.innerHTML=groups.map(({o,matches})=>{
         return `<div class="teacher-publish-item"><strong>${h(o.grade)}${h(o.subject)} · ${h(o.publicAddress)}</strong>${matches.length?matches.map(x=>`<p><b>${h(x.name)}</b> · ${h(x.reasons.slice(0,4).join("；"))}<br>待确认：${h(x.checks.join("、"))}</p>`).join(""):"<p>暂无明确空闲且符合要求的老师</p>"}</div>`;
       }).join("");
     }catch(e){target.textContent="推荐失败："+e.message;}
@@ -354,7 +361,7 @@ export function bindTeacherPool(container,store,rerender,showToast,copyText) {
         const check=container.querySelector('[data-companion-stage="'+item.stage+'"]'),time=container.querySelector('[data-companion-time="'+item.stage+'"]');
         check.checked=true;if(!time.value)time.value=item.time;
       }
-      matchOrders();
+      void matchOrders();
       latestExtraction="识别置信度："+(ai.confidence||"待确认")+(ai.warning?"；"+ai.warning:"")+"。请检查姓名、学校与科目；联系方式不自动提取。";
       document.getElementById("teacherExtractResult").textContent=latestExtraction;
       showToast(ai.teacherName?"简历识别成功，请核对后保存":"AI 未确认姓名，请手动填写");
@@ -436,10 +443,11 @@ export function openTeacherApplication(orderId,rerender) {
   rerender();
   document.getElementById("teacherApplicationPanel")?.scrollIntoView({behavior:"smooth",block:"start"});
 }
-export function presentTeacherMatches(orders,store) {
+export async function presentTeacherMatches(orders,store) {
   const profiles=store.getTeacherProfiles(),applications=store.getTeacherApplications();
   if(!orders?.length)return;
-  const recommendations=orders.map(order=>({order,candidates:recommendTeacherProfiles(order,profiles,applications,store.getOrders(),store.getAssignments(),5)}));
+  const recommendations=[];
+  for(const order of orders.slice(0,10))recommendations.push({order,candidates:await recommendTeacherProfilesWithRoutes(order,profiles,applications,store.getOrders(),store.getAssignments(),5)});
   const markup=recommendations.map(({order,candidates})=>`<div class="teacher-publish-item">
     <strong>${h(order.orderNumber||order.id)} · ${h(order.grade)}${h(order.subject)}</strong>
     ${candidates.length?candidates.map(x=>`<div class="teacher-match-row"><div><strong>${h(x.name)}</strong> ${x.starred?badge("星标老师","teacher-badge-star"):""}<small>${h(x.school||"")}${x.contact?" · 联系方式："+h(x.contact):""}${x.agentName?" · 代理："+h(x.agentName):""}</small><small>${h(x.reasons.slice(0,4).join("；"))}</small><small>待确认：${h(x.checks.join("、"))}</small></div></div>`).join(""):
@@ -449,7 +457,7 @@ export function presentTeacherMatches(orders,store) {
   const modal=document.createElement("div");modal.id="teacherPublishedMatchModal";modal.className="teacher-publish-overlay";
   modal.innerHTML=`<section class="teacher-publish-dialog" role="dialog" aria-modal="true" aria-labelledby="publishMatchTitle">
     <h2 id="publishMatchTitle">按单推荐 · 空闲老师</h2>
-    <p class="admin-helper">按已知科目、年级、日期、区域和历史投递筛选。仅推荐已明确空闲者；历史订单距离不是老师通勤。请联系确认具体时间。</p>
+    <p class="admin-helper">按已知科目、年级、日期、区域和历史投递筛选。仅推荐已明确空闲者；已填写明确出发地的老师优先查询高德路线，其余保留历史偏好或直线距离。请联系确认具体时间。</p>
     <div class="teacher-publish-results">${markup}</div>
     <button class="btn btn-primary" id="closeTeacherPublishedModal" type="button">我知道了</button>
   </section>`;
