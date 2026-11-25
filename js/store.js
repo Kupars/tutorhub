@@ -108,6 +108,16 @@ export const Store = {
     if (!data?.ok) throw new Error(data?.error || "切换模型失败");
     return data.registry;
   },
+  async setAIProviderFallback(id,model) {
+    if(!cloudReady)throw new Error("云端后台不可用");
+    const data=await apiPost({action:"admin_ai_provider_fallback",id,model});
+    if(!data?.ok)throw new Error(data?.error||"设置备用模型失败");return data.registry;
+  },
+  async getAIMetrics(){
+    if(!cloudReady)throw new Error("云端后台不可用");
+    const data=await apiPost({action:"admin_ai_metrics"});
+    if(!data?.ok)throw new Error(data?.error||"读取统计失败");return data.entries;
+  },
   async deleteAIProvider(id) {
     if (!cloudReady) throw new Error("云端后台不可用");
     const data=await apiPost({action:"admin_ai_provider_delete",id});
