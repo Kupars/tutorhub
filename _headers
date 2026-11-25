@@ -4,7 +4,7 @@
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), payment=(), usb=()
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://*.amap.com https://*.autonavi.com https://*.a-map.cn; style-src 'self' 'unsafe-inline' https://*.amap.com https://*.autonavi.com https://*.a-map.cn; img-src 'self' data: blob: https://tile.openstreetmap.org https://*.amap.com https://*.autonavi.com https://*.a-map.cn; font-src 'self' data: https://*.amap.com https://*.autonavi.com https://*.a-map.cn; connect-src 'self' https://*.amap.com https://*.autonavi.com https://*.a-map.cn; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval' https://*.amap.com https://*.autonavi.com https://*.a-map.cn; style-src 'self' 'unsafe-inline' https://*.amap.com https://*.autonavi.com https://*.a-map.cn; img-src 'self' data: blob: https://tile.openstreetmap.org https://*.amap.com https://*.autonavi.com https://*.a-map.cn; font-src 'self' data: https://*.amap.com https://*.autonavi.com https://*.a-map.cn; connect-src 'self' https://*.amap.com https://*.autonavi.com https://*.a-map.cn; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests
 
 /
   ! Cache-Control
