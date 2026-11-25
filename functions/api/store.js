@@ -22,6 +22,15 @@ function isPubliclyOpenOrder(order) {
 
 const ORDER_WRITES=new Set(["admin_publish_ai_drafts","admin_add_orders","admin_update_order","admin_batch_status","admin_delete_order","admin_merge_orders","admin_save_assignment","admin_trash_order","admin_restore_order","admin_migrate_static_orders"]);
 const ADMIN_MUTATIONS=new Set([...ORDER_WRITES,"admin_update_site","admin_save_parttime","admin_delete_parttime","admin_save_teacher_profile","admin_set_teacher_star","admin_set_teacher_availability","admin_delete_teacher_profile","admin_save_teacher_application","admin_delete_teacher_application","admin_delete_assignment","admin_ai_provider_save","admin_ai_provider_activate","admin_ai_provider_delete","admin_ai_provider_fallback"]);
+function validateSuppliedOrderFields(o){
+  if(!o||typeof o!=="object"||Array.isArray(o))return "订单格式异常";
+  for(const [key,max] of [["teacherCount",20],["sessionsPerWeek",7],["hoursPerSession",24]]){
+    if(o[key]!==undefined&&o[key]!==null&&o[key]!==""&&(!Number.isFinite(Number(o[key]))||Number(o[key])<0||Number(o[key])>max))return "课时、人数或每周次数异常";
+  }
+  const salary=String(o.salaryText||"").match(/(\d+(?:\.\d+)?)\s*[～~—-]\s*(\d+(?:\.\d+)?)/);
+  if(salary&&Number(salary[1])>Number(salary[2]))return "薪资区间上下限颠倒";
+  return "";
+}
 const BACKUP_KEYS=["orders","hidden_imported_orders","order_sequence","static_import_migrated","site_config","part_time_posts","teacher_assignments","teacher_profiles","teacher_applications"];
 async function makeBackup(kv){
   const data=Object.fromEntries(await Promise.all(BACKUP_KEYS.map(async k=>[k,await kvGet(kv,k,k==="order_sequence"?2991:k==="static_import_migrated"?false:k==="site_config"?DEFAULT_SITE:[])])));
@@ -463,6 +472,8 @@ async function handleRequest(context) {
     if (action === "admin_publish_ai_drafts") {
       if(!Array.isArray(body.orders)||!body.orders.length||body.orders.length>30)
         return jsonResp({ok:false,error:"请提供1～30条草稿"},400);
+      const invalid=body.orders.map(validateSuppliedOrderFields).find(Boolean);
+      if(invalid)return jsonResp({ok:false,error:invalid},400);
       const existing=await kvGet(env.TUTOR_KV,"orders",[]);
       const hidden=await kvGet(env.TUTOR_KV,"hidden_imported_orders",[]);
       // Same static imported-order override convention as the existing admin update endpoint.
@@ -484,7 +495,7 @@ async function handleRequest(context) {
         if(linked&&(!current||current.status==="已删除"||(labelOf(current)!==label&&draft.renameFromNumber!==labelOf(current))||updatedIds.has(linked)))
           return jsonResp({ok:false,error:"原单不存在或编号不一致："+label},409);
         if(linked&&labelOf(current)!==label&&existing.some(o=>o.id!==linked&&labelOf(o)===label))return jsonResp({ok:false,error:"新编号已被其他订单使用： "+label},409);
-        if(!linked && existing.some(o=>labelOf(o)===label||o.id===label) && draft.explicitNumberReuse!==true)
+        if(!linked && existing.some(o=>labelOf(o)===label||(body.stableIds!==true&&o.id===label)) && draft.explicitNumberReuse!==true)
           return jsonResp({ok:false,error:"编号已使用，请确认是修改原单还是指定重号的新单："+label},409);
         const parentId=String(draft.splitFromId||"");
         if(parentId){
@@ -523,9 +534,10 @@ async function handleRequest(context) {
         return jsonResp({ ok: false, error: "请提供 1～100 条有效家教单" }, 400);
       }
       const existing = await kvGet(env.TUTOR_KV, "orders", []);
+      const invalid=body.orders.map(validateSuppliedOrderFields).find(Boolean);if(invalid)return jsonResp({ok:false,error:invalid},400);
       const incomingIds = body.orders.map((o) => String(o.id || ""));
       if (incomingIds.some((id) => !id || id.length > 50) || new Set(incomingIds).size !== incomingIds.length ||
-          incomingIds.some((id) => existing.some((item) => item.id === id))) {
+          incomingIds.some((id) => !(body.stableIds===true&&/^#\d{3,7}(?:-\d+)?$/.test(id))&&existing.some((item) => item.id === id))) {
         return jsonResp({ ok: false, error: "家教单编号为空或与已有单重复，请确认编号后发布" }, 409);
       }
       const existingLabels = new Set(existing.map((o) => String(o.orderNumber || o.id)));
@@ -544,6 +556,7 @@ async function handleRequest(context) {
     }
 
     if (action === "admin_update_order") {
+      const invalid=validateSuppliedOrderFields(body.patch);if(invalid)return jsonResp({ok:false,error:invalid},400);
       const existing = await kvGet(env.TUTOR_KV, "orders", []);
       const already = existing.some((o) => o.id === body.id);
       // 飞书静态导入单使用独立内部 ID；首次编辑时新增覆盖记录，不变更公开单号。
