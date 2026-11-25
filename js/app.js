@@ -1,4 +1,4 @@
-import {commuteForOrder,orderRoutePoint,queryOrderCommute,routeLabel,routeLink,runLimited} from "./route-client.js?v=3";
+import {orderRoutePoint,queryOrderCommute,routeLabel,routeLink} from "./route-client.js?v=3";
 import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
@@ -111,8 +111,7 @@ const MULTI_FILTER_IDS = Object.keys(MULTI_FILTER_LABELS);
 let mapCandidates = [];
 let mapSearchVersion = 0;
 let mapSearchTimer = null;
-let startupFinished = false;
-let mapOpenScheduled = false;
+let mapRequested = false;
 let mapOpenPromise = null;
 let cardResultsKey = "";
 let shownCardCount = 24;
@@ -394,7 +393,7 @@ function switchView(viewName) {
   document.querySelector(".mobile-bottom-nav").classList.toggle("is-admin", viewName === "admin");
   if (viewName === "hall") {
     renderHall();
-    if (startupFinished) scheduleMapOpen();
+    if (mapRequested && !$("mapDetails").hidden) void openMap();
   }
   if (viewName === "parttime") renderPartTime();
   if (viewName === "admin") renderAdminView();
@@ -453,7 +452,6 @@ function renderHall() {
 
 
   const minRate = Number($("qMinRate").value) || 0;
-  const origin = Store.getOrigin();
   const selected = Store.getSelectedOrderIds();
 
   let items = Store.getOrders().map((order) => ({
@@ -481,8 +479,8 @@ function renderHall() {
   items = sortBoardOrders(items, sort==="recommend"||sort==="commute"?"rate":sort);
   visibleBoardOrders = items;
   const routeNote=$("routeBatchNote");
-  if(routeNote)routeNote.textContent="通勤仅在手动点击查看路线时查询，不改变列表排序。";
-  updateMapOrders(items);
+  if(routeNote)routeNote.textContent="通勤仅在点击查通勤时查询，不改变列表排序。";
+  if (mapRequested && !$("mapDetails").hidden) updateMapOrders(items);
 
   const onSiteLocations = items.filter((order) => order.mode !== "线上")
     .map((order) => getPublicMapLocation(order));
@@ -498,7 +496,7 @@ function renderHall() {
     ].filter(Boolean).join(" ");
   }
 
-  $("resultStats").textContent = `共匹配 ${items.length} 条家教单（当前出发地址：${origin.name}）`;
+  $("resultStats").textContent = `共匹配 ${items.length} 条家教单`;
   const activeCount = countSelectedFilters(state.multiFilters, $("qMinRate").value, state.onlySelected);
   $("activeFilterCount").textContent = activeCount ? ` · 已选 ${activeCount} 项` : "";
   $("quickFilterCount").textContent = activeCount ? String(activeCount) : "";
@@ -528,7 +526,7 @@ function renderHall() {
     const freshness = orderFreshness(o);
     const titleHtml = `${escapeHtml(title.before)}${title.subject ? `<span class="card-subject">${escapeHtml(title.subject)}</span>` : ""}${escapeHtml(title.after)}`;
     const displayDistrict = o.district === "线上" ? "线上" : canonicalDistrict(o.district) || "地点待补充";
-    const routeActions=o.mode==="线上"?"":`<button type="button" class="btn btn-sm" data-plan-route="${escapeHtml(o.id)}">查看路线</button>`;
+    const routeActions=o.mode==="线上"?"":`<button type="button" class="btn btn-sm" data-plan-route="${escapeHtml(o.id)}">查通勤</button>`;
     return `
       <article class="order-card ${o.selected ? "order-selected" : ""}" data-route-order="${escapeHtml(o.id)}">
         <div class="card-head">
@@ -1613,7 +1611,6 @@ async function setMapOrigin(place) {
   $("mapSearchInput").value = origin.name;
   updateMapOrigin(origin);
   moveMapTo(origin.lat, origin.lng, 13);
-  renderHall();
 }
 
 function hideMapCandidates() {
@@ -1697,26 +1694,11 @@ function locateMe(silent = false) {
       await Store.setOrigin({ name: "我的当前位置", lat, lng, isGps: true });
       updateMapOrigin(Store.getOrigin());
       moveMapTo(lat, lng, silent ? (window.matchMedia?.("(max-width: 640px)").matches ? 10 : 11) : 13);
-      renderHall();
       if (!silent) showToast("定位成功，可手动查看路线");
     } catch { if (!silent) showToast("更新当前位置失败，请稍后重试"); }
     finally { finish(); }
   }, () => { finish(); if (!silent) showToast("定位未授权或不可用，可以手动输入地点"); },
   { enableHighAccuracy: false, timeout: 9000, maximumAge: 180000 });
-}
-
-function scheduleMapOpen() {
-  if (mapOpenScheduled) return;
-  mapOpenScheduled = true;
-  // 手机先保证首批卡片可交互，再在浏览器空闲时加载地图，避免 Leaflet 与首屏渲染抢主线程。
-  const launch = () => {
-    mapOpenScheduled = false;
-    if (state.view === "hall") void openMap();
-  };
-  requestAnimationFrame(() => {
-    if ("requestIdleCallback" in window) window.requestIdleCallback(launch, { timeout: 1800 });
-    else setTimeout(launch, 400);
-  });
 }
 
 function openMap() {
@@ -1730,7 +1712,7 @@ function openMap() {
   mapOpenPromise = (async () => {
     try {
       await openMapBoard(Store.getOrigin());
-      updateMapOrders(visibleBoardOrders);
+      if (!$("mapDetails").hidden && state.view === "hall") updateMapOrders(visibleBoardOrders);
       loadingNote.hidden = true;
       return true;
     } catch (error) {
@@ -1805,12 +1787,16 @@ function initFloatingWechat(dialog) {
 
 function initControls() {
   $("btnRetryMap").onclick = () => { void openMap(); };
-  $("btnExpandMap").onclick = () => {
-    const expanded = $("mapBoard").classList.toggle("map-expanded");
-    $("btnExpandMap").textContent = expanded ? "↙ 收起地图" : "⛶ 展开地图";
+  $("btnExpandMap").onclick = async () => {
+    const details = $("mapDetails");
+    const expanded = details.hidden;
+    details.hidden = !expanded;
+    $("btnExpandMap").textContent = expanded ? "收起地图" : "查看地图";
     $("btnExpandMap").setAttribute("aria-expanded", String(expanded));
-    requestAnimationFrame(() => refreshMapSize());
-    setTimeout(refreshMapSize, 220);
+    if (!expanded) return;
+    mapRequested = true;
+    await openMap();
+    if (!details.hidden && state.view === "hall") requestAnimationFrame(() => refreshMapSize());
   };
   document.querySelectorAll("[data-copy-wechat]").forEach((button) => {
     button.onclick = () => copyText("cheerpup012", "微信号已复制，在微信搜索添加小木同学");
@@ -1843,7 +1829,7 @@ function initControls() {
     showToast(Store.getSelectedOrderIds().includes(id) ? "已添加到选单" : "已从选单移除");
   }, (id) => Store.getSelectedOrderIds().includes(id));
   document.addEventListener("tutorhub-geocodes-updated", () => {
-    if (state.view === "hall") updateMapOrders(visibleBoardOrders);
+    if (state.view === "hall" && mapRequested && !$("mapDetails").hidden) updateMapOrders(visibleBoardOrders);
   });
   $("closeManualRoute").onclick=()=>$("manualRouteDialog").close();
   initializeMultiFilters();
@@ -2021,9 +2007,7 @@ function renderAll() {
     await Store.init();
     renderAll();
     completeStartupLoading();
-    startupFinished = true;
-    scheduleMapOpen();
-    // Location and commute queries require an explicit user action.
+    // Map loading, location and commute queries require an explicit user action.
   } catch (error) {
     console.error("看板初始化失败", error);
     updateStartupLoading("加载失败，请检查网络后重试。");
