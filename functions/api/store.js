@@ -1,5 +1,5 @@
 import {TEACHER_TYPES,LOCAL_GAOKAO,STUDY_LEVELS,cleanTeachingPairs,cleanCompanionOptions,normalizeAge} from "../../shared/teacher-capabilities.js";
-import {loadAIRegistry, safeAIRegistry, saveAIProvider, deleteAIProvider, activateAIProvider} from "../../shared/ai-provider-registry.js";
+import {loadAIRegistry, safeAIRegistry, saveAIProvider, deleteAIProvider, activateAIProvider, setAIProviderFallback} from "../../shared/ai-provider-registry.js";
 // Cloudflare Pages Function: /api/store
 // 基于 Cloudflare KV 的无服务器生产级后端（与 kupars.top 同域，大陆直连快、无需额外服务器）
 // 只需在 Cloudflare Pages 绑定名为 TUTOR_KV 的 KV Namespace 即可自动启用多人云端持久化与服务端鉴权。
@@ -21,7 +21,7 @@ function isPubliclyOpenOrder(order) {
 }
 
 const ORDER_WRITES=new Set(["admin_publish_ai_drafts","admin_add_orders","admin_update_order","admin_batch_status","admin_delete_order","admin_merge_orders","admin_save_assignment","admin_trash_order","admin_restore_order"]);
-const ADMIN_MUTATIONS=new Set([...ORDER_WRITES,"admin_update_site","admin_save_parttime","admin_delete_parttime","admin_save_teacher_profile","admin_set_teacher_star","admin_set_teacher_availability","admin_delete_teacher_profile","admin_save_teacher_application","admin_delete_teacher_application","admin_delete_assignment","admin_ai_provider_save","admin_ai_provider_activate","admin_ai_provider_delete"]);
+const ADMIN_MUTATIONS=new Set([...ORDER_WRITES,"admin_update_site","admin_save_parttime","admin_delete_parttime","admin_save_teacher_profile","admin_set_teacher_star","admin_set_teacher_availability","admin_delete_teacher_profile","admin_save_teacher_application","admin_delete_teacher_application","admin_delete_assignment","admin_ai_provider_save","admin_ai_provider_activate","admin_ai_provider_delete","admin_ai_provider_fallback"]);
 const BACKUP_KEYS=["orders","hidden_imported_orders","order_sequence","site_config","part_time_posts","teacher_assignments","teacher_profiles","teacher_applications"];
 async function makeBackup(kv){
   const data=Object.fromEntries(await Promise.all(BACKUP_KEYS.map(async k=>[k,await kvGet(kv,k,k==="order_sequence"?2991:k==="site_config"?DEFAULT_SITE:[])])));
@@ -201,6 +201,11 @@ async function handleRequest(context) {
       const registry=await loadAIRegistry(env.TUTOR_KV);
       return jsonResp({ok:true,registry:safeAIRegistry(registry,env)});
     }
+    if(action==="admin_ai_provider_fallback"){
+      const registry=await setAIProviderFallback(env.TUTOR_KV,env,String(body.id||""),String(body.model||""));
+      return jsonResp({ok:true,registry});
+    }
+    if(action==="admin_ai_metrics")return jsonResp({ok:true,entries:await kvGet(env.TUTOR_KV,"admin_ai_metrics_v1",[])});
     if (action === "admin_ai_provider_save") {
       const registry=await saveAIProvider(env.TUTOR_KV,env,body.provider);
       return jsonResp({ok:true,registry});
