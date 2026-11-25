@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-cache" />
   <title>小木学长 · 天津家教看板</title>
-  <meta name="theme-color" content="#ffffff" />
-  <script src="./js/boot.js?v=2"></script>
-  <link rel="stylesheet" href="./css/styles.css?v=45" />
+  <meta name="theme-color" content="#f0f8ff" />
+  <script src="./js/boot.js?v=3"></script>
+  <link rel="stylesheet" href="./css/styles.css?v=46" />
 </head>
 <body>
   <div class="startup-loading" id="startupLoading" role="status" aria-live="polite" aria-atomic="true">
@@ -21,10 +21,9 @@
   
   <header class="topbar">
     <div class="container topbar-inner">
-      <div class="brand" aria-label="小木学长 · 天津家教看板"><div class="brand-logo" aria-hidden="true">木</div><div><div class="brand-title">小木家教</div><div class="brand-sub">天津 · 家教看板</div></div></div>
       <nav class="main-nav" aria-label="浏览栏目"><button class="nav-link active" id="btnViewTutoring">家教</button><button class="nav-link" id="btnViewPartTime">更多兼职</button></nav>
       <div class="header-actions">
-        <button class="mode-toggle" id="btnColorMode" type="button" aria-label="切换深色模式" aria-pressed="false">深色模式</button>
+        <button class="mode-toggle" id="btnColorMode" type="button" aria-label="切换深色模式" aria-pressed="false">🌙 深色</button>
         <button class="btn btn-sm admin-entry" id="btnAdminEntry">管理</button>
         <button class="btn btn-sm" id="btnBackToHall" hidden>返回看板</button>
         <div class="user-actions" id="userActions"></div>
@@ -33,10 +32,10 @@
   </header>
 
   <main class="container">
-    <div class="mobile-theme-tools"><button class="mode-toggle" id="btnMobileColorMode" type="button" aria-label="切换深色模式" aria-pressed="false">深色模式</button></div>
+    <div class="mobile-theme-tools"><button class="mode-toggle" id="btnMobileColorMode" type="button" aria-label="切换深色模式" aria-pressed="false">🌙 深色</button></div>
     <section id="view-hall" class="view active">
       <section class="usage-card" aria-label="家教选单使用方法">
-        <div class="usage-card-copy"><span class="usage-kicker">天津 · 家教招募</span><h1>找到<span class="hero-accent">适合你</span>的家教机会</h1><p>筛选或在地图上挑选家教单，加入选单后，一键复制发给南开小木同学。也可使用智能推荐。</p></div>
+        <div class="usage-card-copy"><span class="usage-kicker">使用方法 · 选好家教，微信联系</span><h1>筛选心仪家教，勾选后一键复制，发给南开小木同学</h1><p>筛选或在地图上挑选家教单，添加到选单清单，再把复制的内容发给「南开小木同学」微信。也可以让智能推荐帮你先挑选。</p></div>
         <div class="wechat-contact" aria-label="联系南开小木同学">
           <div class="wechat-contact-info">
             <span class="wechat-contact-label">💬 微信联系小木同学</span>
@@ -133,7 +132,7 @@
       </div>
 
       <section class="map-panel" id="mapBoard">
-        <div class="map-heading"><div><h2>家教位置看板</h2><p>与筛选条件实时同步 · 红色是你的出发地，绿色是已勾选家教，橙色是尚未确认具体地址的区/镇中心示意点。悬停看提示，点击查看家教单详情；仅显示公开地址。</p></div><button class="btn btn-sm map-expand-btn" id="btnExpandMap" type="button" aria-expanded="false">⛶ 展开地图</button></div>
+        <div class="map-heading"><div><h2>🗺 家教位置看板</h2><p>与筛选条件实时同步 · 红色是你的出发地，绿色是已勾选家教，橙色是尚未确认具体地址的区/镇中心示意点。悬停看提示，点击查看家教单详情；仅显示公开地址。</p></div><button class="btn btn-sm map-expand-btn" id="btnExpandMap" type="button" aria-expanded="false">⛶ 展开地图</button></div>
         <div class="map-toolbar"><div class="map-search-wrap"><input id="mapSearchInput" type="search" placeholder="搜索新位置，例如天津大学、河西区" aria-label="搜索地图地点并更新我的位置" role="combobox" aria-expanded="false" aria-controls="mapSearchSuggestions" autocomplete="off" /><div id="mapSearchSuggestions" class="map-suggestions" role="listbox" hidden></div></div><button class="btn btn-primary" id="btnMapSearch">📍 搜索位置</button><button class="btn btn-relocate" id="btnMapRelocate" type="button">◎ 重新定位当前位置</button></div>
         <div class="map-stage"><div id="tutorMap" role="application" aria-label="公开家教单分布与我所在的位置地图"></div><div class="map-loading-note" id="mapLoadingNote" role="status">🗺 地图正在单独加载，家教单已经可以浏览…<button class="btn btn-sm" id="btnRetryMap" type="button" hidden>重试地图</button></div></div>
         <p class="map-note" id="mapLocationNote">默认尝试获取当前位置；选择地图搜索候选地点后，红色位置标记、地图视角和通勤查询会同步更新。家教定位为公开地址的近似位置。使用高德底图时，地图服务商可能处理当前地图视野。</p>
@@ -197,6 +196,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=60"></script>
+  <script type="module" src="./js/app.js?v=61"></script>
 </body>
 </html>
