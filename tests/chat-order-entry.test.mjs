@@ -34,3 +34,24 @@ test("子单排序跟随原文科目顺序而不是模型输出顺序",()=>{
   const r=prepareAIDrafts("数学物理分成两单",{orders:[{...sample,subject:"物理"},{...sample,subject:"数学"}]},[{orderNumber:"#3062"}]);
   assert.deepEqual(r.map(x=>[x.orderNumber,x.subject]),[["#3063-1","数学"],["#3063-2","物理"]]);
 });
+
+
+test("口语编号更正覆盖模型返回的旧号，正文编号字段一致",()=>{
+  const old={...sample,id:"#3070",orderNumber:"#3070",subject:"物理、化学"};
+  const input="嗯，我希望物化是一个老师，我们是女孩儿，现在是高一，在和平区岳阳道附近，我们住。\n是 3080";
+  const result=prepareAIDrafts(input,{orders:[{...old,studentGender:"女生",address:"天津市和平区岳阳道附近",publicAddress:"天津市和平区岳阳道附近"}]},[],[old])[0];
+  assert.equal(result.id,"#3080");assert.equal(result.orderNumber,"#3080");assert.equal(result.studentGender,"女生");
+});
+test("明确改号与其他业务数字区分，并且防止编号碰撞",()=>{
+  const old={...sample,id:"#3070",orderNumber:"#3070",subject:"数学"};
+  for(const text of ["编号改成3080","是 #3080","3080","把#3070改成#3080"])
+    assert.equal(prepareAIDrafts(text,{orders:[old]},[],[old])[0].orderNumber,"#3080");
+  assert.equal(prepareAIDrafts("薪资是3080元",{orders:[old]},[],[old])[0].orderNumber,"#3070");
+  assert.throws(()=>prepareAIDrafts("编号改成3080",{orders:[old]},[{id:"other",orderNumber:"#3080"}],[old]),/已存在/);
+});
+test("多草稿改号必须指定原编号，并允许明确指定一条",()=>{
+  const a={...sample,id:"#3070",orderNumber:"#3070",subject:"数学"};
+  const b={...sample,id:"#3071",orderNumber:"#3071",subject:"物理"};
+  assert.throws(()=>prepareAIDrafts("编号改成3080",{orders:[a,b]},[],[a,b]),/请指定/);
+  assert.deepEqual(prepareAIDrafts("把#3070改成#3080",{orders:[b,a]},[],[a,b]).map(o=>o.orderNumber),["#3071","#3080"]);
+});

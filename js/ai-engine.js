@@ -81,13 +81,41 @@ export async function recommendOrdersWithAI(orders, preference = "balanced") {
   return picks.length ? { picks, provider: result.provider || "GLM" } : null;
 }
 
+// Explicit administrator corrections outrank old draft IDs. Only match number-shaped
+// clauses, never scores, fees, addresses or arbitrary numbers in a conversation.
+export function explicitDraftRenumber(instruction, previousDrafts = []) {
+  if (!previousDrafts.length) return null;
+  const text = String(instruction || "").normalize("NFKC").trim();
+  const pair = text.match(/(?:把|将)?\s*#(\d{3,7}(?:-\d+)?)\s*(?:的)?\s*(?:编号|单号)?\s*(?:改为|改成|改到|改作|更正为|调整为|换成|换为|应为|应该是|不是)\s*#?(\d{3,7}(?:-\d+)?)(?=$|[\s，。；、,.!?！？])/);
+  const named = [...text.matchAll(/(?:编号|单号)\s*(?:应该是|应为|不是|改为|改成|改到|更正为|调整为|换成|换为|就是|是|为|[:：])?\s*#?(\d{3,7}(?:-\d+)?)(?=$|[\s，。；、,.!?！？])/g)];
+  const standalone = text.match(/(?:^|[。！？；;,\n，])\s*(?:嗯[，,]?\s*)?(?:应该是|应为|就是|是|改成|改为|更正为)?\s*#?(\d{3,7}(?:-\d+)?)\s*[。！？.!?]?\s*$/);
+  const targets = [...new Set((pair ? [pair[2]] : named.length ? named.map(m=>m[1]) : standalone ? [standalone[1]] : []).map(n=>"#"+n))];
+  if (!targets.length) return null;
+  if (targets.length !== 1) throw new Error("检测到多个新编号，请逐条指定要修改的草稿");
+  const number = targets[0];
+  const matching = pair ? previousDrafts.filter(o=>String(o.orderNumber||o.id)==="#"+pair[1]) : previousDrafts;
+  if (matching.length !== 1) throw new Error("请指定要改号的草稿，例如：把#3070改成#3080");
+  const old = matching[0];
+  const oldNumber = String(old.orderNumber||old.id||"");
+  if (number === oldNumber) return null;
+  if (old.existingOrderId) throw new Error("这是已发布原单的更新草稿；请在订单管理中修改原单编号，避免新建或覆盖其他订单");
+  return {old, oldNumber, number};
+}
+
 // 模型只负责提取需求，订单 ID 始终由网站根据真实旧单或明确原文生成，避免模型幻造单号。
 export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDrafts = []) {
   const rawOrders = Array.isArray(parsed?.orders) ? parsed.orders : [];
   if (!rawOrders.length || rawOrders.length > 30) throw new Error("AI 未返回有效数量的家教草稿");
   const reserved = [...existingOrders];
-  const explicitIds = [...new Set([...String(rawText || "").matchAll(/#\d{3,7}(?:-\d+)?/g)].map(m=>m[0]))];
+  let explicitIds = [...new Set([...String(rawText || "").matchAll(/#\d{3,7}(?:-\d+)?/g)].map(m=>m[0]))];
   const prev = Array.isArray(previousDrafts) ? previousDrafts : [];
+  const renumber = explicitDraftRenumber(rawText,prev);
+  if (renumber && (existingOrders.some(o=>o.id && (o.id===renumber.number || o.orderNumber===renumber.number)) ||
+    prev.some(o=>o!==renumber.old && (o.id===renumber.number || o.orderNumber===renumber.number))))
+    throw new Error("编号 "+renumber.number+" 已存在，请使用其他编号；原草稿未改变");
+  if (renumber && rawOrders.length !== prev.length) throw new Error("改号时草稿数量发生变化，请将拆合单与改号分别操作");
+  // A rename target must not be assigned to an unrelated draft by generic numbering.
+  if (renumber) explicitIds = explicitIds.filter(id=>id!==renumber.number);
   const root=id=>String(id||"").replace(/-\d+$/,"");
   const addr=o=>String(o.publicAddress||o.address||"").replace(/天津市|\s/g,"");
   const singleFamily=rawOrders.length>1 && explicitIds.length<=1 &&
@@ -102,10 +130,22 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
   const source=String(rawText||"");
   const position=o=>Math.min(...getSubjectList(o.subject).map(sub=>source.includes(sub)?source.indexOf(sub):Infinity));
   const ordered=singleFamily?[...rawOrders].sort((a,b)=>position(a)-position(b)):rawOrders;
-  return ordered.map((raw,index)=>{
+  let renameIndex=-1;
+  if (renumber) {
+    if (prev.length===1) renameIndex=0;
+    else {
+      const byId=ordered.map((o,i)=>({o,i})).filter(({o})=>[o.id,o.orderNumber].some(id=>id===renumber.oldNumber||id===renumber.number));
+      const byContent=ordered.map((o,i)=>({o,i})).filter(({o})=>o.grade===renumber.old.grade&&o.subject===renumber.old.subject&&addr(o)===addr(renumber.old));
+      const matches=byId.length?byId:byContent;
+      if(matches.length!==1)throw new Error("无法唯一确认要改号的草稿，请单独修改该单");
+      renameIndex=matches[0].i;
+    }
+  }
+  const finalDrafts=ordered.map((raw,index)=>{
     const candidate = normalizeOrder(raw || {});
     const stated = String(raw.orderNumber || raw.id || "");
-    const old=prev.find(o=>o.id===stated||o.orderNumber===stated) ||
+    const isRename=renumber && index===renameIndex;
+    const old=isRename ? renumber.old : prev.find(o=>o.id===stated||o.orderNumber===stated) ||
       prev.find(o=>o.grade===candidate.grade && o.subject===candidate.subject && addr(o)===addr(candidate)) ||
       (prev.length===rawOrders.length?prev[index]:null);
     const prevId = String(old?.orderNumber || old?.id || "");
@@ -140,6 +180,10 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
       candidate.splitFromId=prev[0].existingOrderId;
     else if(old?.splitFromId)candidate.splitFromId=old.splitFromId;
     if(old?.explicitNumberReuse&&id===prevId)candidate.explicitNumberReuse=true;
+    if (isRename) {
+      id=renumber.number;
+      delete candidate.existingOrderId;delete candidate.explicitNumberReuse;delete candidate.splitFromId;
+    }
     candidate.id = id;
     candidate.orderNumber = id;
     candidate.title = `${candidate.grade}${candidate.subject}家教`;
@@ -148,6 +192,11 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
     allocated.add(id); reserved.push(candidate);
     return candidate;
   });
+  if(renumber && (finalDrafts.filter(o=>o.orderNumber===renumber.number).length!==1 ||
+    finalDrafts.some(o=>o.orderNumber===renumber.oldNumber) ||
+    new Set(finalDrafts.map(o=>o.orderNumber)).size!==finalDrafts.length))
+    throw new Error("改号校验未通过，原草稿未改变");
+  return finalDrafts;
 }
 
 export async function parseMessyOrders(rawText, existingOrders = [], history = [], onProgress) {
@@ -160,10 +209,12 @@ export async function parseMessyOrders(rawText, existingOrders = [], history = [
 
 export async function reviseDraftsWithAI(instruction, drafts, history = [], existingOrders = [], onProgress) {
   if (!Array.isArray(drafts) || !drafts.length) throw new Error("请先整理出草稿");
+  const renumber=explicitDraftRenumber(instruction,drafts);
   const result = await callServerlessAI("revise_drafts", { instruction, drafts, history },onProgress);
-  return {source:result.provider || "外部模型 API", reply:String(result.reply || ""),
-    groupingNotes:result.groupingNotes || [], questions:result.questions || [], timing:result.timing,
-    orders:prepareAIDrafts(instruction,result,existingOrders,drafts)};
+  const orders=prepareAIDrafts(instruction,result,existingOrders,drafts);
+  const reply=renumber ? "草稿编号已由 "+renumber.oldNumber+" 更新为 "+renumber.number+"，请核对其余字段后发布。" : String(result.reply || "");
+  return {source:result.provider || "外部模型 API", reply,
+    groupingNotes:result.groupingNotes || [], questions:result.questions || [], timing:result.timing, orders};
 }
 
 // 地址表达交由配置的真实 API 提出建议，随后仍做确定性安全校验。
