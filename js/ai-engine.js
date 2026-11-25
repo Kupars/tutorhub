@@ -191,7 +191,8 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
     if(old?.explicitNumberReuse&&id===prevId)candidate.explicitNumberReuse=true;
     if (isRename) {
       id=renumber.number;
-      delete candidate.existingOrderId;delete candidate.explicitNumberReuse;delete candidate.splitFromId;
+      delete candidate.explicitNumberReuse;delete candidate.splitFromId;
+      if(old?.existingOrderId){candidate.existingOrderId=old.existingOrderId;candidate.renameFromNumber=old.renameFromNumber||prevId;}else delete candidate.existingOrderId;
     }
     candidate.id = id;
     candidate.orderNumber = id;
@@ -253,7 +254,7 @@ export function applyDraftPatches(instruction,result,drafts,existingOrders=[]){
     if(rename?.old===old){raw.id=raw.orderNumber=rename.number;fields.add("id");fields.add("orderNumber");}
     const next=normalizeOrder(raw),out={...old};
     for(const k of fields)out[k]=next[k];
-    if(rename?.old===old){delete out.explicitNumberReuse;delete out.splitFromId;}
+    if(rename?.old===old){delete out.explicitNumberReuse;delete out.splitFromId;if(old.existingOrderId)out.renameFromNumber=old.renameFromNumber||old.orderNumber||old.id;}
     return out;
   });
 }
