@@ -16,11 +16,27 @@ const LEGACY_DEMO_IDS = new Set(["JJ-2026-101", "JJ-2026-102", "JJ-2026-103", "J
   "JJ-2026-4737", "JJ-2026-4738", "JJ-2026-888"]);
 
 function isPubliclyOpenOrder(order) {
-  return !/(?:已匹配|已关闭|关闭|已结束|结束|已完成|已招满|招满|已下架|下架|已取消|取消|停止招募|暂停招募)/
+  return !/(?:已匹配|已关闭|关闭|已结束|结束|已完成|已招满|招满|已下架|下架|已取消|取消|停止招募|暂停招募|已删除)/
     .test(String(order?.status || "").trim());
 }
 
-const ORDER_WRITES=new Set(["admin_publish_ai_drafts","admin_add_orders","admin_update_order","admin_batch_status","admin_delete_order","admin_merge_orders","admin_save_assignment"]);
+const ORDER_WRITES=new Set(["admin_publish_ai_drafts","admin_add_orders","admin_update_order","admin_batch_status","admin_delete_order","admin_merge_orders","admin_save_assignment","admin_trash_order","admin_restore_order"]);
+const ADMIN_MUTATIONS=new Set([...ORDER_WRITES,"admin_update_site","admin_save_parttime","admin_delete_parttime","admin_save_teacher_profile","admin_set_teacher_star","admin_set_teacher_availability","admin_delete_teacher_profile","admin_save_teacher_application","admin_delete_teacher_application","admin_delete_assignment","admin_ai_provider_save","admin_ai_provider_activate","admin_ai_provider_delete"]);
+const BACKUP_KEYS=["orders","hidden_imported_orders","order_sequence","site_config","part_time_posts","teacher_assignments","teacher_profiles","teacher_applications"];
+async function makeBackup(kv){
+  const data=Object.fromEntries(await Promise.all(BACKUP_KEYS.map(async k=>[k,await kvGet(kv,k,k==="order_sequence"?2991:k==="site_config"?DEFAULT_SITE:[])])));
+  return {version:1,createdAt:new Date().toISOString(),data};
+}
+async function ensureDailyBackup(kv){
+  const day=new Date().toISOString().slice(0,10),key="admin_backup_"+day;
+  if(await kv.get(key))return;
+  await kv.put(key,JSON.stringify(await makeBackup(kv)),{expirationTtl:30*86400});
+}
+async function recordAudit(kv,body){
+  const entries=await kvGet(kv,"admin_audit_log",[]);
+  const ids=[body.id,body.assignmentId,body.applicationId,body.teacherId,...(Array.isArray(body.ids)?body.ids:[]),...(Array.isArray(body.orders)?body.orders.map(o=>o.orderNumber||o.id):[])].filter(v=>typeof v==="string"&&/^[#a-zA-Z0-9-]{1,70}$/.test(v)).slice(0,100);
+  await kvPut(kv,"admin_audit_log",[{at:new Date().toISOString(),action:body.action,actor:"admin",ids},...(Array.isArray(entries)?entries:[])].slice(0,200));
+}
 let orderWriteQueue=Promise.resolve();
 async function currentOrderRevision(kv){
   const [orders,hidden]=await Promise.all([kvGet(kv,"orders",[]),kvGet(kv,"hidden_imported_orders",[])]);
@@ -30,8 +46,12 @@ export async function onRequest(context) {
   // Serialize writes within this runtime; KV does not provide cross-region CAS.
   if(context.request.method==="POST"){
     let body;try{body=await context.request.clone().json();}catch{return handleRequest(context);}
-    if(ORDER_WRITES.has(body?.action)){
-      const run=orderWriteQueue.then(()=>handleRequest(context));
+    if(ADMIN_MUTATIONS.has(body?.action)){
+      const run=orderWriteQueue.then(async()=>{
+        const response=await handleRequest(context);
+        if(response.ok&&context.env.TUTOR_KV){try{const result=await response.clone().json();if(result.ok&&!result.replayed)await recordAudit(context.env.TUTOR_KV,body);}catch{console.warn("admin audit unavailable");}}
+        return response;
+      });
       orderWriteQueue=run.catch(()=>{});
       return run;
     }
@@ -142,9 +162,39 @@ async function handleRequest(context) {
       return jsonResp({ ok: false, error: "无管理员权限" }, 403);
     }
 
+    // Repeated publication after a lost response returns the recorded result, not another write.
+    let publishKey="",publishDigest="";
+    if(action==="admin_publish_ai_drafts"&&body.idempotencyKey!==undefined){
+      if(typeof body.idempotencyKey!=="string"||!/^[a-zA-Z0-9-]{16,80}$/.test(body.idempotencyKey))return jsonResp({ok:false,error:"发布请求标识无效"},400);
+      publishKey=body.idempotencyKey;publishDigest=await sha256(JSON.stringify(body.orders));
+      const all=await kvGet(env.TUTOR_KV,"orders",[]);
+      const saved=await kvGet(env.TUTOR_KV,"publish_receipt_"+publishKey,null);
+      const matches=all.filter(o=>o.lastPublishKey===publishKey);
+      if(saved||matches.length){
+        if((saved?.digest||matches[0]?.lastPublishDigest)!==publishDigest)return jsonResp({ok:false,error:"发布请求内容发生变化，请重新确认"},409);
+        const ids=saved?.ids||matches.map(o=>o.id);
+        const published=ids.map(id=>all.find(o=>o.id===id)).filter(Boolean);
+        if(!saved&&published.length!==body.orders?.length)return jsonResp({ok:false,error:"上次发布状态待核对，请查看家教单管理"},409);
+        const hidden=await kvGet(env.TUTOR_KV,"hidden_imported_orders",[]);
+        const hiddenImported=hidden.filter(id=>!ids.includes(id));
+        const previous=Number(await kvGet(env.TUTOR_KV,"order_sequence",2991))||2991;
+        const orderSequence=Math.max(previous,...all.map(o=>Number(String(o.orderNumber||o.id).match(/^#?(\d{3,7})/)?.[1])||0));
+        if(hiddenImported.length!==hidden.length)await kvPut(env.TUTOR_KV,"hidden_imported_orders",hiddenImported);
+        if(orderSequence!==previous)await kvPut(env.TUTOR_KV,"order_sequence",orderSequence);
+        return jsonResp({ok:true,replayed:true,orders:all,published,hiddenImported,orderSequence,orderRevision:await currentOrderRevision(env.TUTOR_KV)});
+      }
+    }
     if(ORDER_WRITES.has(action)&&body.orderRevision!==undefined&&body.orderRevision!==await currentOrderRevision(env.TUTOR_KV))
       return jsonResp({ok:false,error:"订单已被其他操作更新，请刷新后重新核对；本次未写入",code:"ORDER_CONFLICT"},409);
     const orderResponse=async(data)=>jsonResp({...data,orderRevision:await currentOrderRevision(env.TUTOR_KV)});
+    if(ADMIN_MUTATIONS.has(action))await ensureDailyBackup(env.TUTOR_KV);
+    if(action==="admin_export_current")return jsonResp({ok:true,backup:await makeBackup(env.TUTOR_KV)});
+    if(action==="admin_backup_get"){
+      const date=String(body.date||"");if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return jsonResp({ok:false,error:"备份日期无效"},400);
+      const backup=await kvGet(env.TUTOR_KV,"admin_backup_"+date,null);
+      return backup?jsonResp({ok:true,backup}):jsonResp({ok:false,error:"该日期没有备份（只在发生写入的日期创建）"},404);
+    }
+    if(action==="admin_audit_log")return jsonResp({ok:true,entries:await kvGet(env.TUTOR_KV,"admin_audit_log",[])});
     // Admin-only provider management; no API key or encrypted key is ever returned to browser.
     if (action === "admin_ai_provider_list") {
       const registry=await loadAIRegistry(env.TUTOR_KV);
@@ -410,7 +460,7 @@ async function handleRequest(context) {
           return jsonResp({ok:false,error:"草稿编号重复或格式不正确"},409);
         labels.add(label);
         const linked=String(draft.existingOrderId||""),current=linked?find(linked):null;
-        if(linked&&(!current||labelOf(current)!==label||updatedIds.has(linked)))
+        if(linked&&(!current||current.status==="已删除"||labelOf(current)!==label||updatedIds.has(linked)))
           return jsonResp({ok:false,error:"原单不存在或编号不一致："+label},409);
         if(!linked && existing.some(o=>labelOf(o)===label||o.id===label) && draft.explicitNumberReuse!==true)
           return jsonResp({ok:false,error:"编号已使用，请确认是修改原单还是指定重号的新单："+label},409);
@@ -426,7 +476,7 @@ async function handleRequest(context) {
         updatedIds.add(id);
         const patch=Object.fromEntries(fields.filter(k=>Object.hasOwn(draft,k)).map(k=>[k,draft[k]]));
         published.push({...current,...patch,id,orderNumber:label,status:"招募中",createdAt:current?.createdAt||now,
-          ...(current?{updatedAt:now}:{})});
+          ...(publishKey?{lastPublishKey:publishKey,lastPublishDigest:publishDigest}:{}),...(current?{updatedAt:now}:{})});
       }
       for(const [id,original] of parents){
         if(updatedIds.has(id)||published.filter(o=>labelOf(o).replace(/-\d+$/,"")===labelOf(original)).length<2)
@@ -442,6 +492,7 @@ async function handleRequest(context) {
       await kvPut(env.TUTOR_KV,"orders",merged);
       await kvPut(env.TUTOR_KV,"order_sequence",orderSequence);
       await kvPut(env.TUTOR_KV,"hidden_imported_orders",hiddenImported);
+      if(publishKey){try{await env.TUTOR_KV.put("publish_receipt_"+publishKey,JSON.stringify({digest:publishDigest,ids:published.map(o=>o.id)}),{expirationTtl:86400*7});}catch{console.warn("publication receipt unavailable");}}
       return orderResponse({ok:true,orders:merged,published,orderSequence,hiddenImported});
     }
 
@@ -476,6 +527,7 @@ async function handleRequest(context) {
       if (!already && !/^fs-\d{4,}$/.test(String(body.id))) return jsonResp({ ok: false, error: "找不到该家教单" }, 404);
       const label=body.patch?.orderNumber;
       const current=existing.find(o=>o.id===body.id);
+      if(current?.status==="已删除")return jsonResp({ok:false,error:"请先恢复回收站订单"},409);
       if(label!==undefined&&label!==String(current?.orderNumber||current?.id||"")){
         if(!/^#\d{3,7}(?:-\d+)?$/.test(label))return jsonResp({ok:false,error:"公开编号格式无效"},400);
         if(existing.some(o=>o.id!==body.id&&String(o.orderNumber||o.id)===label))return jsonResp({ok:false,error:"公开编号已存在"},409);
@@ -501,7 +553,7 @@ async function handleRequest(context) {
       const now = new Date().toISOString();
       for (const id of new Set(ids)) {
         const original = index.get(id) || overrides.get(id);
-        if (!original) return jsonResp({ ok: false, error: `找不到家教单 ${id}，请刷新后重试` }, 404);
+        if (!original||original.status==="已删除") return jsonResp({ ok: false, error: `找不到可操作家教单 ${id}，请先核对回收站`, }, 404);
         index.set(id, { ...original, id, status: body.status, updatedAt: now });
       }
       const next = [...index.values()];
@@ -529,6 +581,28 @@ async function handleRequest(context) {
       const next=[merged,...closed,...existing.filter(o=>!ids.includes(o.id))];
       await kvPut(env.TUTOR_KV,"orders",next);
       return orderResponse({ok:true,orders:next});
+    }
+    if(action==="admin_trash_order"||action==="admin_restore_order"){
+      const id=String(body.id||"");if(!id||id.length>70)return jsonResp({ok:false,error:"无效订单编号"},400);
+      const existing=await kvGet(env.TUTOR_KV,"orders",[]);
+      const hiddenImported=await kvGet(env.TUTOR_KV,"hidden_imported_orders",[]);
+      const current=existing.find(o=>o.id===id)||(/^fs-\d{4,}$/.test(id)&&body.importedOverride?.id===id&&!hiddenImported.includes(id)?body.importedOverride:null);
+      if(!current)return jsonResp({ok:false,error:"订单不存在"},404);
+      let updated;
+      if(action==="admin_trash_order"){
+        if(current.status==="已删除")return orderResponse({ok:true,orders:existing,hiddenImported});
+        updated={...current,previousStatus:current.status||"招募中",status:"已删除",deletedAt:new Date().toISOString()};
+      }else{
+        if(current.status!=="已删除")return jsonResp({ok:false,error:"此订单不在回收站"},409);
+        const label=String(current.orderNumber||current.id);
+        if(existing.some(o=>o.id!==id&&String(o.orderNumber||o.id)===label&&isPubliclyOpenOrder(o)))return jsonResp({ok:false,error:"展示编号已被其他订单使用，恢复前请核对"},409);
+        updated={...current,status:current.previousStatus||"招募中"};
+        delete updated.deletedAt;delete updated.previousStatus;
+      }
+      updated.updatedAt=new Date().toISOString();
+      const next=[updated,...existing.filter(o=>o.id!==id)];
+      await kvPut(env.TUTOR_KV,"orders",next);
+      return orderResponse({ok:true,orders:next,hiddenImported});
     }
     if (action === "admin_delete_order") {
       const existing = await kvGet(env.TUTOR_KV, "orders", []);
