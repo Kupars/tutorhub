@@ -7,7 +7,7 @@
   <title>小木学长 · 天津家教看板</title>
   <meta name="theme-color" content="#f0f8ff" />
   <script src="./js/boot.js?v=1"></script>
-  <link rel="stylesheet" href="./css/styles.css?v=42" />
+  <link rel="stylesheet" href="./css/styles.css?v=43" />
 </head>
 <body>
   <div class="startup-loading" id="startupLoading" role="status" aria-live="polite" aria-atomic="true">
@@ -135,8 +135,8 @@
         <div class="map-heading"><div><h2>🗺 家教位置看板</h2><p>与筛选条件实时同步 · 红色是你的出发地，绿色是已勾选家教，橙色是尚未确认具体地址的区/镇中心示意点。悬停看提示，点击查看家教单详情；仅显示公开地址。</p></div><button class="btn btn-sm map-expand-btn" id="btnExpandMap" type="button" aria-expanded="false">⛶ 展开地图</button></div>
         <div class="map-toolbar"><div class="map-search-wrap"><input id="mapSearchInput" type="search" placeholder="搜索新位置，例如天津大学、河西区" aria-label="搜索地图地点并更新我的位置" role="combobox" aria-expanded="false" aria-controls="mapSearchSuggestions" autocomplete="off" /><div id="mapSearchSuggestions" class="map-suggestions" role="listbox" hidden></div></div><button class="btn btn-primary" id="btnMapSearch">📍 搜索位置</button><button class="btn btn-relocate" id="btnMapRelocate" type="button">◎ 重新定位当前位置</button></div>
         <div class="map-stage"><div id="tutorMap" role="application" aria-label="公开家教单分布与我所在的位置地图"></div><div class="map-loading-note" id="mapLoadingNote" role="status">🗺 地图正在单独加载，家教单已经可以浏览…<button class="btn btn-sm" id="btnRetryMap" type="button" hidden>重试地图</button></div></div>
-        <p class="map-note" id="mapLocationNote">默认尝试获取当前位置；选择地图搜索候选地点后，红色位置标记、地图视角和通勤估算会同步更新。家教定位为公开地址的近似位置。使用高德底图时，地图服务商可能处理当前地图视野。</p>
-        <p class="map-note" id="mapVerificationNote" hidden></p><div class="route-batch-bar"><button class="btn btn-primary btn-sm" id="btnPlanRoutes" type="button">查询高德通勤（每批10条）</button><span id="routeBatchNote" class="map-note" role="status">按需查询真实路线，避免消耗配额。</span></div>
+        <p class="map-note" id="mapLocationNote">默认尝试获取当前位置；选择地图搜索候选地点后，红色位置标记、地图视角和通勤查询会同步更新。家教定位为公开地址的近似位置。使用高德底图时，地图服务商可能处理当前地图视野。</p>
+        <p class="map-note" id="mapVerificationNote" hidden></p><div class="route-batch-bar"><button class="btn btn-primary btn-sm" id="btnPlanRoutes" type="button">手动查询 / 重试（最多10条）</button><label><input type="checkbox" id="autoRouteToggle" checked/> 自动查询可见订单</label><span id="routeBatchNote" class="map-note" role="status">自动查询高德路线，不使用本地公式。</span></div>
       </section>
 
       <div class="stats-bar"><span id="resultStats">正在加载家教单...</span><div class="stats-actions"><span id="modeBadge"></span><div class="layout-switch" role="group" aria-label="家教单展示方式"><button class="layout-button" id="btnListMode" type="button" aria-pressed="false">☰ 列表</button><button class="layout-button active" id="btnCardMode" type="button" aria-pressed="true">▦ 卡片</button></div></div></div>
@@ -196,6 +196,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=56"></script>
+  <script type="module" src="./js/app.js?v=58"></script>
 </body>
 </html>

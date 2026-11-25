@@ -11,7 +11,7 @@ export async function onRequestPost(context) {
       const key=String(env.AMAP_JS_KEY||"").trim();
       return new Response(JSON.stringify({ok:Boolean(key&&env.AMAP_JS_SECURITY_CODE),jsKey:key&&env.AMAP_JS_SECURITY_CODE?key:"",serviceHost:"/_AMapService"}),{headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"}});
     }
-    if(!env.AMAP_KEY)return jsonResp({ok:false,error:"AMAP_KEY 未配置，使用前端估算",errorCode:"AMAP_KEY_NOT_CONFIGURED"});
+    if(!env.AMAP_KEY)return jsonResp({ok:false,error:"AMAP_KEY 未配置，通勤查询暂不可用",errorCode:"AMAP_KEY_NOT_CONFIGURED"});
 
     // 输入提示：仅向前端返回公开地点的名称、行政区、地址及坐标，不泄露服务 Key。
     if (body.action === "suggest") {

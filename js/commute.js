@@ -183,42 +183,7 @@ export function publicGeocodedPoint(order) {
   return isPlausiblePublicGeocode(order, location) ? location : null;
 }
 
-// 计算骑行与公交双耗时（同时返回骑行、公交与距离）
-export function estimateCommuteLocal(origin, order) {
-  if (order.mode === "线上") {
-    return {
-      isOnline: true,
-      distanceKm: 0,
-      bikeMin: 0,
-      transitMin: 0,
-      bestMin: 0,
-      label: "线上免通勤"
-    };
-  }
-  if (!origin || origin.lat == null || origin.lng == null) {
-    return null;
-  }
-  // 公共看板仅用行政区示意坐标估算；不读取后台私有精确坐标。
-  const address = String(order.publicAddress || order.address || "");
-  const inferred = verifiedPublicLandmarkCoords(address) || publicGeocodedPoint(order) ||
-    inferNamedLandmarkCoords(address, order.district) ||
-    (isDistrictOnlyAddress(address, order.district) ? inferCoordsFromText(order.district || "") : null);
-  if (!inferred) return null;
-  const targetLat = inferred.lat;
-  const targetLng = inferred.lng;
-
-  const straightKm = calcDistanceKm(origin.lat, origin.lng, targetLat, targetLng);
-  const roadKm = Math.max(0.5, Number((straightKm * 1.28).toFixed(1)));
-  const bikeMin = Math.max(5, Math.round((roadKm / 13) * 60));
-  const transitMin = Math.max(10, Math.round((roadKm / 20) * 60 + 8));
-
-  return {
-    isOnline: false,
-    source: "estimate",
-    distanceKm: roadKm,
-    bikeMin,
-    transitMin,
-    bestMin: Math.min(bikeMin, transitMin),
-    label: `骑行 ${bikeMin} 分钟 · 公交 ${transitMin} 分钟 · ${roadKm}km`
-  };
+// Compatibility export: never invent travel times; only online lessons have zero commute.
+export function estimateCommuteLocal(_origin,order){
+  return order.mode==="线上"?{isOnline:true,distanceKm:0,bikeMin:0,transitMin:0,bestMin:0,label:"线上免通勤"}:null;
 }
