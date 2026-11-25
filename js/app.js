@@ -4,7 +4,7 @@ import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=14";
 import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=14";
-import { Store } from "./store.js?v=9";
+import { Store } from "./store.js?v=10";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=4";
@@ -1444,15 +1444,14 @@ function renderAdminView() {
     if (new Set(chosen.map((o) => `${o.grade}|${o.address}|${o.studentGender}`)).size !== 1) {
       return showToast("只能合并同一学生的家教单（年级、地址及学生性别需一致）");
     }
-    if (!confirm(`将 ${chosen.length} 条单合并到 ${chosen[0].id}，并删除其他选中单？操作不可撤销。`)) return;
+    if (!confirm(`将 ${chosen.length} 条单合并到 ${chosen[0].id}，并下架其他选中单？历史记录保留。`)) return;
     try {
       const merged = mergeOrders(chosen, chosen[0].id);
-      await Store.updateOrder(merged.id, merged);
-      for (const o of chosen.slice(1)) await Store.deleteOrder(o.id);
+      await Store.mergePublishedOrders(chosen,merged);
       adminCheckedOrders.clear();
       renderAll();
       showToast("合并完成，已保留主编号");
-    } catch (err) { renderAll(); showToast(`合并未完全完成，请检查订单：${err.message}`); }
+    } catch (err) { renderAll(); showToast(`合并失败，请核对订单：${err.message}`); }
   };
   box.querySelectorAll("[data-del-order]").forEach((btn) => {
     btn.onclick = async () => {

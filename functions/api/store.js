@@ -20,7 +20,25 @@ function isPubliclyOpenOrder(order) {
     .test(String(order?.status || "").trim());
 }
 
+const ORDER_WRITES=new Set(["admin_publish_ai_drafts","admin_add_orders","admin_update_order","admin_batch_status","admin_delete_order","admin_merge_orders","admin_save_assignment"]);
+let orderWriteQueue=Promise.resolve();
+async function currentOrderRevision(kv){
+  const [orders,hidden]=await Promise.all([kvGet(kv,"orders",[]),kvGet(kv,"hidden_imported_orders",[])]);
+  return sha256(JSON.stringify([orders,hidden]));
+}
 export async function onRequest(context) {
+  // Serialize writes within this runtime; KV does not provide cross-region CAS.
+  if(context.request.method==="POST"){
+    let body;try{body=await context.request.clone().json();}catch{return handleRequest(context);}
+    if(ORDER_WRITES.has(body?.action)){
+      const run=orderWriteQueue.then(()=>handleRequest(context));
+      orderWriteQueue=run.catch(()=>{});
+      return run;
+    }
+  }
+  return handleRequest(context);
+}
+async function handleRequest(context) {
   const { request, env } = context;
 
   if (request.method === "OPTIONS") {
@@ -124,6 +142,9 @@ export async function onRequest(context) {
       return jsonResp({ ok: false, error: "无管理员权限" }, 403);
     }
 
+    if(ORDER_WRITES.has(action)&&body.orderRevision!==undefined&&body.orderRevision!==await currentOrderRevision(env.TUTOR_KV))
+      return jsonResp({ok:false,error:"订单已被其他操作更新，请刷新后重新核对；本次未写入",code:"ORDER_CONFLICT"},409);
+    const orderResponse=async(data)=>jsonResp({...data,orderRevision:await currentOrderRevision(env.TUTOR_KV)});
     // Admin-only provider management; no API key or encrypted key is ever returned to browser.
     if (action === "admin_ai_provider_list") {
       const registry=await loadAIRegistry(env.TUTOR_KV);
@@ -156,6 +177,7 @@ export async function onRequest(context) {
       return jsonResp({
         ok: true,
         orders,
+        orderRevision:await sha256(JSON.stringify([orders,hiddenImported])),
         siteConfig,
         hiddenImported,
         partTimePosts,
@@ -356,7 +378,7 @@ export async function onRequest(context) {
         nextOrders = [updated, ...current.filter((o) => o.id !== orderId)];
         await kvPut(env.TUTOR_KV, "orders", nextOrders);
       }
-      return jsonResp({ ok: true, assignments: nextAssignments, orders: nextOrders });
+      return orderResponse({ ok: true, assignments: nextAssignments, orders: nextOrders });
     }
     if (action === "admin_delete_assignment") {
       if (!env.AUTH_SECRET || !env.ADMIN_PASSWORD) return jsonResp({ ok: false, error: "缺少安全管理员密钥，无法操作私人记录" }, 503);
@@ -420,7 +442,7 @@ export async function onRequest(context) {
       await kvPut(env.TUTOR_KV,"orders",merged);
       await kvPut(env.TUTOR_KV,"order_sequence",orderSequence);
       await kvPut(env.TUTOR_KV,"hidden_imported_orders",hiddenImported);
-      return jsonResp({ok:true,orders:merged,published,orderSequence,hiddenImported});
+      return orderResponse({ok:true,orders:merged,published,orderSequence,hiddenImported});
     }
 
     if (action === "admin_add_orders") {
@@ -444,7 +466,7 @@ export async function onRequest(context) {
       const numbers = merged.map((o) => Number(String(o.orderNumber || o.id).match(/^#?(\d{3,7})/)?.[1]) || 0);
       const orderSequence = Math.max(2991, previousNumber, ...numbers);
       await kvPut(env.TUTOR_KV, "order_sequence", orderSequence);
-      return jsonResp({ ok: true, orders: merged, orderSequence });
+      return orderResponse({ ok: true, orders: merged, orderSequence });
     }
 
     if (action === "admin_update_order") {
@@ -452,10 +474,16 @@ export async function onRequest(context) {
       const already = existing.some((o) => o.id === body.id);
       // 飞书静态导入单使用独立内部 ID；首次编辑时新增覆盖记录，不变更公开单号。
       if (!already && !/^fs-\d{4,}$/.test(String(body.id))) return jsonResp({ ok: false, error: "找不到该家教单" }, 404);
+      const label=body.patch?.orderNumber;
+      const current=existing.find(o=>o.id===body.id);
+      if(label!==undefined&&label!==String(current?.orderNumber||current?.id||"")){
+        if(!/^#\d{3,7}(?:-\d+)?$/.test(label))return jsonResp({ok:false,error:"公开编号格式无效"},400);
+        if(existing.some(o=>o.id!==body.id&&String(o.orderNumber||o.id)===label))return jsonResp({ok:false,error:"公开编号已存在"},409);
+      }
       const next = already ? existing.map((o) => (o.id === body.id ? { ...o, ...body.patch, id: body.id, updatedAt: new Date().toISOString() } : o))
         : [{ ...body.patch, id: body.id, updatedAt: new Date().toISOString() }, ...existing];
       await kvPut(env.TUTOR_KV, "orders", next);
-      return jsonResp({ ok: true, orders: next });
+      return orderResponse({ ok: true, orders: next });
     }
 
     if (action === "admin_batch_status") {
@@ -478,9 +506,30 @@ export async function onRequest(context) {
       }
       const next = [...index.values()];
       await kvPut(env.TUTOR_KV, "orders", next);
-      return jsonResp({ ok: true, orders: next });
+      return orderResponse({ ok: true, orders: next });
     }
 
+    if(action==="admin_merge_orders"){
+      const ids=Array.isArray(body.ids)?[...new Set(body.ids)]:[];
+      if(ids.length<2||ids.length>30||!ids.every(id=>typeof id==="string"))return jsonResp({ok:false,error:"合并订单参数无效"},400);
+      const existing=await kvGet(env.TUTOR_KV,"orders",[]);
+      const overrides=new Map((Array.isArray(body.importedOverrides)?body.importedOverrides:[]).filter(o=>o&&/^fs-\d{4,}$/.test(o.id)).map(o=>[o.id,o]));
+      const selected=ids.map(id=>existing.find(o=>o.id===id)||overrides.get(id));
+      if(selected.some(o=>!o))return jsonResp({ok:false,error:"订单不存在，请刷新后重试"},409);
+      const base=selected[0];
+      if(new Set(selected.map(o=>[o.grade,o.publicAddress||o.address,o.studentGender].join("|"))).size!==1)return jsonResp({ok:false,error:"仅允许合并同一学生的订单"},400);
+      const conditions=["salaryText","weeklyFrequency","hoursPerSession","mode","onlineAllowed","trialTime","genderPref","notes"];
+      if(conditions.some(k=>new Set(selected.map(o=>String(o[k]??""))).size>1))return jsonResp({ok:false,error:"授课条件不一致，请先统一后合并"},409);
+      const patch=body.merged||{};
+      if(!patch.subject||patch.id!==base.id)return jsonResp({ok:false,error:"合并结果无效"},400);
+      const allowed=["subject","title","currentScores","requirements","teacherCount"];
+      const now=new Date().toISOString();
+      const merged={...base,...Object.fromEntries(allowed.filter(k=>Object.hasOwn(patch,k)).map(k=>[k,patch[k]])),updatedAt:now};
+      const closed=selected.slice(1).map(o=>({...o,status:"已关闭",updatedAt:now}));
+      const next=[merged,...closed,...existing.filter(o=>!ids.includes(o.id))];
+      await kvPut(env.TUTOR_KV,"orders",next);
+      return orderResponse({ok:true,orders:next});
+    }
     if (action === "admin_delete_order") {
       const existing = await kvGet(env.TUTOR_KV, "orders", []);
       const imported = /^fs-\d{4,}$/.test(String(body.id));
@@ -492,7 +541,7 @@ export async function onRequest(context) {
         hiddenImported.push(body.id);
         await kvPut(env.TUTOR_KV, "hidden_imported_orders", hiddenImported);
       }
-      return jsonResp({ ok: true, orders: next, hiddenImported });
+      return orderResponse({ ok: true, orders: next, hiddenImported });
     }
 
     if (action === "admin_update_site") {

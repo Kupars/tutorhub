@@ -54,7 +54,18 @@ function ensureLocalInit() {
 }
 ensureLocalInit();
 
+const ORDER_WRITES=new Set(["admin_publish_ai_drafts","admin_add_orders","admin_update_order","admin_batch_status","admin_delete_order","admin_merge_orders","admin_save_assignment"]);
+let orderRevision=null;
+let orderRequestQueue=Promise.resolve();
 async function apiPost(payload) {
+  if(ORDER_WRITES.has(payload.action)){
+    const expected=orderRevision;
+    const run=orderRequestQueue.then(()=>sendPost({...payload,...(expected?{orderRevision:expected}:{})}));
+    orderRequestQueue=run.catch(()=>{});return run;
+  }
+  return sendPost(payload);
+}
+async function sendPost(payload) {
   const token = localStorage.getItem(KEYS.token) || "";
   const headers = { "Content-Type": "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -63,7 +74,10 @@ async function apiPost(payload) {
     headers,
     body: JSON.stringify(payload)
   });
-  return await res.json();
+  const data=await res.json();
+  if(data?.ok&&typeof data.orderRevision==="string")orderRevision=data.orderRevision;
+  if(data?.code==="ORDER_CONFLICT"){await Store.syncSessionFromCloud();throw new Error(data.error);}
+  return data;
 }
 
 export const Store = {
@@ -336,7 +350,7 @@ export const Store = {
     if (cloudReady) {
       const isImported = importedOrders.some((o) => o.id === id);
       const original = isImported ? importedOrders.find((o) => o.id === id) : {};
-      const res = await apiPost({ action: "admin_update_order", id, patch: { ...original, ...patch } });
+      const res = await apiPost({ action: "admin_update_order", id, patch: { ...(cloudState.orders.some(o=>o.id===id)?{}:original), ...patch } });
       if (!res?.ok) throw new Error(res?.error || "云端更新失败");
       cloudState.orders = res.orders;
       return cloudState.orders;
@@ -370,6 +384,13 @@ export const Store = {
     }
     writeJSON(KEYS.orders, next);
     return this.getOrders();
+  },
+  async mergePublishedOrders(orders,merged){
+    if(!cloudReady||this.getCurrentUser()?.role!=="admin")throw new Error("云端管理员存储不可用");
+    const ids=orders.map(o=>o.id);
+    const res=await apiPost({action:"admin_merge_orders",ids,merged,importedOverrides:importedOrders.filter(o=>ids.includes(o.id))});
+    if(!res?.ok)throw new Error(res?.error||"合并失败");
+    cloudState.orders=res.orders;return this.getOrders();
   },
   async deleteOrder(id) {
     if (cloudReady) {
