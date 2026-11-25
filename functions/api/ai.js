@@ -1,3 +1,4 @@
+import {requestAIJSON,AITransportError} from "../../shared/ai-transport.js";
 import {resolveAIProvider} from "../../shared/ai-provider-registry.js";
 import { formatterPrompt, siteCommandPrompt } from "../../shared/tutoring-order-formatter.js";
 import { teacherResumePrompt, sanitizeTeacherResumeResult } from "../../shared/teacher-resume-skill.js";
@@ -65,13 +66,12 @@ export async function onRequestPost(context) {
       const baseUrl = selected.baseUrl;
       const model = selected.model;
       provider = `${selected.name} (${model})`;
-      const res = await fetch(`${baseUrl}/chat/completions`, {
+      const data = await requestAIJSON(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${selected.apiKey}`
         },
-        signal: AbortSignal.timeout(45000),
         body: JSON.stringify({
           model,
           temperature: publicRecommend ? 0.1 : 0.15,
@@ -83,8 +83,7 @@ export async function onRequestPost(context) {
               : prompts.user }
           ]
         })
-      });
-      const data = await readAIResponse(res, provider);
+      }, {provider,secret:selected.apiKey,allowRetry:!publicRecommend&&action!=="model_probe"});
       const message = data?.choices?.[0]?.message;
       rawText = typeof message?.content === "string" ? message.content :
         Array.isArray(message?.content) ? message.content.map(p=>p?.text || "").join("") : "";
@@ -94,10 +93,9 @@ export async function onRequestPost(context) {
       const model = selected.model;
       provider = `Google Gemini (${model})`;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${selected.apiKey}`;
-      const res = await fetch(url, {
+      const data = await requestAIJSON(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(45000),
         body: JSON.stringify({
           contents: [{ parts: [{ text: `${prompts.system}\n\n${prompts.user}` },
             ...(action === "extract_teacher_resume" && payload?.imageData ? [{inlineData:{
@@ -106,8 +104,7 @@ export async function onRequestPost(context) {
             }}] : [])] }],
           generationConfig: { temperature: 0.2, responseMimeType: "application/json" }
         })
-      });
-      const data = await readAIResponse(res, provider);
+      }, {provider,secret:selected.apiKey,allowRetry:!publicRecommend&&action!=="model_probe"});
       rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
     } else {
       return jsonResp({ ok: false, error: "没有可用的模型配置，请在后台 AI 模型管理中添加中转站，或配置 Cloudflare 环境变量" }, 503);
@@ -141,6 +138,11 @@ export async function onRequestPost(context) {
     }
     return jsonResp({ ok: true, result: { ...parsed, provider } }, 200);
   } catch (err) {
+    if(err instanceof AITransportError){
+      const requestId=crypto.randomUUID().slice(0,12);
+      console.warn("[ai-request]",requestId,err.code,err.status);
+      return jsonResp({ok:false,error:err.message,errorCode:err.code,requestId},err.status);
+    }
     return jsonResp({ ok: false, error: String(err?.message || err) }, 500);
   }
 }
@@ -189,19 +191,6 @@ async function checkRecommendRateLimit(request, kv) {
   if (last.count >= 12 || Date.now() - last.at < 30000) return true;
   await kv.put(key, JSON.stringify({ count: last.count + 1, at: Date.now() }), { expirationTtl: 3700 });
   return false;
-}
-
-async function readAIResponse(response, provider) {
-  const raw = await response.text();
-  let data;
-  try { data = JSON.parse(raw); } catch {
-    throw new Error(`${provider} 上游响应异常（HTTP ${response.status}，非 JSON）`);
-  }
-  if (!response.ok || data?.error) {
-    const detail = String(data?.error?.message || data?.error?.msg || data?.message || "接口未返回可用结果");
-    throw new Error(`${provider} HTTP ${response.status}：${detail.slice(0, 240)}`);
-  }
-  return data;
 }
 
 async function verifyAuth(request, secret, kv) {
