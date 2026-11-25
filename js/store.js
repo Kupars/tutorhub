@@ -57,10 +57,18 @@ ensureLocalInit();
 const ORDER_WRITES=new Set(["admin_publish_ai_drafts","admin_add_orders","admin_update_order","admin_batch_status","admin_delete_order","admin_merge_orders","admin_save_assignment"]);
 let orderRevision=null;
 let orderRequestQueue=Promise.resolve();
+let orderWriteEpoch=0;
 async function apiPost(payload) {
   if(ORDER_WRITES.has(payload.action)){
-    const expected=orderRevision;
-    const run=orderRequestQueue.then(()=>sendPost({...payload,...(expected?{orderRevision:expected}:{})}));
+    const epoch=orderWriteEpoch;
+    const run=orderRequestQueue.then(async()=>{
+      if(epoch!==orderWriteEpoch)throw new Error("前一次订单保存失败，请重新核对后提交");
+      try {
+        const result=await sendPost({...payload,...(orderRevision?{orderRevision}:{})});
+        if(!result?.ok)orderWriteEpoch++;
+        return result;
+      } catch(error){orderWriteEpoch++;throw error;}
+    });
     orderRequestQueue=run.catch(()=>{});return run;
   }
   return sendPost(payload);
@@ -149,6 +157,19 @@ export const Store = {
     }
     cloudReady = false;
     return false;
+  },
+
+  // Public-only refresh: never replace authenticated admin records with sanitized public data.
+  async refreshPublicOrders() {
+    if(this.getCurrentUser()?.role==="admin")return false;
+    const res=await fetch(`${APP_CONFIG.apiBase}/store`,{cache:"no-store",signal:AbortSignal.timeout(10000)});
+    if(!res.ok)return false;
+    const data=await res.json();
+    if(!data?.ok||!data.cloud||!Array.isArray(data.orders)||this.getCurrentUser()?.role==="admin")return false;
+    const hidden=Array.isArray(data.hiddenImported)?data.hiddenImported:[];
+    const changed=!cloudReady||JSON.stringify([cloudState.orders,cloudState.hiddenImported])!==JSON.stringify([data.orders,hidden]);
+    cloudReady=true;cloudState.orders=data.orders;cloudState.hiddenImported=hidden;
+    return changed;
   },
 
   async syncSessionFromCloud() {
