@@ -25,7 +25,7 @@ test("website gateway error retries once but structured upstream errors never re
  const old=globalThis.fetch;let n=0,progress="";
  try{
   globalThis.fetch=async()=>++n===1?new Response("<html>gateway</html>",{status:502}):new Response('{"ok":true,"result":{"orders":[]}}');
-  assert.deepEqual(await callServerlessAI("parse_orders",{},v=>{progress=v;}),{orders:[]});assert.equal(n,2);assert.match(progress,/重试/);
+  const result=await callServerlessAI("parse_orders",{},v=>{progress=v;});assert.deepEqual(result.orders,[]);assert(result.timing.elapsedMs>=0);assert.equal(n,2);assert.match(progress,/重试/);
   n=0;globalThis.fetch=async()=>{n++;return new Response('{"ok":false,"error":"模型中转站异常","errorCode":"AI_UPSTREAM_GATEWAY","requestId":"abcd"}',{status:502});};
   await assert.rejects(callServerlessAI("parse_orders"),/诊断编号 abcd/);assert.equal(n,1);
  }finally{globalThis.fetch=old;}
