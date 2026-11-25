@@ -10,6 +10,14 @@ test("white theme is default, retains explicit dark mode, and removes seasonal d
  assert(!boot.includes('dataset.season'));
  assert.match(app,/applyColorMode\(savedColorMode\(\) \|\| "light"\)/);
  assert.match(css,/:root\[data-color-mode="dark"\]/);
- assert(html.includes('styles.css?v=44')&&html.includes('boot.js?v=2'));
+ assert(html.includes('styles.css?v=45')&&html.includes('boot.js?v=2'));
  for(const id of ["qSearch","qSort","btnToggleFilters","tutorMap","autoRouteToggle","ordersGrid","adminContainer","btnQuickCopy","btnOpenWechatQr"])assert(html.includes('id="'+id+'"'),id);
+});
+
+test("white surfaces retain distinct accent colors and only successful route results get teal",()=>{
+ const css=read("css/styles.css"),app=read("js/app.js");
+ for(const token of ["--location-soft","--subject-soft","--price-soft","--route-soft","--ai-soft"])assert(css.includes(token));
+ assert(css.includes('[data-route-status="amap"]'));
+ assert(app.includes('data-route-status=')&&app.includes('node.dataset.routeStatus='));
+ assert.match(css,/--primary-button:#3263b0/);
 });
