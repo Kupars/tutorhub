@@ -27,7 +27,14 @@ export async function callServerlessAI(action,payload={},onProgress=()=>{}){
        const id=data?.requestId;
        error=new Error((data?.error||"AI 接口错误 HTTP "+response.status)+(id?"（诊断编号 "+id+"）":""));
      }
-     if(!error)return data.result;
+     if(!error){
+       const result=data.result;
+       if(["parse_orders","revise_drafts","model_probe"].includes(action)&&result&&typeof result==="object"){
+         const elapsedMs=Math.max(0,Date.now()-started),t=result.timing;
+         return {...result,timing:{elapsedMs,upstreamMs:Number.isFinite(t?.upstreamMs)?t.upstreamMs:null,serverMs:Number.isFinite(t?.serverMs)?t.serverMs:null}};
+       }
+       return result;
+     }
    }catch(e){
      const timeout=e?.name==="TimeoutError"||e?.name==="AbortError";
      retry=!timeout;
@@ -45,7 +52,7 @@ export async function callServerlessAI(action,payload={},onProgress=()=>{}){
 export async function probeAIProvider(providerId, model) {
   try {
     const response = await callServerlessAI("model_probe", providerId ? {providerId, ...(model ? {model} : {})} : {});
-    return response?.health === "ok" ? { ok:true, provider:response.provider || "已配置的模型" } :
+    return response?.health === "ok" ? { ok:true, provider:response.provider || "已配置的模型", timing:response.timing } :
       { ok:false, error:"模型接口有响应，但未返回预期检测字段" };
   } catch (err) { return { ok:false, error:err.message }; }
 }
@@ -147,7 +154,7 @@ export async function parseMessyOrders(rawText, existingOrders = [], history = [
   if (!String(rawText || "").trim()) throw new Error("请先输入家长提供的零散需求");
   const result = await callServerlessAI("parse_orders", { text:String(rawText).slice(0,14000), history },onProgress);
   return {source: result.provider || "外部模型 API", reply:String(result.reply || ""),
-    groupingNotes:result.groupingNotes || [], questions:result.questions || [],
+    groupingNotes:result.groupingNotes || [], questions:result.questions || [], timing:result.timing,
     orders:prepareAIDrafts(rawText,result,existingOrders)};
 }
 
@@ -155,7 +162,7 @@ export async function reviseDraftsWithAI(instruction, drafts, history = [], exis
   if (!Array.isArray(drafts) || !drafts.length) throw new Error("请先整理出草稿");
   const result = await callServerlessAI("revise_drafts", { instruction, drafts, history },onProgress);
   return {source:result.provider || "外部模型 API", reply:String(result.reply || ""),
-    groupingNotes:result.groupingNotes || [], questions:result.questions || [],
+    groupingNotes:result.groupingNotes || [], questions:result.questions || [], timing:result.timing,
     orders:prepareAIDrafts(instruction,result,existingOrders,drafts)};
 }
 

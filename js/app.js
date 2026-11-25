@@ -3,7 +3,7 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=14";
-import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=11";
+import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=12";
 import { Store } from "./store.js?v=9";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
@@ -24,6 +24,8 @@ const state = {
   aiRawText: "",
   aiDraftBusy: false,
   aiDraftError: "",
+  aiDraftTiming: null,
+  aiDraftStarted: 0,
   lastPublishedDrafts: [],
   aiDraftHistory: [],
   aiDraftGroupingNotes: [],
@@ -45,7 +47,7 @@ let teacherPoolModulePromise=null;
 let pendingTeacherApplicationScroll=false;
 function loadTeacherPoolModule() {
   // 只在打开管理后台时下载老师档案和推荐模块，不影响普通老师的首屏加载。
-  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=12")
+  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=13")
     .catch(err=>{teacherPoolModulePromise=null;throw err;});
   return teacherPoolModulePromise;
 }
@@ -123,6 +125,11 @@ const CARD_BATCH_SIZE = 24;
 
 const $ = (id) => document.getElementById(id);
 
+function aiTimingText(t){
+ if(!t||!Number.isFinite(t.elapsedMs))return "";
+ const sec=n=>(n/1000).toFixed(1)+" 秒";
+ return "本次耗时 "+sec(t.elapsedMs)+(Number.isFinite(t.upstreamMs)?" · 模型接口 "+sec(t.upstreamMs):"")+(Number.isFinite(t.serverMs)?" · 网站其他处理/网络约 "+sec(Math.max(0,t.elapsedMs-(t.upstreamMs??0))):"");
+}
 function savedColorMode() {
   try {
     const stored = localStorage.getItem(COLOR_MODE_KEY);
@@ -955,6 +962,7 @@ function renderAdminView() {
         <label for="rawOrderInput">${state.parsedDraftOrders.length?"继续说要怎么修改":"输入新家教需求"}</label>
         <textarea id="rawOrderInput" rows="4" placeholder="${state.parsedDraftOrders.length?"例如：数学改周日下午，物理时薪120":"直接粘贴家长需求，例如高一男生，数学74物理48，河西区津沽东里，周末2小时，分成两单"}"></textarea>
         <button class="btn btn-primary" id="btnParseOrders" type="button" ${state.aiDraftBusy?"disabled":""}>${state.aiDraftBusy?"AI 正在整理…":"发送"}</button>
+        <p id="aiDraftTiming" class="admin-helper" role="status">${state.aiDraftBusy?"模型正在处理，请勿重复发送。":escapeHtml(aiTimingText(state.aiDraftTiming))}</p>
         <p id="aiDraftError" class="admin-helper" role="alert" ${state.aiDraftError?"":"hidden"}>${state.aiDraftError?escapeHtml("整理失败："+state.aiDraftError+"。输入及原草稿已保留，可直接再次发送。"):""}</p>
       </div>
       <details class="ai-workspace-advanced"><summary>其他导入方式</summary><div class="field">
@@ -1123,7 +1131,7 @@ function renderAdminView() {
   $("btnNewAIOrder").onclick=()=>{
     if(state.aiDraftBusy)return;
     if(state.parsedDraftOrders.length && !confirm("当前草稿尚未发布，开始新单会清空草稿。继续吗？"))return;
-    state.parsedDraftOrders=[];state.aiDraftHistory=[];state.aiRawText="";state.aiDraftError="";
+    state.parsedDraftOrders=[];state.aiDraftHistory=[];state.aiRawText="";state.aiDraftError="";state.aiDraftTiming=null;
     state.aiDraftGroupingNotes=[];state.aiDraftQuestions=[];
     state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
     renderAdminView();$("rawOrderInput")?.focus();
@@ -1133,11 +1141,14 @@ function renderAdminView() {
     const raw=$("rawOrderInput").value.trim();
     if(!raw)return showToast("请输入家教需求或修改指令");
     syncDraftTextareas();
-    state.aiRawText=raw;state.aiDraftError="";
+    state.aiRawText=raw;state.aiDraftError="";state.aiDraftTiming=null;state.aiDraftStarted=Date.now();
     const errorBox=$("aiDraftError");if(errorBox){errorBox.hidden=true;errorBox.textContent="";}
     state.aiDraftBusy=true;
     $("btnParseOrders").disabled=true;$("btnParseOrders").textContent="AI 正在整理…";
     $("btnPublishDrafts").disabled=true;
+    let progressMessage="AI 正在整理";
+    const updateElapsed=()=>{const node=$("aiDraftTiming");if(node)node.textContent=progressMessage+" · 已用时 "+Math.floor((Date.now()-state.aiDraftStarted)/1000)+" 秒";};
+    updateElapsed();const elapsedTimer=setInterval(updateElapsed,1000);
     try{
       const existing=[...Store.getOrders(),{orderNumber:"#"+Store.getOrderSequence()}];
       let previous=state.parsedDraftOrders;
@@ -1149,17 +1160,18 @@ function renderAdminView() {
           if(found.length===1)previous=[{...found[0],id:labels[0],existingOrderId:found[0].id}];
         }
       }
-      const onProgress=message=>{const btn=$("btnParseOrders");if(btn)btn.textContent=message;};
+      const onProgress=message=>{progressMessage=message;updateElapsed();const btn=$("btnParseOrders");if(btn)btn.textContent=message;};
       const result=previous.length ?
         await reviseDraftsWithAI(raw,previous,state.aiDraftHistory,existing,onProgress):
         await parseMessyOrders(raw,existing,state.aiDraftHistory,onProgress);
       state.parsedDraftOrders=result.orders;
+      state.aiDraftTiming=result.timing||{elapsedMs:Date.now()-state.aiDraftStarted};
       state.aiDraftReply=result.reply;state.aiDraftGroupingNotes=result.groupingNotes;state.aiDraftQuestions=result.questions;
       state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
       state.aiDraftHistory.push({role:"user",content:raw},{role:"assistant",content:result.reply||"已整理，请查看标准文案"});
       state.aiDraftHistory=state.aiDraftHistory.slice(-12);state.aiRawText="";
-    }catch(error){state.aiDraftError=error.message;showToast("AI 整理失败："+error.message);}
-    finally{state.aiDraftBusy=false;renderAdminView();}
+    }catch(error){state.aiDraftTiming={elapsedMs:Date.now()-state.aiDraftStarted};state.aiDraftError=error.message;showToast("AI 整理失败："+error.message);}
+    finally{clearInterval(elapsedTimer);state.aiDraftBusy=false;renderAdminView();}
   };
   $("rawOrderInput").onkeydown=event=>{
     if(event.key==="Enter"&&(event.ctrlKey||event.metaKey)){event.preventDefault();$("btnParseOrders").click();}
@@ -1278,7 +1290,7 @@ function renderAdminView() {
     try {
       const result = await probeAIProvider();
       $("aiProbeResult").textContent = result.ok
-        ? `✅ 模型调用成功：${result.provider}。这是实际接口测试，不是内置规则引擎。`
+        ? `✅ 模型调用成功：${result.provider}。${aiTimingText(result.timing)}。这是实际接口测试，不是内置规则引擎。`
         : `⚠️ 模型未通过检测：${result.error}。已禁用内置解析器，请修复 API 后重试。`;
     } catch (error) { $("aiProbeResult").textContent = `模型检测出错：${error.message}`; }
     finally { button.disabled = false; }

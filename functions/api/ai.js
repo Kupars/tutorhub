@@ -9,6 +9,8 @@ import { teacherResumePrompt, sanitizeTeacherResumeResult } from "../../shared/t
 
 export async function onRequestPost(context) {
   const { request, env } = context;
+  const started=Date.now();
+  let upstreamMs=null;
   try {
     if (Number(request.headers.get("content-length") || 0) > 1500000) {
       return jsonResp({ ok: false, error: "请求内容过长" }, 413);
@@ -61,6 +63,7 @@ export async function onRequestPost(context) {
       !publicRecommend && action === "model_probe" ? payload?.model : undefined);
     let rawText = "";
     let provider = "";
+    const upstreamStarted=Date.now();
 
     if (selected?.kind === "openai") {
       const baseUrl = selected.baseUrl;
@@ -75,7 +78,7 @@ export async function onRequestPost(context) {
         body: JSON.stringify({
           model,
           temperature: publicRecommend ? 0.1 : 0.15,
-          max_tokens: publicRecommend ? 850 : isOrderParsing ? 6500 : action === "site_command" ? 3200 : action === "extract_teacher_resume" ? 550 : 2000,
+          max_tokens: action === "model_probe" ? 512 : publicRecommend ? 850 : isOrderParsing ? 6500 : action === "site_command" ? 3200 : action === "extract_teacher_resume" ? 550 : 2000,
           messages: [
             { role: "system", content: prompts.system },
             { role: "user", content: action === "extract_teacher_resume" && payload?.imageData
@@ -110,6 +113,7 @@ export async function onRequestPost(context) {
       return jsonResp({ ok: false, error: "没有可用的模型配置，请在后台 AI 模型管理中添加中转站，或配置 Cloudflare 环境变量" }, 503);
     }
 
+    upstreamMs=Math.max(0,Date.now()-upstreamStarted);
     if (!String(rawText).trim()) throw new Error(`${provider} 未返回正文，请检查模型权限、余额、模型是否支持文本输出`);
     let parsed;
     try { parsed = parseModelJSON(rawText); }
@@ -136,7 +140,9 @@ export async function onRequestPost(context) {
       if (!picks.length) throw new Error("AI 未返回有效家教单编号");
       return jsonResp({ ok: true, result: { picks, provider } }, 200);
     }
-    return jsonResp({ ok: true, result: { ...parsed, provider } }, 200);
+    const timing={upstreamMs,serverMs:Math.max(0,Date.now()-started)};
+    if(isOrderParsing||action==="model_probe")console.info("[ai-timing]",action,timing.upstreamMs,timing.serverMs);
+    return jsonResp({ ok: true, result: { ...parsed, provider, ...(isOrderParsing||action==="model_probe"?{timing}:{}) } }, 200);
   } catch (err) {
     if(err instanceof AITransportError){
       const requestId=crypto.randomUUID().slice(0,12);
