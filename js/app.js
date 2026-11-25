@@ -10,7 +10,7 @@ import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=5";
 import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=6";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
-import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
+import { findPotentialDuplicates, orderFreshness } from "./order-extras.js?v=2";
 import { MULTI_FILTER_LABELS, MULTI_FILTER_OPTIONS, matchesMultiFilters, normalizeMultiSelection, countSelectedFilters } from "./multi-filter.js?v=1";
 
 import {workspaceSnapshot,loadWorkspace,saveWorkspace,clearWorkspace,draftDiff,applyManualDraftText} from "./draft-workspace.js?v=2";
@@ -1115,6 +1115,10 @@ function renderAdminView() {
       if(!/^#\d{3,7}(?:-\d+)?$/.test(item.orderNumber))return showToast("请填写有效编号");
       if(Store.getOrders().some(o=>o.id!==old?.id&&o.orderNumber===item.orderNumber))return showToast("编号已被其他订单使用");
       if (!item.subject || item.subject === "科目待补充") return showToast("请填写补习科目");
+      if(item.grade==="年级待补充")return showToast("请填写年级");
+      const salary=String(item.salaryText||"").match(/(\d+(?:\.\d+)?)\s*[～~—-]\s*(\d+(?:\.\d+)?)/);
+      if(salary&&Number(salary[1])>Number(salary[2]))return showToast("薪资区间上下限颠倒");
+      if(missingDraftFields(item).length&&!confirm("有待核实字段，确认按实际已知信息保存？"))return;
       if (!confirmDuplicateRisks([item], old ? [old.id] : [])) return;
       if (old) await Store.updateOrder(old.id, item);
       else await Store.addOrders([item]);
@@ -1408,6 +1412,7 @@ function renderAdminView() {
     };
   });
   $("btnAdminSelectPage").onclick = () => {
+    if(state.adminStatus==="trash")return showToast("回收站订单请逐条恢复");
     adminShownOrders.forEach((o) => adminCheckedOrders.add(o.id));
     renderAdminView();
   };
