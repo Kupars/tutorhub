@@ -3,8 +3,8 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=14";
-import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=16";
-import { Store } from "./store.js?v=11";
+import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=17";
+import { Store } from "./store.js?v=12";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=5";
@@ -681,9 +681,9 @@ function getSelectedOrders() {
 function renderCart() {
   const orders = getSelectedOrders();
   $("cartCount").textContent = String(orders.length);
-  $("cartDock").hidden = state.view !== "hall" || !orders.length;
+  $("cartDock").hidden = state.view !== "hall" || !Store.getSelectedOrderIds().length;
   $("btnCopyCart").disabled = !orders.length;
-  $("btnClearCart").disabled = !orders.length;
+  $("btnClearCart").disabled = !Store.getSelectedOrderIds().length;
   const box = $("cartItems");
   const stale=Store.getSelectedOrderIds().length-orders.length;
   box.innerHTML = orders.length ? orders.map((o) => `
@@ -1003,7 +1003,7 @@ function renderAdminView() {
         <button class="btn btn-sm" type="button" id="btnAdminSelectPage">选中本页</button>
         <button class="btn btn-sm" type="button" id="btnAdminClearSelected">取消选中</button>
       </div>
-      <details class="ai-workspace-advanced"><summary>备份与操作日志</summary><div class="admin-bulk-toolbar"><button class="btn btn-sm" id="btnExportBackup" type="button">下载当前备份</button><input id="backupDate" type="date" aria-label="备份日期（UTC）"/><button class="btn btn-sm" id="btnExportPastBackup" type="button">下载指定日期备份</button><button class="btn btn-sm" id="btnAuditLog" type="button">查看操作日志</button></div><p class="admin-helper">每日首次写入前保存快照（UTC日期，保留30天）。备份包含私人档案，请妥善保存；不包含模型密钥。</p><div id="adminAuditOutput" class="admin-helper"></div></details>
+      <details class="ai-workspace-advanced"><summary>备份与操作日志</summary><div class="admin-bulk-toolbar"><button class="btn btn-sm" id="btnExportBackup" type="button">下载当前备份</button><input id="backupDate" type="date" aria-label="备份日期（UTC）"/><button class="btn btn-sm" id="btnExportPastBackup" type="button">下载指定日期备份</button><button class="btn btn-sm" id="btnAuditLog" type="button">查看操作日志</button><button class="btn btn-sm" id="btnMigrateStatic" type="button" ${Store.staticMigrationInfo().migrated?"disabled":""}>${Store.staticMigrationInfo().migrated?"历史单已迁移":"迁移历史静态单"}</button></div><p class="admin-helper">每日首次写入前保存快照（UTC日期，保留30天）。备份包含私人档案，请妥善保存；不包含模型密钥。</p><div id="adminAuditOutput" class="admin-helper"></div></details>
       <div class="admin-bulk-toolbar">
         <span id="adminSelectedCount">已选择 ${adminCheckedOrders.size} 条 · 当前筛选 ${adminFilteredOrders.length} 条</span>
         <button class="btn btn-sm" id="btnAdminBatchClose" type="button">批量关闭展示</button>
@@ -1118,11 +1118,12 @@ function renderAdminView() {
       if (!confirmDuplicateRisks([item], old ? [old.id] : [])) return;
       if (old) await Store.updateOrder(old.id, item);
       else await Store.addOrders([item]);
+      const savedItem=old?item:(Store.getOrders().find(o=>o.orderNumber===item.orderNumber)||item);
       state.editingOrderId = null;
       if(old&&adminOrderScroll!==null){state.adminPage="orders";renderAll();window.scrollTo(0,adminOrderScroll);adminOrderScroll=null;}
       else renderAll();
-      if(!old) void showNewTeacherRecommendations([item]);
-      showToast(old ? "家教单已保存修改" : `家教单 ${item.id} 已发布`);
+      if(!old) void showNewTeacherRecommendations([savedItem]);
+      showToast(old ? "家教单已保存修改" : `家教单 ${item.orderNumber||item.id} 已发布`);
     } catch (err) { showToast(`保存失败：${err.message}`); }
     finally { saveButton.disabled = false; saveButton.textContent = saveLabel; }
   };
@@ -1510,6 +1511,7 @@ function renderAdminView() {
   }
   $("btnExportBackup").onclick=async()=>{try{await downloadAdminBackup();showToast("备份已导出，请妥善保存");}catch(e){showToast(e.message);}};
   $("btnExportPastBackup").onclick=async()=>{const date=$("backupDate").value;if(!date)return showToast("请选择备份日期");try{await downloadAdminBackup(date);}catch(e){showToast(e.message);}};
+  $("btnMigrateStatic").onclick=async()=>{const info=Store.staticMigrationInfo();if(!info.count||info.migrated)return showToast("没有待迁移数据");if(!confirm("将 "+info.count+" 条历史来源记录迁入统一订单存储？现有修改、内部 ID 与已隐藏记录均保留；先下载备份再执行。"))return;const btn=$("btnMigrateStatic");btn.disabled=true;try{await downloadAdminBackup();const added=await Store.migrateStaticOrders();renderAdminView();showToast("迁移完成，新增 "+added+" 条历史记录");}catch(e){showToast("迁移失败："+e.message);btn.disabled=false;}};
   $("btnAuditLog").onclick=async()=>{const target=$("adminAuditOutput");target.textContent="正在读取日志…";try{const entries=await Store.getAuditLog();target.replaceChildren();if(!entries?.length)target.textContent="暂无操作记录";for(const entry of entries||[]){const line=document.createElement("p");line.textContent=new Date(entry.at).toLocaleString()+" · "+entry.action+(entry.ids?.length?" · "+entry.ids.join("、"):"");target.append(line);}}catch(e){target.textContent=e.message;}};
   box.querySelectorAll("[data-restore-order]").forEach(btn=>{btn.onclick=async()=>{btn.disabled=true;try{await Store.restoreOrder(btn.dataset.restoreOrder);renderAdminView();showToast("订单已恢复至删除前状态");}catch(e){showToast("恢复失败："+e.message);btn.disabled=false;}}});
   box.querySelectorAll("[data-del-order]").forEach((btn) => {
@@ -1866,8 +1868,11 @@ function initControls() {
   document.addEventListener("visibilitychange",async()=>{
     if(document.hidden||state.view!=="hall"||publicRefreshBusy||Store.getCurrentUser()?.role==="admin")return;
     publicRefreshBusy=true;
+    const previous=new Map(getSelectedOrders().map(o=>[o.id,JSON.stringify([o.status,o.salaryText,o.weeklyFrequency,o.address,o.requirements,o.subject])]));
     try{if(await Store.refreshPublicOrders()){
       if(document.hidden||state.view!=="hall")return;
+      const current=new Map(getSelectedOrders().map(o=>[o.id,JSON.stringify([o.status,o.salaryText,o.weeklyFrequency,o.address,o.requirements,o.subject])]));
+      if([...previous].some(([id,v])=>current.get(id)!==v))showToast("已选家教单有变化，请在清单中重新核对");
       const before=window.scrollY;renderHall();window.scrollTo(0,before);
     }}catch{}finally{publicRefreshBusy=false;}
   });
