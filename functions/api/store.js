@@ -165,6 +165,7 @@ async function handleRequest(context) {
     // Repeated publication after a lost response returns the recorded result, not another write.
     let publishKey="",publishDigest="";
     if(action==="admin_publish_ai_drafts"&&body.idempotencyKey!==undefined){
+      if(!Array.isArray(body.orders)||!body.orders.length||body.orders.length>30)return jsonResp({ok:false,error:"请提供1～30条草稿"},400);
       if(typeof body.idempotencyKey!=="string"||!/^[a-zA-Z0-9-]{16,80}$/.test(body.idempotencyKey))return jsonResp({ok:false,error:"发布请求标识无效"},400);
       publishKey=body.idempotencyKey;publishDigest=await sha256(JSON.stringify(body.orders));
       const all=await kvGet(env.TUTOR_KV,"orders",[]);
@@ -176,7 +177,7 @@ async function handleRequest(context) {
         const published=ids.map(id=>all.find(o=>o.id===id)).filter(Boolean);
         if(!saved&&published.length!==body.orders?.length)return jsonResp({ok:false,error:"上次发布状态待核对，请查看家教单管理"},409);
         const hidden=await kvGet(env.TUTOR_KV,"hidden_imported_orders",[]);
-        const hiddenImported=hidden.filter(id=>!ids.includes(id));
+        const hiddenImported=saved?hidden:hidden.filter(id=>!ids.includes(id));
         const previous=Number(await kvGet(env.TUTOR_KV,"order_sequence",2991))||2991;
         const orderSequence=Math.max(previous,...all.map(o=>Number(String(o.orderNumber||o.id).match(/^#?(\d{3,7})/)?.[1])||0));
         if(hiddenImported.length!==hidden.length)await kvPut(env.TUTOR_KV,"hidden_imported_orders",hiddenImported);
@@ -567,7 +568,7 @@ async function handleRequest(context) {
       const existing=await kvGet(env.TUTOR_KV,"orders",[]);
       const overrides=new Map((Array.isArray(body.importedOverrides)?body.importedOverrides:[]).filter(o=>o&&/^fs-\d{4,}$/.test(o.id)).map(o=>[o.id,o]));
       const selected=ids.map(id=>existing.find(o=>o.id===id)||overrides.get(id));
-      if(selected.some(o=>!o))return jsonResp({ok:false,error:"订单不存在，请刷新后重试"},409);
+      if(selected.some(o=>!o||o.status==="已删除"))return jsonResp({ok:false,error:"订单不存在，请刷新后重试"},409);
       const base=selected[0];
       if(new Set(selected.map(o=>[o.grade,o.publicAddress||o.address,o.studentGender].join("|"))).size!==1)return jsonResp({ok:false,error:"仅允许合并同一学生的订单"},400);
       const conditions=["salaryText","weeklyFrequency","hoursPerSession","mode","onlineAllowed","trialTime","genderPref","notes"];
