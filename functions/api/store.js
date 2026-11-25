@@ -20,11 +20,11 @@ function isPubliclyOpenOrder(order) {
     .test(String(order?.status || "").trim());
 }
 
-const ORDER_WRITES=new Set(["admin_publish_ai_drafts","admin_add_orders","admin_update_order","admin_batch_status","admin_delete_order","admin_merge_orders","admin_save_assignment","admin_trash_order","admin_restore_order"]);
+const ORDER_WRITES=new Set(["admin_publish_ai_drafts","admin_add_orders","admin_update_order","admin_batch_status","admin_delete_order","admin_merge_orders","admin_save_assignment","admin_trash_order","admin_restore_order","admin_migrate_static_orders"]);
 const ADMIN_MUTATIONS=new Set([...ORDER_WRITES,"admin_update_site","admin_save_parttime","admin_delete_parttime","admin_save_teacher_profile","admin_set_teacher_star","admin_set_teacher_availability","admin_delete_teacher_profile","admin_save_teacher_application","admin_delete_teacher_application","admin_delete_assignment","admin_ai_provider_save","admin_ai_provider_activate","admin_ai_provider_delete","admin_ai_provider_fallback"]);
-const BACKUP_KEYS=["orders","hidden_imported_orders","order_sequence","site_config","part_time_posts","teacher_assignments","teacher_profiles","teacher_applications"];
+const BACKUP_KEYS=["orders","hidden_imported_orders","order_sequence","static_import_migrated","site_config","part_time_posts","teacher_assignments","teacher_profiles","teacher_applications"];
 async function makeBackup(kv){
-  const data=Object.fromEntries(await Promise.all(BACKUP_KEYS.map(async k=>[k,await kvGet(kv,k,k==="order_sequence"?2991:k==="site_config"?DEFAULT_SITE:[])])));
+  const data=Object.fromEntries(await Promise.all(BACKUP_KEYS.map(async k=>[k,await kvGet(kv,k,k==="order_sequence"?2991:k==="static_import_migrated"?false:k==="site_config"?DEFAULT_SITE:[])])));
   return {version:1,createdAt:new Date().toISOString(),data};
 }
 async function ensureDailyBackup(kv){
@@ -88,7 +88,7 @@ async function handleRequest(context) {
       const closedIds = realOrders.filter((order) => !isPubliclyOpenOrder(order)).map((order) => order.id);
       const publicHidden = [...new Set([...hiddenImported, ...closedIds])];
       return jsonResp({ ok: true, cloud: true, siteConfig: toPublicSiteConfig(siteConfig), orders: publiclyOpen.map(toPublicOrder), hiddenImported: publicHidden,
-        partTimePosts: partTimePosts.map(toPublicPartTime) });
+        partTimePosts: partTimePosts.map(toPublicPartTime),staticImportMigrated:await kvGet(env.TUTOR_KV,"static_import_migrated",false)===true });
     }
 
     if (request.method !== "POST") {
@@ -234,6 +234,7 @@ async function handleRequest(context) {
         ok: true,
         orders,
         orderRevision:await sha256(JSON.stringify([orders,hiddenImported])),
+        staticImportMigrated:await kvGet(env.TUTOR_KV,"static_import_migrated",false)===true,
         siteConfig,
         hiddenImported,
         partTimePosts,
@@ -445,6 +446,20 @@ async function handleRequest(context) {
       return jsonResp({ ok: true, assignments: next });
     }
 
+    if(action==="admin_migrate_static_orders"){
+      const existing=await kvGet(env.TUTOR_KV,"orders",[]),hiddenImported=await kvGet(env.TUTOR_KV,"hidden_imported_orders",[]);
+      if(await kvGet(env.TUTOR_KV,"static_import_migrated",false)===true)return orderResponse({ok:true,orders:existing,hiddenImported,staticImportMigrated:true,added:0});
+      const source=body.orders;
+      if(!Array.isArray(source)||!source.length||source.length>1000||source.some(o=>!o||!/^fs-\d{4,}$/.test(o.id)||!o.grade||!o.subject)||new Set(source.map(o=>o.id)).size!==source.length)
+        return jsonResp({ok:false,error:"历史静态订单不完整或格式异常，未迁移"},400);
+      const existingIds=new Set(existing.map(o=>o.id)),hiddenIds=new Set(hiddenImported);
+      const missing=source.filter(o=>!existingIds.has(o.id)&&!hiddenIds.has(o.id));
+      const next=[...existing,...missing];
+      // Preserve every existing ID and all current edits; set marker only after orders have been stored.
+      await kvPut(env.TUTOR_KV,"orders",next);
+      await kvPut(env.TUTOR_KV,"static_import_migrated",true);
+      return orderResponse({ok:true,orders:next,hiddenImported,staticImportMigrated:true,added:missing.length});
+    }
     if (action === "admin_publish_ai_drafts") {
       if(!Array.isArray(body.orders)||!body.orders.length||body.orders.length>30)
         return jsonResp({ok:false,error:"请提供1～30条草稿"},400);
@@ -466,8 +481,9 @@ async function handleRequest(context) {
           return jsonResp({ok:false,error:"草稿编号重复或格式不正确"},409);
         labels.add(label);
         const linked=String(draft.existingOrderId||""),current=linked?find(linked):null;
-        if(linked&&(!current||current.status==="已删除"||labelOf(current)!==label||updatedIds.has(linked)))
+        if(linked&&(!current||current.status==="已删除"||(labelOf(current)!==label&&draft.renameFromNumber!==labelOf(current))||updatedIds.has(linked)))
           return jsonResp({ok:false,error:"原单不存在或编号不一致："+label},409);
+        if(linked&&labelOf(current)!==label&&existing.some(o=>o.id!==linked&&labelOf(o)===label))return jsonResp({ok:false,error:"新编号已被其他订单使用： "+label},409);
         if(!linked && existing.some(o=>labelOf(o)===label||o.id===label) && draft.explicitNumberReuse!==true)
           return jsonResp({ok:false,error:"编号已使用，请确认是修改原单还是指定重号的新单："+label},409);
         const parentId=String(draft.splitFromId||"");
@@ -477,7 +493,7 @@ async function handleRequest(context) {
             return jsonResp({ok:false,error:"历史拆单的主编号不匹配："+label},409);
           parents.set(parentId,original);
         }
-        const id=linked || (draft.explicitNumberReuse===true?"order-"+crypto.randomUUID():label);
+        const id=linked || (draft.explicitNumberReuse===true||body.stableIds===true?"order-"+crypto.randomUUID():label);
         if(updatedIds.has(id)||(!linked&&byId.has(id)))return jsonResp({ok:false,error:"内部订单编号冲突"},409);
         updatedIds.add(id);
         const patch=Object.fromEntries(fields.filter(k=>Object.hasOwn(draft,k)).map(k=>[k,draft[k]]));
@@ -517,7 +533,8 @@ async function handleRequest(context) {
       if (new Set(incomingLabels).size !== incomingLabels.length || incomingLabels.some((label) => existingLabels.has(label))) {
         return jsonResp({ ok: false, error: "家教单展示编号已存在，请核对编号后发布" }, 409);
       }
-      const merged = [...(body.orders || []), ...existing];
+      const incoming=body.orders.map(o=>body.stableIds===true&&/^#\d{3,7}(?:-\d+)?$/.test(o.id)&&String(o.orderNumber||o.id)===o.id?{...o,id:"order-"+crypto.randomUUID(),orderNumber:o.orderNumber||o.id}:o);
+      const merged = [...incoming, ...existing];
       await kvPut(env.TUTOR_KV, "orders", merged);
       const previousNumber = Number(await kvGet(env.TUTOR_KV, "order_sequence", 2991)) || 2991;
       const numbers = merged.map((o) => Number(String(o.orderNumber || o.id).match(/^#?(\d{3,7})/)?.[1]) || 0);
