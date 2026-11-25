@@ -129,6 +129,7 @@ export const TUTORING_ORDER_SKILL = [
   "拆合规则：不同学生、不同家庭或明确分别需要老师才拆单；同一名学生由一名老师带多科、兼顾数学物理等时不拆，合并放入 subject。只说需要2位老师而未说明各科分工，仍保留1张、teacherCount=2并提出疑问。明确要求同一学生分单时按用户提供的科目顺序输出各子单，每个子单只保留对应科目成绩；同一来源共用主编号，子编号由网站分配。拆单须保留家长明确需求，不臆造科目。",
   "学生性别和教师性别要求严格区分。教师限制中的“优先”不能改成“必须”。时间要区分日常排课与试课；成绩不得凭空改为“中等”。",
   "ID：有原文#编号则照抄；无编号用空串，网站分配。绝不能猜测编号。地点不虚构楼栋、门牌、交通；可公开地址只保留原文提到的区域与小区地标。",
+  "课时必须忠实保留：hoursPerSession 可以是数字（如 2、1.5）、区间字符串（如 1～2、1.5～2）或“待协商”。原文每次1～2小时必须直接写 hoursPerSession 为字符串1～2，绝不能取最大值、最小值或默认2；不要在 notes 重复标准字段。20:00—22:30 等可约时间段不等于实际单次课时，除非原文明说整个时段上课；若两处真实时长冲突，保留信息并在 questions 提醒核实，不自行猜测。修改草稿时同样允许课时区间。",
   "不得编造成绩、每次时长、家教薪资或教师条件。缺失的文本字段用空串，未知年级/科目用“待补充”；确需核对的项目写进 questions。不要将案例的数值复制到真实订单，不能复制案例。",
   "修订草稿时以本轮 instruction 为最高优先级，其次 currentDrafts，最后 recentHistory；历史编号与本轮明确改号指令冲突时必须采用本轮新编号。识别口语化编号更正（例如单草稿对话末尾‘是 3080’、‘编号改成3080’或‘把#3070改成#3080’），普通修订继续用原编号定位，由程序将 id 与 orderNumber 同步为 #3080；不要把薪资、成绩、门牌等数字误认成编号。多草稿指代不明时提出疑问，不猜测对象。保留其他未改字段，按下述普通修订或结构修订协议返回；所有 AI 输出仅为待管理员审核的建议。",
   "普通修订必须返回 orders:[{id:当前草稿原编号,changes:{仅本轮要求修改的字段}}]，不要返回完整订单，未改字段不得输出；明确清空用空字符串。改号仍用原编号定位，程序会处理新编号。未修改时返回原编号和空 changes。只有明确拆分、合并、新增或移除草稿时返回完整订单数组。多草稿指代不明时返回空 changes 和 questions。",
@@ -169,7 +170,7 @@ export function formatterPrompt(action, payload = {}) {
 
 export const SITE_COMMAND_SKILL = String.raw`你是 TutorHub 后台的 AI 网站与家教单操作规划助手，只提出可审阅的修改计划。返回 JSON：
 {"reply":"已理解要修改哪些配置/订单","actions":[{"type":"update_order","id":"数据库内部id或显示单号","patch":{"salaryText":"150元/小时（可报价）"}} ,{"type":"update_site","patch":{"announcement":"新公告"}}],"questions":[]}
-仅有 update_site、update_order 两类操作。update_site 只能使用 announcement、theme(indigo/emerald/amber/rose)、heroTitle、heroDescription、contactWechat、siteName。update_order 只能使用 title,grade,subject,studentGender,teacherCount,currentScores,publicAddress,weeklyFrequency,hoursPerSession,requirements,salaryText,mode,onlineAllowed,trialTime,notes,urgent,status,publishedAt。
+hoursPerSession 支持数字、区间字符串（如 1～2）或“待协商”，不得将区间取整或复制到备注。仅有 update_site、update_order 两类操作。update_site 只能使用 announcement、theme(indigo/emerald/amber/rose)、heroTitle、heroDescription、contactWechat、siteName。update_order 只能使用 title,grade,subject,studentGender,teacherCount,currentScores,publicAddress,weeklyFrequency,hoursPerSession,requirements,salaryText,mode,onlineAllowed,trialTime,notes,urgent,status,publishedAt。
 回复必须是建议，不能说已执行。仅修改用户明确要求的字段。识别“#编号”，依给出的 candidates 列表准确匹配公开编号和内部 id；连续对话中“刚才那单”依历史消息判断，确实歧义就提问，不要随意挑单。修改某字段时不动其他字段。status 只可为 招募中/已匹配/已结束；切记老师端关闭后不可看到。不得修改后台精确地址、密码、老师隐私记录；不得提出删除单子、执行 JS 代码、修改 GitHub 仓库、任意 HTML/CSS/脚本、任意 API/URL，也不能凭空声称已经改好了。对于超出这些能力的网页布局/新功能请求，reply 说明需要 GitHub 代码更新，actions=[]。
 `;
 

@@ -1,7 +1,8 @@
 import { APP_CONFIG } from "./app-env.js";
 import { getSubjectList, nextOrderId, normalizeOrder } from "./order-format.js";
 import { normalizePublicAddress, safeOptimizedPublicAddress } from "./address-normalizer.js";
-import { guardSiteActions } from "./ai-command-guard.js?v=4";
+import { guardSiteActions } from "./ai-command-guard.js?v=5";
+import { parseOrderDuration } from "./order-duration.js";
 
 const gatewayStatus=new Set([502,503,504,520,521,522,523,524]);
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -227,7 +228,8 @@ export function applyDraftPatches(instruction,result,drafts,existingOrders=[]){
     if(!patch||typeof patch!=="object"||Array.isArray(patch))throw new Error("模型未按字段返回修改，请重试，原草稿保留");
     for(const [k,v] of Object.entries(patch)){
       if(!patchFields.has(k))throw new Error("不允许修改字段："+k);
-      if(["teacherCount","sessionsPerWeek","hoursPerSession"].includes(k)){if(typeof v!=="number"||!Number.isFinite(v)||v<0||(k!=="sessionsPerWeek"&&v===0))throw new Error("无效数值："+k);}
+      if(k==="hoursPerSession"){if(parseOrderDuration(v)===null)throw new Error("无效课时时长");}
+      else if(["teacherCount","sessionsPerWeek"].includes(k)){if(typeof v!=="number"||!Number.isFinite(v)||v<0||(k!=="sessionsPerWeek"&&v===0))throw new Error("无效数值："+k);}
       else if(["onlineAllowed","urgent","omitStudentGender"].includes(k)){if(typeof v!=="boolean")throw new Error("无效开关："+k);}
       else if(typeof v!=="string"||v.length>2000)throw new Error("无效字段："+k);
       if(["grade","subject"].includes(k)&&!v.trim())throw new Error("年级科目不可清空");
@@ -249,6 +251,7 @@ export function applyDraftPatches(instruction,result,drafts,existingOrders=[]){
     if("salaryText" in patch){raw.hourlyRate=0;fields.add("hourlyRate");}
     if("grade" in patch||"subject" in patch){delete raw.title;fields.add("title");}
     if(rename?.old===old){raw.id=raw.orderNumber=rename.number;fields.add("id");fields.add("orderNumber");}
+    if("hoursPerSession" in patch||"notes" in patch){fields.add("hoursPerSession");fields.add("notes");}
     const next=normalizeOrder(raw),out={...old};
     for(const k of fields)out[k]=next[k];
     if(rename?.old===old){delete out.explicitNumberReuse;delete out.splitFromId;}

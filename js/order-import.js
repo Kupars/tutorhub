@@ -51,7 +51,7 @@ export function importOrderTable(text, existingOrders = []) {
       currentScores: findField(record, "现阶段成绩", "成绩"),
       address: findField(record, "补课地址", "地址"),
       weeklyFrequency: findField(record, "一周几次", "每周", "频率"),
-      hoursPerSession: Number(findField(record, "每次几小时", "时长").match(/\d+(?:\.\d+)?/)?.[0]) || 2,
+      hoursPerSession: findField(record, "每次几小时", "时长"),
       requirements: findField(record, "对老师要求", "要求"),
       salaryText: findField(record, "薪资", "时薪"),
       trialTime: findField(record, "试课时间"),

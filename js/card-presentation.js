@@ -1,5 +1,6 @@
 // 仅处理家教看板的视觉文案；不修改原单、编号或复制整单时的九字段内容。
 import { teacherGenderRequirement } from "./board-utils.js?v=4";
+import { durationLabel } from "./order-duration.js";
 
 export function cardDisplayTitle(title) {
   return String(title || "").replace(/家教(?!.*家教)/, "").trim();
@@ -37,10 +38,9 @@ export function cardSchedule(order) {
     .map((part) => part.replace(/^(?:或者|或者在|或在|或)\s*/, ""));
   const dayLabel = days.join(" / ").replace(/周天/g, "周日")
     .replace(/^(周中|周末)[一二两三四五六七八九十0-9]+次$/, "$1");
-  const hours = Number(order.hoursPerSession);
   return {
     frequency,
-    duration: Number.isFinite(hours) && hours > 0 ? `${hours}小时` : "时长待协商",
+    duration: durationLabel(order.hoursPerSession),
     dayLabel,
     original
   };

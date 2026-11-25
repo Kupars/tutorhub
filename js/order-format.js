@@ -1,5 +1,6 @@
 // TutorHub 家教需求单统一结构：AI、手动表单、复制和筛选共用此模块。
 import { compactPublicAddress } from "./address-normalizer.js";
+import { parseOrderDuration, durationLabel, reconcileOrderDuration } from "./order-duration.js";
 export const START_ORDER_NUMBER = 2991;
 export const DEFAULT_SALARY = {
   小学: "70～90元/小时",
@@ -122,7 +123,7 @@ function recoverLegacyFields(raw) {
     teacherCount: Number(fields["需要几个老师"]?.match(/\d+/)?.[0]) || 1,
     currentScores: fields["现阶段成绩"],
     address: fields["补课地址"], weeklyFrequency: fields["一周几次"],
-    hoursPerSession: Number(fields["每次几小时"]?.match(/\d+(?:\.\d+)?/)?.[0]) || 2,
+    hoursPerSession: parseOrderDuration(fields["每次几小时"]) ?? "待协商",
     requirements: requirements || fields["对老师要求"], salaryText: salary
   };
 }
@@ -148,6 +149,7 @@ export function normalizeOrder(raw = {}, options = {}) {
   const title = pick(repaired?.title, raw.title) || `${grade}${subject}${/陪读/.test(raw.notes || "") ? "陪读" : ""}家教`;
   const address = compactPublicAddress(pick(repaired?.address, str(raw.address).replace(/^】/, "")) || "地址待补充", raw.district);
   const publicAddress = compactPublicAddress(pick(raw.publicAddress, address), raw.district);
+  const duration = reconcileOrderDuration(repaired?.hoursPerSession ?? raw.hoursPerSession, raw.notes);
   return {
     ...raw,
     id: pick(raw.id, options.id),
@@ -162,14 +164,14 @@ export function normalizeOrder(raw = {}, options = {}) {
     publicAddress,
     weeklyFrequency,
     sessionsPerWeek,
-    hoursPerSession: Number(repaired?.hoursPerSession || raw.hoursPerSession) > 0 ? Number(repaired?.hoursPerSession || raw.hoursPerSession) : 2,
+    hoursPerSession: duration.duration,
     requirements: pick(repaired?.requirements, raw.requirements) || "无特殊要求",
     salaryText,
     hourlyRate: getSalaryValue(salaryText),
     mode,
     onlineAllowed,
     trialTime: pick(raw.trialTime),
-    notes: pick(raw.notes),
+    notes: duration.notes,
     district: canonicalDistrict(pick(raw.district)) || (pick(repaired?.address, raw.address).match(/(?:天津市)?(和平区|河西区|南开区|河东区|河北区|红桥区|津南区|西青区|东丽区|北辰区|武清区|滨海新区|宝坻区|静海区|宁河区|蓟州区)/)?.[1] || (mode === "线上" ? "线上" : "区域待补充")),
     genderPref: pick(raw.genderPref) || "不限",
     studentInfo: repaired ? "" : pick(raw.studentInfo) || "",
@@ -194,7 +196,7 @@ export function formatOrderText(order) {
     `【现阶段成绩】${o.currentScores}`,
     `【补课地址】${o.address}`,
     `【一周几次】${o.weeklyFrequency}`,
-    `【每次几小时】${o.hoursPerSession}小时`,
+    `【每次几小时】${durationLabel(o.hoursPerSession)}`,
     `【对老师要求】${o.requirements}`,
     `【薪资】${o.salaryText}`,
     ...(o.trialTime ? [`【试课时间】${o.trialTime}`] : []),
@@ -244,7 +246,7 @@ export function parseFormattedOrder(text) {
   const gradeSex = fields["年级性别"] || "";
   const grade = normalizeGrade(gradeSex) || "年级待补充";
   const number = Number((fields["需要几个老师"] || "").match(/\d+/)?.[0]) || 1;
-  const hours = Number((fields["每次几小时"] || "").match(/\d+(?:\.\d+)?/)?.[0]) || 2;
+  const hours = parseOrderDuration(fields["每次几小时"]) ?? "待协商";
   return normalizeOrder({
     id: header ? `#${header[1]}` : "",
     grade, subject: fields["补习科目"],

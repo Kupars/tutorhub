@@ -1,3 +1,4 @@
+import { parseOrderDuration } from "./order-duration.js";
 // AI 修改白名单：只允许管理员显式确认的安全字段；模型不得执行代码、删除单子或修改隐私数据。
 const str = v => String(v ?? "").trim();
 const THEMES=new Set(["indigo","emerald","amber","rose"]);
@@ -47,8 +48,11 @@ function orderPatch(p,text,old){
     if(key==="status"){if(STATES.has(val))out.status=val;continue;}
     if(key==="mode"){if(MODES.has(val))out.mode=val;continue;}
     if(key==="studentGender"){if(["男生","女生","待补充"].includes(val))out.studentGender=val;continue;}
-    if(key==="teacherCount"||key==="hoursPerSession"){
-      const n=Number(val);if(Number.isFinite(n) && n>0 && n<=(key==="teacherCount"?15:10))out[key]=n;continue;
+    if(key==="hoursPerSession"){
+      const d=parseOrderDuration(val);if(d!==null)out[key]=d;continue;
+    }
+    if(key==="teacherCount"){
+      const n=Number(val);if(Number.isFinite(n) && n>0 && n<=15)out[key]=n;continue;
     }
     if(key==="onlineAllowed"||key==="urgent"){if(typeof val==="boolean")out[key]=val;continue;}
     if(key==="publishedAt"){if(/^\d{4}-\d{2}-\d{2}/.test(str(val)))out[key]=str(val).slice(0,10);continue;}

@@ -3,13 +3,14 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=14";
-import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=15";
+import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=16";
 import { Store } from "./store.js?v=10";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
+import { parseOrderDuration, reconcileOrderDuration } from "./order-duration.js";
 import { sortAdminOrders } from "./admin-order-table.js?v=1";
 import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=4";
-import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=6";
+import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=7";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
 import { MULTI_FILTER_LABELS, MULTI_FILTER_OPTIONS, matchesMultiFilters, normalizeMultiSelection, countSelectedFilters } from "./multi-filter.js?v=1";
@@ -754,7 +755,7 @@ function collectManualOrder(original = {}) {
     studentGender: $("manualStudentGender").value,
     teacherCount: Number($("manualTeacherCount").value),
     currentScores: $("manualScores").value.trim(),
-    hoursPerSession: Number($("manualHours").value),
+    hoursPerSession: parseOrderDuration($("manualHours").value),
     address: $("manualAddress").value.trim(),
     publicAddress: $("manualAddress").value.trim(),
     mode: $("manualMode").value,
@@ -919,7 +920,7 @@ function renderAdminView() {
           <div class="field wide"><label for="manualSubject">补习科目</label><input id="manualSubject" required placeholder="数学、物理" /></div>
           <div class="field"><label for="manualTeacherCount">需要几个老师</label><input id="manualTeacherCount" type="number" min="1" max="20" value="1" required /></div>
           <div class="field wide"><label for="manualScores">现阶段成绩</label><input id="manualScores" placeholder="数学60分，物理70分；不知道可留空" /></div>
-          <div class="field"><label for="manualHours">每次几小时</label><input id="manualHours" type="number" min="0.5" step="0.5" value="2" required /></div>
+          <div class="field"><label for="manualHours">每次几小时</label><input id="manualHours" type="text" value="" placeholder="如 2、1.5 或 1～2；待协商" required /></div>
           <div class="field wide"><label for="manualAddress">补课地址（区＋小区）</label><input id="manualAddress" placeholder="天津市河西区某小区" /></div>
           <div class="field"><label for="manualMode">授课方式</label><select id="manualMode"><option>上门</option><option>线上</option><option>均可</option></select></div>
           <div class="field wide"><label for="manualWeekly">一周几次（周中/周末）</label><input id="manualWeekly" placeholder="每周1次，周六下午" /></div>
@@ -1113,7 +1114,9 @@ function renderAdminView() {
     saveButton.textContent = "正在保存…";
     try {
       const old = orders.find((o) => o.id === state.editingOrderId);
+      if(parseOrderDuration($("manualHours").value)===null)return showToast("请输入有效课时，例如 2、1.5、1～2 或待协商");
       const item=collectManualOrder(old||{});
+      if(reconcileOrderDuration(item.hoursPerSession,item.notes).conflict)return showToast("课时与其他说明存在冲突，请核对后保存");
       if(!/^#\d{3,7}(?:-\d+)?$/.test(item.orderNumber))return showToast("请填写有效编号");
       if(Store.getOrders().some(o=>o.id!==old?.id&&o.orderNumber===item.orderNumber))return showToast("编号已被其他订单使用");
       if (!item.subject || item.subject === "科目待补充") return showToast("请填写补习科目");
@@ -1194,6 +1197,8 @@ function renderAdminView() {
     if(!state.parsedDraftOrders.length||state.aiDraftBusy) return;
     if(!syncDraftTextareas())return;
     const items = state.parsedDraftOrders.map(order => normalizeOrder(order));
+    const durationConflict=items.find(o=>reconcileOrderDuration(o.hoursPerSession,o.notes).conflict);
+    if(durationConflict)return showToast((durationConflict.orderNumber||durationConflict.id)+" 的课时与其他说明冲突，请先核对");
     const ordinary=items.filter(o=>!o.existingOrderId&&!o.explicitNumberReuse);
     const idIssues = checkDraftIds(ordinary,Store.getOrders());
     if(idIssues.length) return showToast("单号重复或不合法："+idIssues.slice(0,3).join("、")+"；请核对草稿编号");
@@ -1571,6 +1576,7 @@ function renderParsedPreview() {
         </div>
         </details>
         ${o.groupingReason ? `<p class="admin-helper">AI 判断：${escapeHtml(o.groupingDecision||"待确认")} · ${escapeHtml(o.groupingReason)}</p>`:""}
+        ${reconcileOrderDuration(o.hoursPerSession,o.notes).conflict ? `<p class="admin-helper ai-draft-warning">每次时长与其他说明存在冲突，请核对后发布。</p>`:""}
         ${missingDraftFields(o).length ? `<p class="admin-helper ai-draft-warning">待核实：${escapeHtml(missingDraftFields(o).join("、"))}</p>`:""}
         ${!o.existingOrderId && findPotentialDuplicates([o],Store.getOrders()).length ?
           `<p class="admin-helper ai-draft-warning">疑似重复单：${escapeHtml(findPotentialDuplicates([o],Store.getOrders()).slice(0,3).map(x=>x.existing.orderNumber||x.existing.id).join("、"))}</p>`:""}

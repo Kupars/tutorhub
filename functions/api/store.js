@@ -1,3 +1,4 @@
+import { parseOrderDuration, reconcileOrderDuration } from "../../js/order-duration.js";
 import {TEACHER_TYPES,LOCAL_GAOKAO,STUDY_LEVELS,cleanTeachingPairs,cleanCompanionOptions,normalizeAge} from "../../shared/teacher-capabilities.js";
 import {loadAIRegistry, safeAIRegistry, saveAIProvider, deleteAIProvider, activateAIProvider} from "../../shared/ai-provider-registry.js";
 // Cloudflare Pages Function: /api/store
@@ -425,6 +426,9 @@ async function handleRequest(context) {
         if(updatedIds.has(id)||(!linked&&byId.has(id)))return jsonResp({ok:false,error:"内部订单编号冲突"},409);
         updatedIds.add(id);
         const patch=Object.fromEntries(fields.filter(k=>Object.hasOwn(draft,k)).map(k=>[k,draft[k]]));
+        const duration=reconcileOrderDuration(patch.hoursPerSession??current?.hoursPerSession,patch.notes??current?.notes);
+        if(duration.conflict)return jsonResp({ok:false,error:"课时与其他说明冲突："+label},400);
+        patch.hoursPerSession=duration.duration;patch.notes=duration.notes;
         published.push({...current,...patch,id,orderNumber:label,status:"招募中",createdAt:current?.createdAt||now,
           ...(current?{updatedAt:now}:{})});
       }
@@ -611,8 +615,8 @@ function toPublicOrder(order) {
     if (grade) safe.grade = grade;
     safe.requirements = fields["对老师要求"] || String(order.requirements || "").replace(/^.*?要求】/, "").replace(/【薪资】[\s\S]*$/, "").trim() || safe.requirements;
     safe.salaryText = fields["薪资"] || String(order.requirements || "").match(/【薪资】\s*([^\n]*)/)?.[1] || safe.salaryText;
-    const h = fields["每次几小时"]?.match(/\d+(?:\.\d+)?/);
-    if (h) safe.hoursPerSession = Number(h[0]);
+    const h = parseOrderDuration(fields["每次几小时"]);
+    if (h!==null) safe.hoursPerSession = h;
     const n = fields["需要几个老师"]?.match(/\d+/);
     if (n) safe.teacherCount = Number(n[0]);
     if (fields["补课地址"]) {
@@ -623,6 +627,7 @@ function toPublicOrder(order) {
   for (const key of ["title", "currentScores", "requirements", "salaryText", "trialTime", "weeklyFrequency"]) {
     if (typeof safe[key] === "string") safe[key] = stripPublicPersonalData(safe[key]);
   }
+  safe.hoursPerSession=reconcileOrderDuration(safe.hoursPerSession,order.notes).duration;
   safe.address = publicLocation(safe.address);
   safe.publicAddress = safe.address;
   return safe;
