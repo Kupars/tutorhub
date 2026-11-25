@@ -31,11 +31,15 @@ export function findPotentialDuplicates(incoming, existing) {
         found.push({ incoming: draft, existing: order, reason: "内部编号相同" });
         continue;
       }
+      if(draft.orderNumber&&draft.orderNumber===order.orderNumber){found.push({incoming:draft,existing:order,reason:"展示单号相同，需区分原单更新或重号新单"});continue;}
       const address = normalizedText(draft.publicAddress || draft.address);
       const oldAddress = normalizedText(order.publicAddress || order.address);
       if (address.length < 7 || address !== oldAddress || /待补充|某小区|全区|区中心/.test(address)) continue;
       if (normalizedText(draft.grade) !== normalizedText(order.grade)) continue;
-      if (normalizedText(draft.subject) !== normalizedText(order.subject)) continue;
+      const subjects=v=>String(v||"").split(/[、，,＋+\/和\s]+/).map(normalizedText).filter(Boolean).sort().join("|");
+      if (subjects(draft.subject)!==subjects(order.subject)) continue;
+      const knownGender=v=>/^(男生|女生)$/.test(String(v||""));
+      if(knownGender(draft.studentGender)&&knownGender(order.studentGender)&&draft.studentGender!==order.studentGender)continue;
       // 只提示“可能重复”；同小区同年级同科目可能确实有不同学生。
       found.push({ incoming: draft, existing: order, reason: "年级、科目和公开地点一致" });
     }
