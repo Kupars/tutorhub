@@ -9,6 +9,7 @@ import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOr
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=4";
 import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=6";
+import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
 import { MULTI_FILTER_LABELS, MULTI_FILTER_OPTIONS, matchesMultiFilters, normalizeMultiSelection, countSelectedFilters } from "./multi-filter.js?v=1";
 
@@ -131,20 +132,30 @@ function savedColorMode() {
 function applyColorMode(mode) {
   document.documentElement.dataset.colorMode = mode;
   const isDark = mode === "dark";
+  const season = SEASON_DETAILS[document.documentElement.dataset.season] || SEASON_DETAILS.winter;
   for (const id of ["btnColorMode", "btnMobileColorMode"]) {
     const button = $(id);
     if (!button) continue;
-    button.textContent = isDark ? "浅色模式" : "深色模式";
+    button.textContent = isDark ? "☀️ 浅色" : "🌙 深色";
     button.setAttribute("aria-label", isDark ? "切换浅色模式" : "切换深色模式");
     button.setAttribute("aria-pressed", String(isDark));
-    button.title = isDark ? "切换浅色模式" : "切换深色模式";
+    button.title = `切换${season.label}${isDark ? "浅色" : "深色"}主题`;
   }
   const browserTheme = document.querySelector('meta[name="theme-color"]');
-  if (browserTheme) browserTheme.content = isDark ? "#1d232b" : "#ffffff";
+  if (browserTheme) browserTheme.content = isDark ? "#0b1728" : season.lightThemeColor;
+}
+
+function syncSeasonTheme() {
+  const season = getSeasonForDate();
+  if (document.documentElement.dataset.season === season) return;
+  document.documentElement.dataset.season = season;
+  applyColorMode(document.documentElement.dataset.colorMode === "dark" ? "dark" : "light");
 }
 
 function initColorMode() {
-  applyColorMode(savedColorMode() || "light");
+  document.documentElement.dataset.season = getSeasonForDate();
+  const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+  applyColorMode(savedColorMode() || (media?.matches ? "dark" : "light"));
   for (const id of ["btnColorMode", "btnMobileColorMode"]) {
     $(id)?.addEventListener("click", () => {
       const next = document.documentElement.dataset.colorMode === "dark" ? "light" : "dark";
@@ -152,7 +163,12 @@ function initColorMode() {
       applyColorMode(next);
     });
   }
-
+  media?.addEventListener?.("change", (event) => {
+    if (!savedColorMode()) applyColorMode(event.matches ? "dark" : "light");
+  });
+  // 页面长时间不关闭时也会在节气更替后自动切换；重新切回标签页立即校对。
+  window.setInterval(syncSeasonTheme, 15 * 60 * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) syncSeasonTheme(); });
 }
 
 function showToast(msg) {
@@ -401,7 +417,7 @@ async function planVisibleRoutes(single,automatic=false){
      if(originRouteKey(Store.getOrigin())!==originKey||state.view!=="hall"||(automatic&&!autoRouteEnabled))return null;
      const job=queryOrderCommute(origin,o,{retry:!automatic});
      // Update only the status chip while a request runs; do not disturb the scroll position.
-     for(const node of document.querySelectorAll("[data-route-label]"))if(node.dataset.routeLabel===o.id){const current=commuteForOrder(origin,o);node.textContent=routeLabel(current);node.dataset.routeStatus=current?.source||current?.status||"unqueried";}
+     for(const node of document.querySelectorAll("[data-route-label]"))if(node.dataset.routeLabel===o.id)node.textContent=routeLabel(commuteForOrder(origin,o));
      return job;
    });
    if(state.view==="hall")renderHall();
@@ -514,7 +530,7 @@ function renderHall() {
     const titleHtml = `${escapeHtml(title.before)}${title.subject ? `<span class="card-subject">${escapeHtml(title.subject)}</span>` : ""}${escapeHtml(title.after)}`;
     const displayDistrict = o.district === "线上" ? "线上" : canonicalDistrict(o.district) || "地点待补充";
     const dest=orderRoutePoint(o);
-    const commuteHtml = `<span class="chip commute" data-route-label="${escapeHtml(o.id)}" data-route-status="${escapeHtml(o.commute?.source||o.commute?.status||"unqueried")}">${escapeHtml(routeLabel(o.commute))}</span>`;
+    const commuteHtml = `<span class="chip commute" data-route-label="${escapeHtml(o.id)}">${escapeHtml(routeLabel(o.commute))}</span>`;
     const routeActions=o.mode==="线上"?"":`<div class="route-actions"><button type="button" class="btn btn-sm" data-plan-route="${escapeHtml(o.id)}" ${o.commute?.source==="amap"||o.commute?.status==="loading"?"disabled":""}>${o.commute?.source==="amap"?"已查询":o.commute?.status==="unqueried"?"立即查询":"重试高德通勤"}</button>${dest&&origin.lat!=null&&origin.lng!=null?`<a href="${escapeHtml(routeLink(origin,dest,"ride"))}" target="_blank" rel="noopener noreferrer">骑行路线（手机）</a><a href="${escapeHtml(routeLink(origin,dest,"bus"))}" target="_blank" rel="noopener noreferrer">公交路线</a>`:""}</div>`;
     const routeDetails=o.commute?.source==="amap"?`<details class="route-details"><summary>路线详情</summary>${o.commute.transitLines?.length?`<p>公交/地铁：${escapeHtml(o.commute.transitLines.join(" → "))}</p>`:""}${o.commute.bikeSteps?.length?`<ol>${o.commute.bikeSteps.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ol>`:""}<p>高德规划耗时，实际以出行时情况为准。</p></details>`:"";
     return `
@@ -613,7 +629,7 @@ function renderHall() {
           <span class="list-cell list-gender">${escapeHtml(o.studentGender)}</span>
           <span class="list-cell list-subject" title="${escapeHtml(o.subject)}">${escapeHtml(o.subject)}</span>
           <span class="list-cell list-rate">${escapeHtml(rate)}</span>
-          <span class="list-cell list-frequency" title="${escapeHtml(o.weeklyFrequency)}">${escapeHtml(o.weeklyFrequency)}<small class="list-route-status" data-route-label="${escapeHtml(o.id)}" data-route-status="${escapeHtml(o.commute?.source||o.commute?.status||"unqueried")}">${escapeHtml(routeLabel(o.commute))}</small></span>
+          <span class="list-cell list-frequency" title="${escapeHtml(o.weeklyFrequency)}">${escapeHtml(o.weeklyFrequency)}<small class="list-route-status" data-route-label="${escapeHtml(o.id)}">${escapeHtml(routeLabel(o.commute))}</small></span>
           <span class="list-cell list-expand">${o.selected ? "✓ 已选 · " : ""}${expanded ? "收起 ▲" : "展开 ▼"}</span>
         </button>
         ${expanded ? `<div id="${detailsId}" class="orders-list-detail">${renderDetailCard(o)}</div>` : ""}
