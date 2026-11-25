@@ -119,10 +119,10 @@ function recoverLegacyFields(raw) {
   return {
     grade, title: fromHeader, subject: fields["补习科目"],
     studentGender: getGenderFromText(`【年级性别】${gradeSex}`),
-    teacherCount: Number(fields["需要几个老师"]?.match(/\d+/)?.[0]) || 1,
+    teacherCount: Number(fields["需要几个老师"]?.match(/\d+/)?.[0]) || 0,
     currentScores: fields["现阶段成绩"],
     address: fields["补课地址"], weeklyFrequency: fields["一周几次"],
-    hoursPerSession: Number(fields["每次几小时"]?.match(/\d+(?:\.\d+)?/)?.[0]) || 2,
+    hoursPerSession: Number(fields["每次几小时"]?.match(/\d+(?:\.\d+)?/)?.[0]) || 0,
     requirements: requirements || fields["对老师要求"], salaryText: salary
   };
 }
@@ -156,14 +156,14 @@ export function normalizeOrder(raw = {}, options = {}) {
     subject,
     title,
     studentGender,
-    teacherCount: Math.max(1, Math.trunc(Number(repaired?.teacherCount || raw.teacherCount) || 1)),
+    teacherCount: Math.max(0, Math.trunc(Number(repaired?.teacherCount ?? raw.teacherCount) || 0)),
     currentScores: pick(repaired?.currentScores, raw.currentScores, raw.scores) || "成绩待补充",
     address,
     publicAddress,
     weeklyFrequency,
     sessionsPerWeek,
-    hoursPerSession: Number(repaired?.hoursPerSession || raw.hoursPerSession) > 0 ? Number(repaired?.hoursPerSession || raw.hoursPerSession) : 2,
-    requirements: pick(repaired?.requirements, raw.requirements) || "无特殊要求",
+    hoursPerSession: Number(repaired?.hoursPerSession ?? raw.hoursPerSession) > 0 ? Number(repaired?.hoursPerSession ?? raw.hoursPerSession) : 0,
+    requirements: pick(repaired?.requirements, raw.requirements) || "要求待补充",
     salaryText,
     hourlyRate: getSalaryValue(salaryText),
     mode,
@@ -190,11 +190,11 @@ export function formatOrderText(order) {
     `${id}/${title}${o.urgent ? "‼️急急" : ""}`,
     `【年级性别】${o.grade}${o.omitStudentGender ? "" : `，${sex}`}`,
     `【补习科目】${o.subject}`,
-    `【需要几个老师】${o.teacherCount}位`,
+    `【需要几个老师】${o.teacherCount>0?o.teacherCount+"位":"待补充"}`,
     `【现阶段成绩】${o.currentScores}`,
     `【补课地址】${o.address}`,
     `【一周几次】${o.weeklyFrequency}`,
-    `【每次几小时】${o.hoursPerSession}小时`,
+    `【每次几小时】${o.hoursPerSession>0?o.hoursPerSession+"小时":"待补充"}`,
     `【对老师要求】${o.requirements}`,
     `【薪资】${o.salaryText}`,
     ...(o.trialTime ? [`【试课时间】${o.trialTime}`] : []),
@@ -243,8 +243,8 @@ export function parseFormattedOrder(text) {
   const header = input.match(/#([\w-]+)\s*\//);
   const gradeSex = fields["年级性别"] || "";
   const grade = normalizeGrade(gradeSex) || "年级待补充";
-  const number = Number((fields["需要几个老师"] || "").match(/\d+/)?.[0]) || 1;
-  const hours = Number((fields["每次几小时"] || "").match(/\d+(?:\.\d+)?/)?.[0]) || 2;
+  const number = Number((fields["需要几个老师"] || "").match(/\d+/)?.[0]) || 0;
+  const hours = Number((fields["每次几小时"] || "").match(/\d+(?:\.\d+)?/)?.[0]) || 0;
   return normalizeOrder({
     id: header ? `#${header[1]}` : "",
     grade, subject: fields["补习科目"],
