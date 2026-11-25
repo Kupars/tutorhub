@@ -3,21 +3,43 @@ import { getSubjectList, nextOrderId, normalizeOrder } from "./order-format.js";
 import { normalizePublicAddress, safeOptimizedPublicAddress } from "./address-normalizer.js";
 import { guardSiteActions } from "./ai-command-guard.js?v=4";
 
-export async function callServerlessAI(action, payload = {}) {
-  let response;
-  try {
-    const token = localStorage.getItem("tutorhub_token_v3") || "";
-    response = await fetch(`${APP_CONFIG.apiBase}/ai`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ action, payload }),
-      signal: AbortSignal.timeout(action === "optimize_addresses" ? 50000 : 60000)
-    });
-  } catch (err) { throw new Error(`AI API 网络请求失败：${err.message || "请检查网络连接"}`); }
-  let data;
-  try { data = await response.json(); } catch { throw new Error(`AI 接口没有返回 JSON（HTTP ${response.status}）`); }
-  if (!response.ok || !data?.ok) throw new Error(data?.error || `AI 接口错误 HTTP ${response.status}`);
-  return data.result;
+const gatewayStatus=new Set([502,503,504,520,521,522,523,524]);
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+export async function callServerlessAI(action,payload={},onProgress=()=>{}){
+ const started=Date.now(),budget=95000;
+ const retryAllowed=action!=="recommend_orders"&&action!=="model_probe";
+ let token="";try{token=localStorage.getItem("tutorhub_token_v3")||"";}catch{}
+ for(let attempt=0;attempt<2;attempt++){
+   let response,data,error,retry=false;
+   try{
+     response=await fetch(APP_CONFIG.apiBase+"/ai",{
+       method:"POST",headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},
+       body:JSON.stringify({action,payload}),
+       signal:AbortSignal.timeout(Math.max(1,budget-(Date.now()-started)))
+     });
+     try{data=await response.json();}catch{
+       retry=gatewayStatus.has(response.status);
+       const ray=response.headers.get("cf-ray");
+       const suffix=ray&&/^[a-zA-Z0-9-]{1,60}$/.test(ray)?"，网关编号 "+ray:"";
+       error=new Error(retry?"网站网关暂时异常（HTTP "+response.status+suffix+"），请稍后重试；原始输入和草稿不会丢失":"网站 AI 接口响应异常（HTTP "+response.status+"，非 JSON）");
+     }
+     if(!error&&(!response.ok||!data?.ok)){
+       const id=data?.requestId;
+       error=new Error((data?.error||"AI 接口错误 HTTP "+response.status)+(id?"（诊断编号 "+id+"）":""));
+     }
+     if(!error)return data.result;
+   }catch(e){
+     const timeout=e?.name==="TimeoutError"||e?.name==="AbortError";
+     retry=!timeout;
+     error=new Error(timeout?"AI 请求超时，请减少单次输入数量或切换更快的模型；原始输入仍保留":"网站 AI 网络连接异常，请检查网络后重试");
+   }
+   // Retry only rapid, unstructured gateway failures; upstream JSON errors have already
+   // passed the server retry policy and must not trigger another round of model calls.
+   if(attempt===0&&retryAllowed&&retry&&Date.now()-started<12000){
+     onProgress("连接暂时异常，正在自动重试…");await pause(1000);continue;
+   }
+   throw error;
+ }
 }
 
 export async function probeAIProvider(providerId, model) {
@@ -121,17 +143,17 @@ export function prepareAIDrafts(rawText, parsed, existingOrders = [], previousDr
   });
 }
 
-export async function parseMessyOrders(rawText, existingOrders = [], history = []) {
+export async function parseMessyOrders(rawText, existingOrders = [], history = [], onProgress) {
   if (!String(rawText || "").trim()) throw new Error("请先输入家长提供的零散需求");
-  const result = await callServerlessAI("parse_orders", { text:String(rawText).slice(0,14000), history });
+  const result = await callServerlessAI("parse_orders", { text:String(rawText).slice(0,14000), history },onProgress);
   return {source: result.provider || "外部模型 API", reply:String(result.reply || ""),
     groupingNotes:result.groupingNotes || [], questions:result.questions || [],
     orders:prepareAIDrafts(rawText,result,existingOrders)};
 }
 
-export async function reviseDraftsWithAI(instruction, drafts, history = [], existingOrders = []) {
+export async function reviseDraftsWithAI(instruction, drafts, history = [], existingOrders = [], onProgress) {
   if (!Array.isArray(drafts) || !drafts.length) throw new Error("请先整理出草稿");
-  const result = await callServerlessAI("revise_drafts", { instruction, drafts, history });
+  const result = await callServerlessAI("revise_drafts", { instruction, drafts, history },onProgress);
   return {source:result.provider || "外部模型 API", reply:String(result.reply || ""),
     groupingNotes:result.groupingNotes || [], questions:result.questions || [],
     orders:prepareAIDrafts(instruction,result,existingOrders,drafts)};

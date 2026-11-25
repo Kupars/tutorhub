@@ -3,7 +3,7 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=14";
-import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=10";
+import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=11";
 import { Store } from "./store.js?v=9";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
@@ -23,6 +23,7 @@ const state = {
   parsedDraftOrders: [],
   aiRawText: "",
   aiDraftBusy: false,
+  aiDraftError: "",
   lastPublishedDrafts: [],
   aiDraftHistory: [],
   aiDraftGroupingNotes: [],
@@ -44,7 +45,7 @@ let teacherPoolModulePromise=null;
 let pendingTeacherApplicationScroll=false;
 function loadTeacherPoolModule() {
   // 只在打开管理后台时下载老师档案和推荐模块，不影响普通老师的首屏加载。
-  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=11")
+  if(!teacherPoolModulePromise)teacherPoolModulePromise=import("./admin-teacher-pool.js?v=12")
     .catch(err=>{teacherPoolModulePromise=null;throw err;});
   return teacherPoolModulePromise;
 }
@@ -954,6 +955,7 @@ function renderAdminView() {
         <label for="rawOrderInput">${state.parsedDraftOrders.length?"继续说要怎么修改":"输入新家教需求"}</label>
         <textarea id="rawOrderInput" rows="4" placeholder="${state.parsedDraftOrders.length?"例如：数学改周日下午，物理时薪120":"直接粘贴家长需求，例如高一男生，数学74物理48，河西区津沽东里，周末2小时，分成两单"}"></textarea>
         <button class="btn btn-primary" id="btnParseOrders" type="button" ${state.aiDraftBusy?"disabled":""}>${state.aiDraftBusy?"AI 正在整理…":"发送"}</button>
+        <p id="aiDraftError" class="admin-helper" role="alert" ${state.aiDraftError?"":"hidden"}>${state.aiDraftError?escapeHtml("整理失败："+state.aiDraftError+"。输入及原草稿已保留，可直接再次发送。"):""}</p>
       </div>
       <details class="ai-workspace-advanced"><summary>其他导入方式</summary><div class="field">
         <label for="csvImportInput">导入结构化家教单（CSV / TSV / JSON）</label>
@@ -1121,7 +1123,7 @@ function renderAdminView() {
   $("btnNewAIOrder").onclick=()=>{
     if(state.aiDraftBusy)return;
     if(state.parsedDraftOrders.length && !confirm("当前草稿尚未发布，开始新单会清空草稿。继续吗？"))return;
-    state.parsedDraftOrders=[];state.aiDraftHistory=[];state.aiRawText="";
+    state.parsedDraftOrders=[];state.aiDraftHistory=[];state.aiRawText="";state.aiDraftError="";
     state.aiDraftGroupingNotes=[];state.aiDraftQuestions=[];
     state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
     renderAdminView();$("rawOrderInput")?.focus();
@@ -1131,6 +1133,8 @@ function renderAdminView() {
     const raw=$("rawOrderInput").value.trim();
     if(!raw)return showToast("请输入家教需求或修改指令");
     syncDraftTextareas();
+    state.aiRawText=raw;state.aiDraftError="";
+    const errorBox=$("aiDraftError");if(errorBox){errorBox.hidden=true;errorBox.textContent="";}
     state.aiDraftBusy=true;
     $("btnParseOrders").disabled=true;$("btnParseOrders").textContent="AI 正在整理…";
     $("btnPublishDrafts").disabled=true;
@@ -1145,15 +1149,16 @@ function renderAdminView() {
           if(found.length===1)previous=[{...found[0],id:labels[0],existingOrderId:found[0].id}];
         }
       }
+      const onProgress=message=>{const btn=$("btnParseOrders");if(btn)btn.textContent=message;};
       const result=previous.length ?
-        await reviseDraftsWithAI(raw,previous,state.aiDraftHistory,existing):
-        await parseMessyOrders(raw,existing,state.aiDraftHistory);
+        await reviseDraftsWithAI(raw,previous,state.aiDraftHistory,existing,onProgress):
+        await parseMessyOrders(raw,existing,state.aiDraftHistory,onProgress);
       state.parsedDraftOrders=result.orders;
       state.aiDraftReply=result.reply;state.aiDraftGroupingNotes=result.groupingNotes;state.aiDraftQuestions=result.questions;
       state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
       state.aiDraftHistory.push({role:"user",content:raw},{role:"assistant",content:result.reply||"已整理，请查看标准文案"});
       state.aiDraftHistory=state.aiDraftHistory.slice(-12);state.aiRawText="";
-    }catch(error){showToast("AI 整理失败："+error.message);}
+    }catch(error){state.aiDraftError=error.message;showToast("AI 整理失败："+error.message);}
     finally{state.aiDraftBusy=false;renderAdminView();}
   };
   $("rawOrderInput").onkeydown=event=>{
