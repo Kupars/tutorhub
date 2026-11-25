@@ -3,8 +3,8 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=14";
-import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=15";
-import { Store } from "./store.js?v=10";
+import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=16";
+import { Store } from "./store.js?v=11";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=4";
@@ -13,8 +13,8 @@ import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
 import { MULTI_FILTER_LABELS, MULTI_FILTER_OPTIONS, matchesMultiFilters, normalizeMultiSelection, countSelectedFilters } from "./multi-filter.js?v=1";
 
-import {workspaceSnapshot,loadWorkspace,saveWorkspace,clearWorkspace,draftDiff,applyManualDraftText} from "./draft-workspace.js?v=1";
-import { splitDraftSubjects, mergeDraftSubjects, groupDraftsUnderParent, checkDraftIds, missingDraftFields } from "./draft-grouping.js?v=5";
+import {workspaceSnapshot,loadWorkspace,saveWorkspace,clearWorkspace,draftDiff,applyManualDraftText} from "./draft-workspace.js?v=2";
+import { splitDraftSubjects, mergeDraftSubjects, groupDraftsUnderParent, checkDraftIds, missingDraftFields } from "./draft-grouping.js?v=6";
 
 const state = {
   view: "hall",
@@ -117,6 +117,8 @@ let mapOpenPromise = null;
 let cardResultsKey = "";
 let shownCardCount = 24;
 let cardLoadObserver = null;
+let draftAbortController=null,publicRefreshBusy=false;
+let adminOrderScroll=null;
 const CARD_BATCH_SIZE = 24;
 
 const $ = (id) => document.getElementById(id);
@@ -360,7 +362,8 @@ function checkpointDraftWorkspace(label){
 }
 function lockDraftControls(){
   const panel=document.querySelector('[data-admin-page="aiOrders"]');
-  if(panel)for(const el of panel.querySelectorAll("button,textarea,input"))el.disabled=state.aiDraftBusy;
+  if(panel)for(const el of panel.querySelectorAll("button,textarea,input"))if(el.id!=="btnCancelDraft")el.disabled=state.aiDraftBusy;
+  const cancel=$("btnCancelDraft");if(cancel){cancel.hidden=!draftAbortController;cancel.disabled=!draftAbortController;}
   const undo=$("btnUndoDraft");if(undo)undo.disabled=state.aiDraftBusy||!workspaceHistory.length;
 }
 function renderUserActions() {
@@ -443,7 +446,7 @@ function renderHall() {
   for (const id of ["qMode", "qStudentGender", "qTeacherGender", "qTime"]) {
     renderMultiFilter(id, MULTI_FILTER_OPTIONS[id] || []);
   }
-  const q = $("qSearch").value.trim().toLowerCase();
+  const q = $("qSearch").value.normalize("NFKC").trim().toLowerCase();
 
 
 
@@ -471,9 +474,10 @@ function renderHall() {
       const hay = [o.id, o.orderNumber, o.title, o.subject, o.grade, o.studentGender, o.teacherCount,
         o.currentScores, o.weeklyFrequency, o.trialTime, o.salaryText, o.district, o.address,
         o.studentInfo, o.requirements, ...(o.tags || [])]
-        .join(" ")
-        .toLowerCase();
-      if (!hay.includes(q)) return false;
+        .join(" ").normalize("NFKC").toLowerCase();
+      const aliases={"高一":"高中一年级","高二":"高中二年级","高三":"高中三年级","初一":"初中一年级","初二":"初中二年级","初三":"初中三年级","数学":"数學","物理":"物理","化学":"化學","英语":"英文"};
+      const searchable=hay+" "+Object.entries(aliases).filter(([key])=>hay.includes(key)).map(([,value])=>value).join(" ");
+      if (!q.split(/\s+/).every(term=>searchable.includes(term))) return false;
     }
     return true;
   });
@@ -642,14 +646,15 @@ function renderHall() {
     const selectionButton = event.target.closest("[data-select]");
     if (selectionButton) {
       Store.toggleSelectedOrder(selectionButton.dataset.select);
-      renderHall();
+      const y=window.scrollY;renderHall();window.scrollTo(0,y);
       showToast(Store.getSelectedOrderIds().includes(selectionButton.dataset.select) ? "已加入选单" : "已移出选单");
       return;
     }
     const button = event.target.closest("[data-expand-order]");
     if (button) {
+      const y=window.scrollY;
       expandedOrderId = expandedOrderId === button.dataset.expandOrder ? null : button.dataset.expandOrder;
-      renderHall();
+      renderHall();window.scrollTo(0,y);
       return;
     }
     const copyButton = event.target.closest("[data-copy]");
@@ -680,12 +685,14 @@ function renderCart() {
   $("btnCopyCart").disabled = !orders.length;
   $("btnClearCart").disabled = !orders.length;
   const box = $("cartItems");
+  const stale=Store.getSelectedOrderIds().length-orders.length;
   box.innerHTML = orders.length ? orders.map((o) => `
     <div class="cart-item">
       <div><strong>${escapeHtml(o.orderNumber || o.id)} · ${escapeHtml(o.title)}</strong><p>${escapeHtml(o.address)} · ${escapeHtml(o.salaryText)}</p></div>
       <button class="btn btn-sm" data-remove-selection="${escapeHtml(o.id)}" aria-label="从选单清单移除 ${escapeHtml(o.id)}">移除</button>
     </div>
   `).join("") : `<div class="cart-empty">清单还是空的。回到看板，点击家教卡片上的「🛒 加入选单」就可以开始挑选。</div>`;
+  if(stale>0){const p=document.createElement("p");p.className="admin-helper";p.textContent=stale+" 条已选单不再招募或已删除，不会复制发送。";box.prepend(p);}
   box.querySelectorAll("[data-remove-selection]").forEach((btn) => {
     btn.onclick = () => { Store.toggleSelectedOrder(btn.dataset.removeSelection); renderHall(); };
   });
@@ -721,9 +728,9 @@ function fillManualOrder(order) {
   $("manualGrade").value = o.grade;
   $("manualStudentGender").value = o.studentGender;
   $("manualSubject").value = o.subject;
-  $("manualTeacherCount").value = o.teacherCount;
+  $("manualTeacherCount").value = o.teacherCount>0?o.teacherCount:"";
   $("manualScores").value = o.currentScores;
-  $("manualHours").value = o.hoursPerSession;
+  $("manualHours").value = o.hoursPerSession>0?o.hoursPerSession:"";
   $("manualAddress").value = o.address;
   $("manualMode").value = o.mode;
   $("manualWeekly").value = o.weeklyFrequency;
@@ -911,14 +918,14 @@ function renderAdminView() {
           <div class="field"><label for="manualGrade">年级</label><select id="manualGrade">${GRADES.map((g) => `<option>${g}</option>`).join("")}</select></div>
           <div class="field"><label for="manualStudentGender">学生性别</label><select id="manualStudentGender"><option value="待补充">待补充</option><option value="男生">男生</option><option value="女生">女生</option></select></div>
           <div class="field wide"><label for="manualSubject">补习科目</label><input id="manualSubject" required placeholder="数学、物理" /></div>
-          <div class="field"><label for="manualTeacherCount">需要几个老师</label><input id="manualTeacherCount" type="number" min="1" max="20" value="1" required /></div>
+          <div class="field"><label for="manualTeacherCount">需要几个老师</label><input id="manualTeacherCount" type="number" min="1" max="20" placeholder="待补充" /></div>
           <div class="field wide"><label for="manualScores">现阶段成绩</label><input id="manualScores" placeholder="数学60分，物理70分；不知道可留空" /></div>
-          <div class="field"><label for="manualHours">每次几小时</label><input id="manualHours" type="number" min="0.5" step="0.5" value="2" required /></div>
+          <div class="field"><label for="manualHours">每次几小时</label><input id="manualHours" type="number" min="0.5" step="any" placeholder="待补充" /></div>
           <div class="field wide"><label for="manualAddress">补课地址（区＋小区）</label><input id="manualAddress" placeholder="天津市河西区某小区" /></div>
           <div class="field"><label for="manualMode">授课方式</label><select id="manualMode"><option>上门</option><option>线上</option><option>均可</option></select></div>
           <div class="field wide"><label for="manualWeekly">一周几次（周中/周末）</label><input id="manualWeekly" placeholder="每周1次，周六下午" /></div>
           <div class="field"><label for="manualSalary">薪资（元/小时）</label><input id="manualSalary" placeholder="110～120元/小时（可报价）" /></div>
-          <div class="field full"><label for="manualRequirements">对老师要求</label><textarea id="manualRequirements" rows="2" placeholder="无特殊要求"></textarea></div>
+          <div class="field full"><label for="manualRequirements">对老师要求</label><textarea id="manualRequirements" rows="2" placeholder="未提供可留空"></textarea></div>
           <div class="field wide"><label for="manualTrial">试课时间（可选）</label><input id="manualTrial" placeholder="仅填写家长明确提供的试课时间" /></div>
           <div class="field"><label for="manualPublishedAt">真实招募开始日期（可选）</label><input id="manualPublishedAt" type="date" title="历史导入单日期未知时，请人工确认后填写；用于超时提醒，不会把导入日期当发单日期" /></div>
           <div class="field"><label for="manualNotes">其他说明（可选）</label><input id="manualNotes" placeholder="只写真实信息" /></div>
@@ -953,6 +960,8 @@ function renderAdminView() {
         <label for="rawOrderInput">${state.parsedDraftOrders.length?"继续说要怎么修改":"输入新家教需求"}</label>
         <textarea id="rawOrderInput" rows="4" placeholder="${state.parsedDraftOrders.length?"例如：数学改周日下午，物理时薪120":"直接粘贴家长需求，例如高一男生，数学74物理48，河西区津沽东里，周末2小时，分成两单"}"></textarea>
         <button class="btn btn-primary" id="btnParseOrders" type="button" ${state.aiDraftBusy?"disabled":""}>${state.aiDraftBusy?"AI 正在整理…":"发送"}</button>
+        <button class="btn btn-sm" id="btnCancelDraft" type="button" hidden>取消本次 AI 请求</button>
+        ${state.parsedDraftOrders.length?`<div class="admin-helper"><label><input type="checkbox" id="draftLockNumber" ${state.draftLockNumber?"checked":""}/> 锁定编号</label> <label><input type="checkbox" id="draftLockSalary" ${state.draftLockSalary?"checked":""}/> 锁定薪资</label> <label><input type="checkbox" id="draftAppendNew"/> 将本次输入作为新单追加</label></div>`:""}
         <p id="aiDraftTiming" class="admin-helper" role="status">${state.aiDraftBusy?"模型正在处理，请勿重复发送。":escapeHtml(aiTimingText(state.aiDraftTiming))}</p>
         <p id="aiDraftError" class="admin-helper" role="alert" ${state.aiDraftError?"":"hidden"}>${state.aiDraftError?escapeHtml("整理失败："+state.aiDraftError+"。输入及原草稿已保留，可直接再次发送。"):""}</p>
       </div>
@@ -1005,7 +1014,7 @@ function renderAdminView() {
             <div>
               <label style="display:inline-flex;gap:8px;align-items:center;">
                 <input type="checkbox" data-merge-id="${escapeHtml(o.id)}" ${adminCheckedOrders.has(o.id) ? "checked" : ""} style="width:auto;" aria-label="选中 ${escapeHtml(o.id)} 用于批量管理" />
-                <strong>${escapeHtml(o.id)}</strong>
+                <strong>${escapeHtml(o.orderNumber||o.id)}</strong>
               </label>
               · ${escapeHtml(o.title)} <span class="chip">${escapeHtml(o.salaryText)}</span>
               <span class="chip">${escapeHtml(o.studentGender)}</span><span class="chip">${escapeHtml(o.status)}</span>
@@ -1107,7 +1116,8 @@ function renderAdminView() {
       if (old) await Store.updateOrder(old.id, item);
       else await Store.addOrders([item]);
       state.editingOrderId = null;
-      renderAll();
+      if(old&&adminOrderScroll!==null){state.adminPage="orders";renderAll();window.scrollTo(0,adminOrderScroll);adminOrderScroll=null;}
+      else renderAll();
       if(!old) void showNewTeacherRecommendations([item]);
       showToast(old ? "家教单已保存修改" : `家教单 ${item.id} 已发布`);
     } catch (err) { showToast(`保存失败：${err.message}`); }
@@ -1134,6 +1144,9 @@ function renderAdminView() {
     state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
     renderAdminView();$("rawOrderInput")?.focus();
   };
+  $("btnCancelDraft").onclick=()=>draftAbortController?.abort();
+  if($("draftLockNumber"))$("draftLockNumber").onchange=e=>{state.draftLockNumber=e.target.checked;persistDraftWorkspace();};
+  if($("draftLockSalary"))$("draftLockSalary").onchange=e=>{state.draftLockSalary=e.target.checked;persistDraftWorkspace();};
   $("btnParseOrders").onclick = async () => {
     if(state.aiDraftBusy)return;
     const raw=$("rawOrderInput").value.trim();
@@ -1141,6 +1154,9 @@ function renderAdminView() {
     if(!syncDraftTextareas())return;
     state.aiRawText=raw;state.aiDraftError="";state.aiDraftTiming=null;state.aiDraftStarted=Date.now();
     const errorBox=$("aiDraftError");if(errorBox){errorBox.hidden=true;errorBox.textContent="";}
+    const appendNew=$("draftAppendNew")?.checked===true;
+    draftAbortController=new AbortController();
+    const signal=draftAbortController.signal;
     state.aiDraftBusy=true;persistDraftWorkspace();lockDraftControls();
     $("btnParseOrders").disabled=true;$("btnParseOrders").textContent="AI 正在整理…";
     $("btnPublishDrafts").disabled=true;
@@ -1159,19 +1175,36 @@ function renderAdminView() {
         }
       }
       const onProgress=message=>{progressMessage=message;updateElapsed();const btn=$("btnParseOrders");if(btn)btn.textContent=message;};
-      const result=previous.length ?
-        await reviseDraftsWithAI(raw,previous,state.aiDraftHistory,existing,onProgress):
-        await parseMessyOrders(raw,existing,state.aiDraftHistory,onProgress);
+      const explicitNew=/^(?:新单|追加新单|新增家教单)[：:\s]/.test(raw);
+      const newHeader=raw.match(/^\s*(#\d{3,7}(?:-\d+)?)\s*\//)?.[1];
+      const distinctFullOrder=newHeader&&/【补习科目】/.test(raw)&&/【补课地址】/.test(raw)&&!previous.some(o=>o.orderNumber===newHeader);
+      const append=previous.length>0&&(appendNew||explicitNew||(distinctFullOrder&&confirm("这是一个不同编号的完整家教单，作为新单追加并保留原草稿？")));
+      const result=append
+        ? await parseMessyOrders(raw,[...existing,...previous],[],onProgress,signal)
+        : previous.length ? await reviseDraftsWithAI(raw,previous,state.aiDraftHistory,existing,onProgress,signal)
+        : await parseMessyOrders(raw,existing,[],onProgress,signal);
+      if(signal.aborted)throw new Error("已取消 AI 请求");
+      if(append){
+        const used=new Set(previous.map(o=>o.orderNumber||o.id));
+        if(result.orders.some(o=>used.has(o.orderNumber||o.id)))throw new Error("新单与当前草稿编号重复，请先核对编号");
+        result.orders=[...previous,...result.orders];
+      }
+      if(previous.length&&!append&&(state.draftLockNumber||state.draftLockSalary)){
+        const byNumber=new Map(result.orders.map(o=>[o.orderNumber||o.id,o]));
+        if(state.draftLockNumber&&(byNumber.size!==previous.length||previous.some(o=>!byNumber.has(o.orderNumber||o.id))))throw new Error("编号已锁定，未应用本次修改；解除锁定后可拆合或改号");
+        if(state.draftLockSalary&&(previous.length!==result.orders.length||previous.some(o=>byNumber.get(o.orderNumber||o.id)?.salaryText!==o.salaryText)))throw new Error("薪资已锁定，未应用本次修改");
+      }
       const diff=draftDiff(previous,result.orders);
       checkpointDraftWorkspace(diff.join("；").slice(0,600)||"AI 对话");
       state.parsedDraftOrders=result.orders;state.pendingDraftText={};
       state.aiDraftTiming=result.timing||{elapsedMs:Date.now()-state.aiDraftStarted};
       state.aiDraftReply=result.reply;state.aiDraftGroupingNotes=result.groupingNotes;state.aiDraftQuestions=result.questions;
       state.selectedDraftSubjects.clear();state.selectedDraftFamilies.clear();
+      if(append)state.aiDraftHistory=[];
       state.aiDraftHistory.push({role:"user",content:raw},{role:"assistant",content:result.reply||"已整理，请查看标准文案"});
       state.aiDraftHistory=state.aiDraftHistory.slice(-12);state.aiRawText="";
     }catch(error){state.aiDraftTiming={elapsedMs:Date.now()-state.aiDraftStarted};state.aiDraftError=error.message;showToast("AI 整理失败："+error.message);}
-    finally{clearInterval(elapsedTimer);state.aiDraftBusy=false;persistDraftWorkspace();renderAdminView();}
+    finally{clearInterval(elapsedTimer);draftAbortController=null;state.aiDraftBusy=false;persistDraftWorkspace();renderAdminView();}
   };
   $("rawOrderInput").onkeydown=event=>{
     if(event.key==="Enter"&&(event.ctrlKey||event.metaKey)){event.preventDefault();$("btnParseOrders").click();}
@@ -1180,6 +1213,10 @@ function renderAdminView() {
     if(!state.parsedDraftOrders.length||state.aiDraftBusy) return;
     if(!syncDraftTextareas())return;
     const items = state.parsedDraftOrders.map(order => normalizeOrder(order));
+    if(items.some(o=>Number(o.hoursPerSession)>24||Number(o.teacherCount)>20||Number(o.sessionsPerWeek)>7))return showToast("课时、人数或每周次数异常，请先核对");
+    if(items.some(o=>{const m=String(o.salaryText||"").match(/(\d+(?:\.\d+)?)\s*[～~—-]\s*(\d+(?:\.\d+)?)/);return m&&Number(m[1])>Number(m[2]);}))return showToast("薪资区间上下限颠倒，请先核对");
+    const missing=items.filter(o=>missingDraftFields(o).length);
+    if(missing.length&&!confirm("有 "+missing.length+" 条草稿含待核实字段。确认按实际已知信息发布，不自动补造？"))return;
     const ordinary=items.filter(o=>!o.existingOrderId&&!o.explicitNumberReuse);
     const idIssues = checkDraftIds(ordinary,Store.getOrders());
     if(idIssues.length) return showToast("单号重复或不合法："+idIssues.slice(0,3).join("、")+"；请核对草稿编号");
@@ -1416,6 +1453,7 @@ function renderAdminView() {
   });
   box.querySelectorAll("[data-edit-order]").forEach((btn) => {
     btn.onclick = () => {
+      adminOrderScroll=window.scrollY;
       state.editingOrderId = btn.dataset.editOrder;
       state.adminPage = "manual";
       renderAdminView();
@@ -1502,6 +1540,7 @@ function renderParsedPreview() {
     <div class="ai-group-summary"><strong>AI 生成了 ${drafts.length} 条草稿</strong>
       ${notes.length ? `<p>${notes.map(escapeHtml).join("；")}</p>` : ""}
       <p>直接编辑标准文案或继续对话；核对后即可发布。</p>
+      ${workspaceHistory.length?`<p class="admin-helper"><strong>最近修改：</strong>${escapeHtml(workspaceHistory[workspaceHistory.length-1].label)}</p>`:""}
     </div>
     <details class="ai-workspace-advanced"><summary>手动拆单 / 合并 / 编组（可选）</summary><div class="ai-group-toolbar">
       <button class="btn btn-sm" type="button" id="btnSplitSelectedSubjects">拆分所选科目</button>
@@ -1804,6 +1843,14 @@ function initFloatingWechat(dialog) {
 }
 
 function initControls() {
+  document.addEventListener("visibilitychange",async()=>{
+    if(document.hidden||state.view!=="hall"||publicRefreshBusy||Store.getCurrentUser()?.role==="admin")return;
+    publicRefreshBusy=true;
+    try{if(await Store.refreshPublicOrders()){
+      if(document.hidden||state.view!=="hall")return;
+      const before=window.scrollY;renderHall();window.scrollTo(0,before);
+    }}catch{}finally{publicRefreshBusy=false;}
+  });
   $("btnRetryMap").onclick = () => { void openMap(); };
   $("btnExpandMap").onclick = () => {
     const expanded = $("mapBoard").classList.toggle("map-expanded");
