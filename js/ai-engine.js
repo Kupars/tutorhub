@@ -265,7 +265,8 @@ export async function reviseDraftsWithAI(instruction, drafts, history = [], exis
   const structural=structuralDraftRevision(instruction);
   if(structural&&renumber)throw new Error("拆合单与改号请分别操作");
   const orders=structural?prepareAIDrafts(instruction,result,existingOrders,drafts):applyDraftPatches(instruction,result,drafts,existingOrders);
-  const reply=renumber ? "草稿编号已由 "+renumber.oldNumber+" 更新为 "+renumber.number+"，请核对其余字段后发布。" : String(result.reply || "");
+  const changed=JSON.stringify(orders)!==JSON.stringify(drafts);
+  const reply=renumber ? "草稿编号已由 "+renumber.oldNumber+" 更新为 "+renumber.number+"，请核对其余字段后发布。" : changed ? (String(result.reply || "")||"已更新草稿，请核对。") : "本轮未修改草稿，请核对或补充指令。";
   return {source:result.provider || "外部模型 API", reply,
     groupingNotes:result.groupingNotes || [], questions:result.questions || [], timing:result.timing, orders};
 }

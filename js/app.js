@@ -3,7 +3,7 @@ import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
 import { gcj02ToWgs84, getPublicMapLocation, moveMapTo, openMapBoard, refreshMapSize, setMapOrderSelectionHandlers, updateMapOrders, updateMapOrigin } from "./map-board.js?v=14";
-import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=14";
+import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrderAddressesWithAI, recommendOrdersWithAI, probeAIProvider } from "./ai-engine.js?v=15";
 import { Store } from "./store.js?v=10";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
@@ -447,7 +447,7 @@ function renderHall() {
 
 
 
-  const sort = $("qSort").value;
+  const sort = $("qSort").value || "recommend";
 
 
 
@@ -744,6 +744,8 @@ function collectManualOrder(original = {}) {
     ? original.title : `${grade}${subject}家教`;
   return normalizeOrder({
     ...original,
+    district: $("manualAddress").value.trim()===previous.address?original.district:"",
+    sessionsPerWeek: $("manualWeekly").value.trim()===previous.weeklyFrequency?original.sessionsPerWeek:0,
     id: original.id || ($("manualId").value.trim().startsWith("#") ? $("manualId").value.trim() : `#${$("manualId").value.trim()}`),
     orderNumber: "#"+$("manualId").value.trim().replace(/^#/,""),
     grade, subject, title,
@@ -1902,7 +1904,7 @@ function initControls() {
   $("btnCardMode").onclick = () => setBoardLayout("cards");
 
   $("btnSmartSelect").onclick = async () => {
-    const preference = $("aiPreference").value;
+    const preference = $("aiPreference").value || "balanced";
     const sortMode = preference === "commute" ? "commute" : preference === "income" ? "rate" : "recommend";
     const candidates = sortBoardOrders(visibleBoardOrders, sortMode).slice(0, 30);
     if (!candidates.length) return showToast("当前筛选条件下没有可推荐的家教单");
