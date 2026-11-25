@@ -2,6 +2,12 @@ import { adoptVerifiedPublicLocations, inferCoordsFromText, inferNamedLandmarkCo
 import { isDistrictOnlyAddress, mapGeocodeQuery } from "./address-normalizer.js";
 
 let map = null;
+let amap = null;
+let amapMarkers = [];
+let amapOrigin = null;
+let amapPopup = null;
+let amapLoading = null;
+let amapSignature = "";
 let orderLayer = null;
 let originLayer = null;
 let pendingOrders = [];
@@ -64,6 +70,93 @@ export function gcj02ToWgs84(lat, lng) {
   deltaLat = deltaLat * 180 / ((6335552.717000426 / (magic * sqrtMagic)) * Math.PI);
   deltaLng = deltaLng * 180 / ((6378245 / sqrtMagic) * Math.cos(radLat) * Math.PI);
   return { lat: lat - deltaLat, lng: lng - deltaLng };
+}
+
+// The stored coordinates are WGS84; invert the existing GCJ->WGS mapping for display only.
+export function wgs84ToGcj02(lat,lng){
+  let result={lat,lng};
+  for(let i=0;i<4;i++){
+    const wgs=gcj02ToWgs84(result.lat,result.lng);
+    result={lat:result.lat+lat-wgs.lat,lng:result.lng+lng-wgs.lng};
+  }
+  return result;
+}
+function amapPosition(lat,lng){
+ const p=wgs84ToGcj02(Number(lat),Number(lng));return [p.lng,p.lat];
+}
+async function loadAmap(){
+ if(globalThis.AMap?.Map)return globalThis.AMap;
+ if(amapLoading)return amapLoading;
+ amapLoading=(async()=>{
+   const res=await fetch("/api/commute",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"map_config"}),signal:AbortSignal.timeout(3500)});
+   const data=await res.json();
+   if(!data.ok||!data.jsKey||data.serviceHost!=="/_AMapService")return null;
+   globalThis._AMapSecurityConfig={serviceHost:location.origin+data.serviceHost};
+   return new Promise((resolve,reject)=>{
+     const script=document.createElement("script");
+     script.src="https://webapi.amap.com/maps?v=2.0&key="+encodeURIComponent(data.jsKey);
+     const timeout=setTimeout(()=>{script.remove();reject(new Error("高德地图脚本加载超时"));},6500);
+     script.onerror=()=>{clearTimeout(timeout);script.remove();reject(new Error("高德地图脚本加载失败"));};
+     script.onload=()=>{clearTimeout(timeout);globalThis.AMap?.Map?resolve(globalThis.AMap):reject(new Error("高德地图组件不可用"));};
+     document.head.append(script);
+   });
+ })().catch(()=>null);
+ return amapLoading;
+}
+function renderAmapMarkers(){
+ if(!amap)return;
+ const A=globalThis.AMap;
+ const groups=clusterNearbyMapGroups(groupPublicMapOrders(pendingOrders),(lat,lng)=>{
+   const p=amap.lngLatToContainer(new A.LngLat(...amapPosition(lat,lng)));
+   return {x:p.x??p.getX(),y:p.y??p.getY()};
+ });
+ const signature=amap.getZoom()+"|"+groups.map(g=>g.lat+"/"+g.lng+"/"+g.orders.map(o=>o.id).join(",")).join("|");
+ if(signature===amapSignature){
+   syncPopupSelections();
+   for(const {marker,group} of amapMarkers)marker.setOptions({strokeColor:markerStyleForGroup(group,isOrderSelected).color,fillColor:markerStyleForGroup(group,isOrderSelected).fillColor});
+   return;
+ }
+ amapSignature=signature;
+ if(amapMarkers.length)amap.remove(amapMarkers.map(x=>x.marker));
+ amapMarkers=[];
+ for(const group of groups){
+   const style=markerStyleForGroup(group,isOrderSelected),center=amapPosition(group.lat,group.lng);
+   const marker=new A.CircleMarker({center,radius:Math.min(24,9+Math.sqrt(group.orders.length)*2.3),strokeColor:style.color,strokeWeight:2,fillColor:style.fillColor,fillOpacity:style.fillOpacity,bubble:false,cursor:"pointer"});
+   marker.on("click",()=>{
+     amapPopup?.close();
+     amapPopup=new A.InfoWindow({content:buildMapPopup(group),offset:new A.Pixel(0,-12),autoMove:true});
+     amapPopup.open(amap,center);
+     syncPopupSelections();
+   });
+   amapMarkers.push({marker,group});
+ }
+ if(amapMarkers.length)amap.add(amapMarkers.map(x=>x.marker));
+}
+async function openAmapBoard(origin){
+ const A=await loadAmap();if(!A)return false;
+ const container=document.getElementById("tutorMap");
+ let candidate;
+ try{
+   const hasOrigin=origin?.lat!=null&&origin?.lng!=null&&Number.isFinite(Number(origin.lat))&&Number.isFinite(Number(origin.lng));
+   const center=hasOrigin?amapPosition(origin.lat,origin.lng):amapPosition(39.115,117.215);
+   candidate=new A.Map(container,{viewMode:"2D",center,zoom:globalThis.matchMedia?.("(max-width: 640px)").matches?10:11,resizeEnable:true});
+   await new Promise((resolve,reject)=>{
+     const timer=setTimeout(()=>reject(new Error("高德底图初始化超时")),7000);
+     candidate.on("complete",()=>{clearTimeout(timer);resolve();});
+     candidate.on("error",()=>{clearTimeout(timer);reject(new Error("高德底图初始化失败"));});
+   });
+   amap=candidate;
+   amap.on("zoomend",renderAmapMarkers);
+   A.plugin?.("AMap.ToolBar",()=>{if(amap===candidate)amap.addControl(new A.ToolBar({position:"LT"}));});
+   updateMapOrigin(origin);
+   renderAmapMarkers();
+   void geocodePublicAddresses();
+   return true;
+ }catch{
+   try{candidate?.destroy();}catch{}
+   amap=null;amapMarkers=[];amapSignature="";amapOrigin=null;amapPopup=null;container.replaceChildren();
+   return false;
+ }
 }
 
 // 已核实的镇政府公开 POI，作为无法找到小区位置时的镇级示意锚点。
@@ -311,6 +404,7 @@ function buildMapPopup(group) {
 }
 
 function renderOrderMarkers() {
+  if(amap){renderAmapMarkers();return;}
   if (!map) return;
   const groups = clusterNearbyMapGroups(groupPublicMapOrders(pendingOrders),
     (lat, lng) => map.project([lat, lng], map.getZoom()));
@@ -340,7 +434,7 @@ function renderOrderMarkers() {
 export function updateMapOrders(orders) {
   pendingOrders = orders || [];
   renderOrderMarkers();
-  if (map) void geocodePublicAddresses();
+  if (map||amap) void geocodePublicAddresses();
 }
 
 async function geocodePublicAddresses() {
@@ -441,6 +535,16 @@ function tryStreetTiles(L) {
   });
 }
 export function updateMapOrigin(origin) {
+  if(amap){
+    if(amapOrigin)amap.remove(amapOrigin);
+    amapOrigin=null;
+    if(origin?.lat!=null&&origin?.lng!=null&&Number.isFinite(Number(origin.lat))&&Number.isFinite(Number(origin.lng))){
+      const A=globalThis.AMap,pin=document.createElement("div");pin.className="amap-user-pin";pin.textContent="●";
+      amapOrigin=new A.Marker({position:amapPosition(origin.lat,origin.lng),content:pin,anchor:"center",zIndex:1100});
+      amap.add(amapOrigin);
+    }
+    return;
+  }
   if (!map || !originLayer) return;
   originLayer.clearLayers();
   if (Number.isFinite(Number(origin?.lat)) && Number.isFinite(Number(origin?.lng)) && origin?.lat != null && origin?.lng != null) {
@@ -452,6 +556,11 @@ export function updateMapOrigin(origin) {
 }
 
 export async function openMapBoard(origin) {
+  if(amap){updateMapOrigin(origin);return amap;}
+  if(!map){
+    await loadVerifiedPublicLocations();
+    if(await openAmapBoard(origin))return amap;
+  }
   const [L] = await Promise.all([loadLeaflet(), loadVerifiedPublicLocations()]);
   if (!map) {
     const hasOrigin = origin?.lat != null && origin?.lng != null && Number.isFinite(Number(origin.lat)) && Number.isFinite(Number(origin.lng));
@@ -486,14 +595,17 @@ export async function openMapBoard(origin) {
 }
 
 export function moveMapTo(lat, lng, zoom = 13) {
+  if(amap){amap.setZoomAndCenter(zoom,amapPosition(lat,lng));return;}
   map?.setView([lat, lng], zoom);
 }
 
 export function refreshMapSize() {
+  if(amap){amap.resize?.();return;}
   map?.invalidateSize({ pan: false });
 }
 
 export function getMapCenter() {
+  if(amap){const c=amap.getCenter();return gcj02ToWgs84(c.getLat(),c.getLng());}
   const center = map?.getCenter();
   return center ? { lat: Number(center.lat.toFixed(5)), lng: Number(center.lng.toFixed(5)) } : null;
 }
