@@ -54,7 +54,7 @@ function ensureLocalInit() {
 }
 ensureLocalInit();
 
-const ORDER_WRITES=new Set(["admin_publish_ai_drafts","admin_add_orders","admin_update_order","admin_batch_status","admin_delete_order","admin_merge_orders","admin_save_assignment"]);
+const ORDER_WRITES=new Set(["admin_publish_ai_drafts","admin_add_orders","admin_update_order","admin_batch_status","admin_delete_order","admin_merge_orders","admin_save_assignment","admin_trash_order","admin_restore_order"]);
 let orderRevision=null;
 let orderRequestQueue=Promise.resolve();
 let orderWriteEpoch=0;
@@ -343,9 +343,9 @@ export const Store = {
       return normalizeOrder({ ...order, address: publicAddress, publicAddress });
     });
   },
-  async publishAIDrafts(drafts) {
+  async publishAIDrafts(drafts,idempotencyKey) {
     if (!cloudReady || this.getCurrentUser()?.role !== "admin") throw new Error("管理员存储不可用，未发布");
-    const res=await apiPost({action:"admin_publish_ai_drafts",orders:drafts.map(o=>normalizeOrder(o)),
+    const res=await apiPost({action:"admin_publish_ai_drafts",orders:drafts.map(o=>normalizeOrder(o)),...(idempotencyKey?{idempotencyKey}:{}),
       importedOverrides:importedOrders.filter(o=>drafts.some(d=>d.existingOrderId===o.id||d.splitFromId===o.id))});
     if(!res?.ok)throw new Error(res?.error||"发布失败");
     cloudState.orders=res.orders;
@@ -412,6 +412,32 @@ export const Store = {
     const res=await apiPost({action:"admin_merge_orders",ids,merged,importedOverrides:importedOrders.filter(o=>ids.includes(o.id))});
     if(!res?.ok)throw new Error(res?.error||"合并失败");
     cloudState.orders=res.orders;return this.getOrders();
+  },
+  async trashOrder(id) {
+    if(!cloudReady||this.getCurrentUser()?.role!=="admin")throw new Error("管理员存储不可用");
+    const res=await apiPost({action:"admin_trash_order",id,importedOverride:importedOrders.find(o=>o.id===id)});
+    if(!res?.ok)throw new Error(res?.error||"移入回收站失败");
+    cloudState.orders=res.orders;cloudState.hiddenImported=res.hiddenImported||cloudState.hiddenImported;
+    return this.getOrders();
+  },
+  async restoreOrder(id) {
+    if(!cloudReady||this.getCurrentUser()?.role!=="admin")throw new Error("管理员存储不可用");
+    const res=await apiPost({action:"admin_restore_order",id});
+    if(!res?.ok)throw new Error(res?.error||"恢复失败");
+    cloudState.orders=res.orders;cloudState.hiddenImported=res.hiddenImported||cloudState.hiddenImported;
+    return this.getOrders();
+  },
+  async exportBackup(date="") {
+    if(!cloudReady||this.getCurrentUser()?.role!=="admin")throw new Error("管理员存储不可用");
+    const res=await apiPost(date?{action:"admin_backup_get",date}:{action:"admin_export_current"});
+    if(!res?.ok)throw new Error(res?.error||"备份读取失败");
+    return res.backup;
+  },
+  async getAuditLog() {
+    if(!cloudReady||this.getCurrentUser()?.role!=="admin")throw new Error("管理员存储不可用");
+    const res=await apiPost({action:"admin_audit_log"});
+    if(!res?.ok)throw new Error(res?.error||"日志读取失败");
+    return res.entries;
   },
   async deleteOrder(id) {
     if (cloudReady) {
