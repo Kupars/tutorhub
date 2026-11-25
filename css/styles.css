@@ -2,11 +2,11 @@
    Semantic colors are reserved for important states, not decoration. */
 :root {
   color-scheme:light;
-  --primary:#284e89; --primary-hover:#1a3b6c;
-  --primary-button:#202b3b; --primary-button-hover:#38465a; --primary-soft:#eef3fa;
-  --accent:#5279b4;
-  --bg:#f8f9fa; --surface:#fff; --surface-alt:#f8f9fa; --surface-muted:#f1f3f5;
-  --border:#e1e5e9; --text:#19212c; --text-subtle:#424c5b; --muted:#626d7c;
+  --primary:#3263b0; --primary-hover:#244d92;
+  --primary-button:#3263b0; --primary-button-hover:#244d92; --primary-soft:#edf3ff;
+  --accent:#7198dc;
+  --bg:#f8f9fa; --surface:#fff; --surface-alt:#f7f9fc; --surface-muted:#f0f3f8;
+  --border:#e1e6ee; --text:#19212c; --text-subtle:#424c5b; --muted:#626d7c;
   --success:#24744e; --warning:#98601c; --danger:#b42332;
   --radius:12px; --shadow:0 2px 6px rgba(20,30,45,.035);
   --nav-glass:rgba(255,255,255,.97); --mobile-glass:rgba(255,255,255,.98);
@@ -1109,4 +1109,73 @@ input[type=checkbox],input[type=radio] { accent-color:var(--primary); }
 }
 @media(prefers-reduced-motion:reduce) {
  .order-card,.admin-module-card,.nav-link,.btn { transition:none; }
+}
+
+/* White surfaces, purposeful color: indigo actions, amber locations, rose subjects,
+   emerald prices, teal commute, violet AI. No seasonal or page-wide gradients. */
+:root {
+ --location-ink:#946016; --location-soft:#fff5e3;
+ --subject-ink:#a33b62; --subject-soft:#fff0f5;
+ --price-ink:#24734e; --price-soft:#eaf7ef;
+ --route-ink:#126b78; --route-soft:#eaf7f9;
+ --ai-ink:#6945a5; --ai-soft:#f3effb;
+}
+:root[data-color-mode="dark"] {
+ --location-ink:#f2ce89; --location-soft:#473b27;
+ --subject-ink:#f7b1ce; --subject-soft:#493046;
+ --price-ink:#a2e0bb; --price-soft:#223e32;
+ --route-ink:#a0dfe6; --route-soft:#24424a;
+ --ai-ink:#d6c1ff; --ai-soft:#3b3053;
+}
+.brand-logo { background:var(--primary-button);box-shadow:0 3px 9px #3263b020; }
+.nav-link.active { background:var(--primary-soft);color:var(--primary); }
+.usage-card,[data-color-mode="dark"] .usage-card { border-color:var(--border); }
+.usage-card { background:linear-gradient(105deg,var(--primary-soft),var(--surface) 70%); }
+[data-color-mode="dark"] .usage-card { background:linear-gradient(105deg,var(--primary-soft),var(--surface) 70%); }
+.usage-kicker,[data-color-mode="dark"] .usage-kicker { color:var(--primary);font-weight:650; }
+.usage-card h1 .hero-accent { color:var(--primary); }
+.wechat-contact { background:var(--surface); }
+.wechat-contact-label,.wechat-qr-trigger { color:var(--price-ink); }
+.btn-copy-wechat { color:var(--price-ink);background:var(--price-soft);border-color:transparent; }
+.wechat-float { background:var(--price-soft);color:var(--price-ink);border-color:var(--border); }
+.quick-filter-options .multi-filter summary { background:var(--primary-soft);color:var(--primary);border-color:transparent; }
+.quick-filter-options .multi-filter[open] summary { border-color:var(--primary); }
+.multi-filter:has(input:checked) summary { color:var(--primary);border-color:var(--primary);background:var(--primary-soft); }
+.layout-button.active { color:var(--primary); }
+.order-number { color:var(--primary);background:var(--primary-soft);padding:3px 7px;border-radius:5px;font-weight:650; }
+.card-district,[data-color-mode="dark"] .card-district { color:var(--location-ink);background:var(--location-soft);border:0;border-radius:5px;padding:2px 6px;font-weight:650; }
+.card-subject,[data-color-mode="dark"] .card-subject { color:var(--subject-ink);background:var(--subject-soft);padding:1px 5px;border-radius:5px; }
+.price-badge { background:var(--price-soft);color:var(--price-ink);border-radius:7px;padding:5px 8px;font-size:15px; }
+.chip.duration-chip,.chip.day-chip { background:var(--primary-soft);color:var(--primary); }
+.chip.teacher-gender-chip,[data-color-mode="dark"] .chip.teacher-gender-chip { background:var(--location-soft);color:var(--location-ink); }
+.chip.commute[data-route-label],[data-color-mode="dark"] .chip.commute[data-route-label] { background:var(--surface-alt);color:var(--muted); }
+.chip.commute[data-route-status="amap"],[data-color-mode="dark"] .chip.commute[data-route-status="amap"] { background:var(--route-soft);color:var(--route-ink);border-color:transparent; }
+.chip.commute[data-route-status="online"],[data-color-mode="dark"] .chip.commute[data-route-status="online"] { background:var(--price-soft);color:var(--price-ink);border-color:transparent; }
+.schedule-metric:first-child { background:var(--primary-soft);border-color:transparent; }
+.schedule-metric:first-child strong { color:var(--primary); }
+.schedule-metric-date { background:var(--surface-alt);border-color:var(--border); }
+.schedule-metric-date strong { color:var(--text); }
+.list-id { color:var(--primary); }
+.list-area { color:var(--location-ink); }
+.list-rate { color:var(--price-ink); }
+.list-route-status[data-route-status="amap"] { color:var(--route-ink);font-weight:600; }
+.order-check { background:var(--primary-button);border-color:var(--primary-button);color:#fff; }
+.order-check.is-selected,[data-color-mode="dark"] .order-check.is-selected { background:var(--price-soft);color:var(--price-ink);border-color:var(--price-ink); }
+.btn-smart-main,.btn-smart-main:hover { background:#7352ac;border-color:#7352ac;color:#fff; }
+.btn-smart-main:hover { background:#604396;border-color:#604396; }
+.admin-dashboard-stats span:nth-child(1) strong { color:var(--primary); }
+.admin-dashboard-stats span:nth-child(2) strong { color:var(--price-ink); }
+.admin-dashboard-stats span:nth-child(3) strong { color:var(--location-ink); }
+.admin-dashboard-stats span:nth-child(4) strong { color:var(--ai-ink); }
+.admin-module-card[data-admin-go="aiOrders"] { background:linear-gradient(135deg,var(--primary-soft),var(--surface) 78%); }
+.admin-module-card[data-admin-go="teachers"] { background:linear-gradient(135deg,var(--price-soft),var(--surface) 78%); }
+.admin-module-card[data-admin-go="aiOrders"] .admin-module-icon { background:var(--primary-soft);color:var(--primary); }
+.admin-module-card[data-admin-go="teachers"] .admin-module-icon { background:var(--price-soft);color:var(--price-ink); }
+.admin-module-main em { color:var(--primary); }
+.ai-message-user { background:var(--primary-soft); }
+.ai-group-summary { background:var(--ai-soft); }
+.teacher-badge-type { background:var(--ai-soft);color:var(--ai-ink);border-color:transparent; }
+@media(max-width:640px) {
+ .mobile-bottom-link.active { background:var(--primary-soft);color:var(--primary); }
+ .price-badge { font-size:14px;padding:4px 6px; }
 }
