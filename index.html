@@ -54,8 +54,7 @@
         <div class="primary-search-row">
           <input id="qSearch" type="search" placeholder="搜索单号 / 年级 / 科目 / 小区 / 老师要求…" aria-label="搜索家教需求" />
           <select id="qSort" aria-label="排序方式">
-            <option value="recommend">综合排序（时薪＋路程）</option>
-            <option value="commute">路程最近优先</option>
+            <option value="recommend">综合排序</option>
             <option value="rate">课时费最高优先</option>
             <option value="latest">最新发布</option>
           </select>
@@ -125,7 +124,7 @@
           <div class="filter-switches">
             <label><input id="onlySelected" type="checkbox" /> 仅看已选单</label>
           </div>
-          <div class="filter-ai-row"><button class="btn btn-primary btn-smart-main" id="btnSmartSelect">✨ AI 自动勾选</button><label class="ai-preference-label" for="aiPreference">优先考虑 <select id="aiPreference"><option value="balanced">时薪与路程兼顾</option><option value="commute">通勤短</option><option value="income">时薪高</option></select></label><span>使用当前配置的外部 AI API 推荐最多 5 单；调用失败会明确提示，不会假装模型推荐成功。</span></div>
+          <div class="filter-ai-row"><button class="btn btn-primary btn-smart-main" id="btnSmartSelect">✨ AI 自动勾选</button><label class="ai-preference-label" for="aiPreference">优先考虑 <select id="aiPreference"><option value="balanced">综合条件</option><option value="income">时薪高</option></select></label><span>使用当前配置的外部 AI API 推荐最多 5 单；调用失败会明确提示，不会假装模型推荐成功。</span></div>
           <p class="ai-selection-summary" id="aiSelectionSummary" role="status" hidden></p>
         </section>
 
@@ -135,8 +134,8 @@
         <div class="map-heading"><div><h2>🗺 家教位置看板</h2><p>与筛选条件实时同步 · 红色是你的出发地，绿色是已勾选家教，橙色是尚未确认具体地址的区/镇中心示意点。悬停看提示，点击查看家教单详情；仅显示公开地址。</p></div><button class="btn btn-sm map-expand-btn" id="btnExpandMap" type="button" aria-expanded="false">⛶ 展开地图</button></div>
         <div class="map-toolbar"><div class="map-search-wrap"><input id="mapSearchInput" type="search" placeholder="搜索新位置，例如天津大学、河西区" aria-label="搜索地图地点并更新我的位置" role="combobox" aria-expanded="false" aria-controls="mapSearchSuggestions" autocomplete="off" /><div id="mapSearchSuggestions" class="map-suggestions" role="listbox" hidden></div></div><button class="btn btn-primary" id="btnMapSearch">📍 搜索位置</button><button class="btn btn-relocate" id="btnMapRelocate" type="button">◎ 重新定位当前位置</button></div>
         <div class="map-stage"><div id="tutorMap" role="application" aria-label="公开家教单分布与我所在的位置地图"></div><div class="map-loading-note" id="mapLoadingNote" role="status">🗺 地图正在单独加载，家教单已经可以浏览…<button class="btn btn-sm" id="btnRetryMap" type="button" hidden>重试地图</button></div></div>
-        <p class="map-note" id="mapLocationNote">默认尝试获取当前位置；选择地图搜索候选地点后，红色位置标记、地图视角和通勤查询会同步更新。家教定位为公开地址的近似位置。使用高德底图时，地图服务商可能处理当前地图视野。</p>
-        <p class="map-note" id="mapVerificationNote" hidden></p><div class="route-batch-bar"><button class="btn btn-primary btn-sm" id="btnPlanRoutes" type="button">手动查询 / 重试（最多10条）</button><label><input type="checkbox" id="autoRouteToggle" checked/> 自动查询可见订单</label><span id="routeBatchNote" class="map-note" role="status">自动查询高德路线，不使用本地公式。</span></div>
+        <p class="map-note" id="mapLocationNote">手动定位或选择搜索候选地点可更新出发地；通勤仅在点击查看路线时查询。家教定位为公开地址的近似位置。使用高德底图时，地图服务商可能处理当前地图视野。</p>
+        <p class="map-note" id="mapVerificationNote" hidden></p><p id="routeBatchNote" class="map-note">点击家教卡片的查看路线按钮，按需查询高德路线。</p>
       </section>
 
       <div class="stats-bar"><span id="resultStats">正在加载家教单...</span><div class="stats-actions"><span id="modeBadge"></span><div class="layout-switch" role="group" aria-label="家教单展示方式"><button class="layout-button" id="btnListMode" type="button" aria-pressed="false">☰ 列表</button><button class="layout-button active" id="btnCardMode" type="button" aria-pressed="true">▦ 卡片</button></div></div></div>
@@ -185,6 +184,7 @@
     <div class="wechat-qr-actions"><button class="btn btn-primary" type="button" data-copy-wechat>📋 复制微信号</button><a class="btn btn-sm" href="./assets/wechat-qr-cheerpup012.png" download="小木同学微信二维码.png">保存二维码图片</a></div>
   </dialog>
 
+  <dialog id="manualRouteDialog" class="wechat-qr-dialog" style="max-width:min(92vw,440px);padding:20px"><div class="modal-head"><h3 id="manualRouteTitle">查看路线</h3><button class="btn btn-sm" id="closeManualRoute" type="button">关闭</button></div><div id="manualRouteContent" aria-live="polite"></div></dialog>
   <!-- 仅保留管理员登录，普通老师无需账号 -->
   <div class="modal-backdrop" id="authModal">
     <div class="modal">
@@ -196,6 +196,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./js/app.js?v=64"></script>
+  <script type="module" src="./js/app.js?v=65"></script>
 </body>
 </html>
