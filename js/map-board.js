@@ -1,4 +1,4 @@
-import { adoptVerifiedPublicLocations, inferCoordsFromText, inferNamedLandmarkCoords, isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "./commute.js?v=5";
+import { adoptVerifiedPublicLocations, inferCoordsFromText, inferNamedLandmarkCoords, isPlausiblePublicGeocode, verifiedPublicLandmarkCoords } from "./commute.js?v=6";
 import { isDistrictOnlyAddress, mapGeocodeQuery } from "./address-normalizer.js";
 
 let map = null;
@@ -47,6 +47,13 @@ function loadVerifiedPublicLocations() {
   return verifiedIndexLoading;
 }
 
+// Only validated public order landmarks are cached, never user origins.
+export function adoptPublicRouteLocation(query,point){
+  geocodeCache[query]=point;
+  adoptVerifiedPublicLocations({[query]:point});
+  try{localStorage.setItem(GEO_CACHE_KEY,JSON.stringify(geocodeCache));}catch{}
+  renderOrderMarkers();
+}
 function publicAddress(order) {
   return String(order.publicAddress || order.address || "").trim();
 }

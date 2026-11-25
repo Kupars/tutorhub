@@ -172,7 +172,7 @@ export function adoptVerifiedPublicLocations(index) {
   publicGeoCache = { ...publicGeoCache, ...index };
   lastGeoLoad = Date.now();
 }
-function publicGeocodedPoint(order) {
+export function publicGeocodedPoint(order) {
   try {
     if (Date.now() - lastGeoLoad > 2500) {
       publicGeoCache = JSON.parse(localStorage.getItem("tutorhub_public_address_geocodes_v2") || "{}");
@@ -214,6 +214,7 @@ export function estimateCommuteLocal(origin, order) {
 
   return {
     isOnline: false,
+    source: "estimate",
     distanceKm: roadKm,
     bikeMin,
     transitMin,

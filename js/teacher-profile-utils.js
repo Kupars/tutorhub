@@ -1,3 +1,4 @@
+import {resolveRoutePoint,resolveDepartureLandmark,requestRoute,runLimited,routeLabel} from "./route-client.js?v=1";
 import {stageOf,cleanTeachingPairs,cleanCompanionOptions} from "../shared/teacher-capabilities.js";
 // 老师档案推荐：仅利用管理员录入的偏好与历史投递/接单，不获取老师实时位置。
 import { verifiedPublicLandmarkCoords, inferNamedLandmarkCoords } from "./commute.js";
@@ -174,4 +175,38 @@ export function nextFamilySubIds(root,count,orders=[]) {
   }
   if(output.length!==count)throw new Error("主编号下已无可用子单编号");
   return output;
+}
+
+// Only explicit teacher departure landmarks can produce actual commuting routes.
+// Historical addresses remain an interest signal and never become a teacher's origin.
+export function applyPlannedRoute(match,route){
+ if(!route||!Number.isFinite(route.bestMin))return match;
+ const oldBonus=match.distanceKm!==null?Math.max(0,8-match.distanceKm/2):0;
+ const routeBonus=Math.max(0,8-route.bestMin/10);
+ return {...match,route,score:match.score-oldBonus+routeBonus,reasons:[routeLabel(route),...match.reasons.filter(x=>!x.includes("直线距离")&&!x.includes("历史订单地址与本单地址"))]};
+}
+export async function recommendTeacherProfilesWithRoutes(target,profiles=[],candidacies=[],orders=[],legacy=[],limit=5,budget={remaining:8}){
+ const shortlist=recommendTeacherProfiles(target,profiles,candidacies,orders,legacy,Math.min(12,Math.max(limit,8)));
+ if(!budget.remaining||!shortlist.some(m=>profiles.find(p=>p.id===m.teacherId)?.departureLandmark))return shortlist.slice(0,limit);
+ const dest=await resolveRoutePoint(target);
+ if(!dest)return shortlist.slice(0,limit);
+ const results=await runLimited(shortlist,async m=>{
+  const teacher=profiles.find(p=>p.id===m.teacherId);
+  if(!teacher?.departureLandmark||budget.remaining<=0)return m;
+  budget.remaining--;
+  const origin=await resolveDepartureLandmark(teacher.departureLandmark);
+  return origin?applyPlannedRoute(m,await requestRoute(origin,dest)):m;
+ });
+ return results.filter(Boolean).sort((a,b)=>b.score-a.score).slice(0,limit);
+}
+export async function recommendOrdersForTeacherWithRoutes(teacher,orders=[],candidacies=[],legacy=[],limit=8){
+ const shortlist=recommendOrdersForTeacher(teacher,orders,candidacies,legacy,Math.min(12,Math.max(limit,10)));
+ if(!teacher.departureLandmark)return shortlist.slice(0,limit);
+ const origin=await resolveDepartureLandmark(teacher.departureLandmark);
+ if(!origin)return shortlist.slice(0,limit);
+ const results=await runLimited(shortlist,async m=>{
+  const dest=await resolveRoutePoint(m.order);
+  return dest?applyPlannedRoute(m,await requestRoute(origin,dest)):m;
+ });
+ return results.filter(Boolean).sort((a,b)=>b.score-a.score).slice(0,limit);
 }
