@@ -9,7 +9,6 @@ import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOr
 import { importOrderTable } from "./order-import.js";
 import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=4";
 import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=6";
-import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
 import { MULTI_FILTER_LABELS, MULTI_FILTER_OPTIONS, matchesMultiFilters, normalizeMultiSelection, countSelectedFilters } from "./multi-filter.js?v=1";
 
@@ -132,30 +131,20 @@ function savedColorMode() {
 function applyColorMode(mode) {
   document.documentElement.dataset.colorMode = mode;
   const isDark = mode === "dark";
-  const season = SEASON_DETAILS[document.documentElement.dataset.season] || SEASON_DETAILS.winter;
   for (const id of ["btnColorMode", "btnMobileColorMode"]) {
     const button = $(id);
     if (!button) continue;
-    button.textContent = isDark ? "☀️ 浅色" : "🌙 深色";
+    button.textContent = isDark ? "浅色模式" : "深色模式";
     button.setAttribute("aria-label", isDark ? "切换浅色模式" : "切换深色模式");
     button.setAttribute("aria-pressed", String(isDark));
-    button.title = `切换${season.label}${isDark ? "浅色" : "深色"}主题`;
+    button.title = isDark ? "切换浅色模式" : "切换深色模式";
   }
   const browserTheme = document.querySelector('meta[name="theme-color"]');
-  if (browserTheme) browserTheme.content = isDark ? "#0b1728" : season.lightThemeColor;
-}
-
-function syncSeasonTheme() {
-  const season = getSeasonForDate();
-  if (document.documentElement.dataset.season === season) return;
-  document.documentElement.dataset.season = season;
-  applyColorMode(document.documentElement.dataset.colorMode === "dark" ? "dark" : "light");
+  if (browserTheme) browserTheme.content = isDark ? "#1d232b" : "#ffffff";
 }
 
 function initColorMode() {
-  document.documentElement.dataset.season = getSeasonForDate();
-  const media = window.matchMedia?.("(prefers-color-scheme: dark)");
-  applyColorMode(savedColorMode() || (media?.matches ? "dark" : "light"));
+  applyColorMode(savedColorMode() || "light");
   for (const id of ["btnColorMode", "btnMobileColorMode"]) {
     $(id)?.addEventListener("click", () => {
       const next = document.documentElement.dataset.colorMode === "dark" ? "light" : "dark";
@@ -163,12 +152,7 @@ function initColorMode() {
       applyColorMode(next);
     });
   }
-  media?.addEventListener?.("change", (event) => {
-    if (!savedColorMode()) applyColorMode(event.matches ? "dark" : "light");
-  });
-  // 页面长时间不关闭时也会在节气更替后自动切换；重新切回标签页立即校对。
-  window.setInterval(syncSeasonTheme, 15 * 60 * 1000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) syncSeasonTheme(); });
+
 }
 
 function showToast(msg) {
