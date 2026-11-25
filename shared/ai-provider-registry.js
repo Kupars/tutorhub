@@ -78,6 +78,7 @@ async function persist(kv, registry) {
 export function safeAIRegistry(registry, env={}) {
   return {
     activeId: registry.activeId,
+    fallbackId:registry.fallbackId||"",fallbackModel:registry.fallbackModel||"",
     envConfigured: Boolean(env.OPENAI_API_KEY || env.GEMINI_API_KEY),
     envModel: env.OPENAI_API_KEY ? String(env.OPENAI_MODEL || "glm-4.7-flash") :
       env.GEMINI_API_KEY ? String(env.GEMINI_MODEL || "gemini-2.5-flash") : "",
@@ -108,6 +109,7 @@ export async function saveAIProvider(kv,env,input={}) {
   const next = {id:current?.id || crypto.randomUUID(),name,baseUrl,models,selectedModel,
     encryptedKey,updatedAt:new Date().toISOString()};
   registry.profiles = [...registry.profiles.filter(p=>p.id!==next.id),next];
+  if(registry.fallbackId===next.id&&!next.models.includes(registry.fallbackModel)){delete registry.fallbackId;delete registry.fallbackModel;}
   await persist(kv,registry);
   return safeAIRegistry(registry,env);
 }
@@ -116,6 +118,7 @@ export async function deleteAIProvider(kv,env,id) {
   if (!registry.profiles.some(p=>p.id===id)) throw new Error("中转站不存在");
   registry.profiles = registry.profiles.filter(p=>p.id!==id);
   if (registry.activeId===id) registry.activeId="env";
+  if(registry.fallbackId===id){delete registry.fallbackId;delete registry.fallbackModel;}
   await persist(kv,registry);
   return safeAIRegistry(registry,env);
 }
@@ -130,6 +133,22 @@ export async function activateAIProvider(kv,env,id,model) {
     if (model != null && !profile.models.includes(model)) throw new Error("模型名称不在该中转站列表中");
     if (model) profile.selectedModel = model;
     registry.activeId = id;
+  }
+  if(registry.fallbackId===registry.activeId&&(registry.activeId==="env"||registry.profiles.find(p=>p.id===registry.activeId)?.selectedModel===registry.fallbackModel)){delete registry.fallbackId;delete registry.fallbackModel;}
+  await persist(kv,registry);
+  return safeAIRegistry(registry,env);
+}
+export async function setAIProviderFallback(kv,env,id,model){
+  const registry=await loadAIRegistry(kv);
+  if(!id){delete registry.fallbackId;delete registry.fallbackModel;}
+  else {
+    if(id==="env"){if(!env.OPENAI_API_KEY&&!env.GEMINI_API_KEY)throw new Error("默认模型未配置");model="";}
+    else{
+      const p=registry.profiles.find(x=>x.id===id);
+      if(!p?.encryptedKey||!p.models.includes(model))throw new Error("备用模型无效");
+    }
+    if(id===registry.activeId&&(id==="env"||registry.profiles.find(p=>p.id===id)?.selectedModel===model))throw new Error("备用模型不能与主模型相同");
+    registry.fallbackId=id;registry.fallbackModel=model;
   }
   await persist(kv,registry);
   return safeAIRegistry(registry,env);
