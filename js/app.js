@@ -7,7 +7,7 @@ import { parseMessyOrders, reviseDraftsWithAI, interpretSiteCommand, optimizeOrd
 import { Store } from "./store.js?v=11";
 import { canonicalDistrict, formatOrderText, getSubjectList, mergeOrders, nextOrderId, normalizeOrder, parseFormattedOrder, splitOrderBySubject } from "./order-format.js";
 import { importOrderTable } from "./order-import.js";
-import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=4";
+import { buildWechatSelectionText, isPubliclyOpenOrder, sortBoardOrders, teacherGenderRequirement } from "./board-utils.js?v=5";
 import { cardCopyableAddress, cardSchedule, cardStudentGenderTag, cardTeacherGenderTag, cardTitleSegments } from "./card-presentation.js?v=6";
 import { getSeasonForDate, SEASON_DETAILS } from "./season-theme.js";
 import { findPotentialDuplicates, orderFreshness } from "./order-extras.js";
@@ -58,7 +58,7 @@ function hydrateAIModelManager() {
   if(state.adminPage!=="aiModels" || Store.getCurrentUser()?.role!=="admin")return;
   const slot=document.getElementById("aiModelManagerSlot");
   if(!slot)return;
-  if(!aiModelsModulePromise)aiModelsModulePromise=import("./admin-ai-models.js?v=1")
+  if(!aiModelsModulePromise)aiModelsModulePromise=import("./admin-ai-models.js?v=2")
     .catch(error=>{aiModelsModulePromise=null;throw error;});
   void aiModelsModulePromise.then(module=>{
     const target=document.getElementById("aiModelManagerSlot");
