@@ -30,6 +30,7 @@ let cloudState = {
   teacherProfiles: [],
   teacherApplications: [],
   orderSequence: 2991,
+  staticImportMigrated:false,
   teachers: [],
   applications: [],
   myResume: null
@@ -54,7 +55,7 @@ function ensureLocalInit() {
 }
 ensureLocalInit();
 
-const ORDER_WRITES=new Set(["admin_publish_ai_drafts","admin_add_orders","admin_update_order","admin_batch_status","admin_delete_order","admin_merge_orders","admin_save_assignment","admin_trash_order","admin_restore_order"]);
+const ORDER_WRITES=new Set(["admin_publish_ai_drafts","admin_add_orders","admin_update_order","admin_batch_status","admin_delete_order","admin_merge_orders","admin_save_assignment","admin_trash_order","admin_restore_order","admin_migrate_static_orders"]);
 let orderRevision=null;
 let orderRequestQueue=Promise.resolve();
 let orderWriteEpoch=0;
@@ -158,6 +159,7 @@ export const Store = {
       // [] 是有效的云端状态：已清空家教单时绝不能恢复演示数据。
       cloudState.orders = Array.isArray(data.orders) ? data.orders : [];
       cloudState.hiddenImported = Array.isArray(data.hiddenImported) ? data.hiddenImported : [];
+      cloudState.staticImportMigrated=data.staticImportMigrated===true;
       cloudState.partTimePosts = Array.isArray(data.partTimePosts) ? data.partTimePosts : [];
 
       if (localStorage.getItem(KEYS.token)) {
@@ -178,7 +180,7 @@ export const Store = {
     if(!data?.ok||!data.cloud||!Array.isArray(data.orders)||this.getCurrentUser()?.role==="admin")return false;
     const hidden=Array.isArray(data.hiddenImported)?data.hiddenImported:[];
     const changed=!cloudReady||JSON.stringify([cloudState.orders,cloudState.hiddenImported])!==JSON.stringify([data.orders,hidden]);
-    cloudReady=true;cloudState.orders=data.orders;cloudState.hiddenImported=hidden;
+    cloudReady=true;cloudState.orders=data.orders;cloudState.hiddenImported=hidden;cloudState.staticImportMigrated=data.staticImportMigrated===true;
     return changed;
   },
 
@@ -197,6 +199,7 @@ export const Store = {
             cloudState.teacherProfiles = Array.isArray(adm.teacherProfiles) ? adm.teacherProfiles : [];
             cloudState.teacherApplications = Array.isArray(adm.teacherApplications) ? adm.teacherApplications : [];
             cloudState.orderSequence = Number(adm.orderSequence) || 2991;
+            cloudState.staticImportMigrated=adm.staticImportMigrated===true;
             cloudState.teachers = adm.teachers || [];
             cloudState.applications = adm.applications || [];
             if (Array.isArray(adm.orders)) cloudState.orders = adm.orders;
@@ -344,7 +347,7 @@ export const Store = {
     if (!cloudReady) return [];
     const orders = cloudState.orders;
     const hidden = cloudState.hiddenImported;
-    const byId = new Map(importedOrders.filter((o) => !hidden.includes(o.id)).map((o) => [o.id, o]));
+    const byId = new Map((cloudState.staticImportMigrated?[]:importedOrders).filter((o) => !hidden.includes(o.id)).map((o) => [o.id, o]));
     for (const order of Array.isArray(orders) ? orders : []) byId.set(order.id, order);
     return [...byId.values()].filter((o) => !hidden.includes(o.id) && !LEGACY_DEMO_IDS.has(o.id)).map((raw) => {
       const { privateAddress, internalAddress, exactAddress, fullAddress, privateNotes,
@@ -355,7 +358,7 @@ export const Store = {
   },
   async publishAIDrafts(drafts,idempotencyKey) {
     if (!cloudReady || this.getCurrentUser()?.role !== "admin") throw new Error("管理员存储不可用，未发布");
-    const res=await apiPost({action:"admin_publish_ai_drafts",orders:drafts.map(o=>normalizeOrder(o)),...(idempotencyKey?{idempotencyKey}:{}),
+    const res=await apiPost({action:"admin_publish_ai_drafts",stableIds:true,orders:drafts.map(o=>normalizeOrder(o)),...(idempotencyKey?{idempotencyKey}:{}),
       importedOverrides:importedOrders.filter(o=>drafts.some(d=>d.existingOrderId===o.id||d.splitFromId===o.id))});
     if(!res?.ok)throw new Error(res?.error||"发布失败");
     cloudState.orders=res.orders;
@@ -366,7 +369,7 @@ export const Store = {
   async addOrders(newOrders) {
     const normalized = newOrders.map((o) => normalizeOrder(o));
     if (cloudReady) {
-      const res = await apiPost({ action: "admin_add_orders", orders: normalized });
+      const res = await apiPost({ action: "admin_add_orders", stableIds:true,orders: normalized });
       if (!res?.ok) throw new Error(res?.error || "云端发布失败");
       cloudState.orders = res.orders;
       cloudState.orderSequence = Number(res.orderSequence) || cloudState.orderSequence;
@@ -437,11 +440,18 @@ export const Store = {
     cloudState.orders=res.orders;cloudState.hiddenImported=res.hiddenImported||cloudState.hiddenImported;
     return this.getOrders();
   },
+  staticMigrationInfo(){return {migrated:cloudState.staticImportMigrated,count:importedOrders.length};},
+  async migrateStaticOrders(){
+    if(!cloudReady||this.getCurrentUser()?.role!=="admin"||!importedOrders.length)throw new Error("静态订单尚未完整加载，请刷新后重试");
+    const res=await apiPost({action:"admin_migrate_static_orders",orders:importedOrders});
+    if(!res?.ok)throw new Error(res?.error||"迁移失败");
+    cloudState.orders=res.orders;cloudState.staticImportMigrated=res.staticImportMigrated===true;cloudState.hiddenImported=res.hiddenImported||cloudState.hiddenImported;return res.added;
+  },
   async exportBackup(date="") {
     if(!cloudReady||this.getCurrentUser()?.role!=="admin")throw new Error("管理员存储不可用");
     const res=await apiPost(date?{action:"admin_backup_get",date}:{action:"admin_export_current"});
     if(!res?.ok)throw new Error(res?.error||"备份读取失败");
-    return res.backup;
+    return {...res.backup,staticImportedOrders:importedOrders};
   },
   async getAuditLog() {
     if(!cloudReady||this.getCurrentUser()?.role!=="admin")throw new Error("管理员存储不可用");
