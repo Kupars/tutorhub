@@ -1,4 +1,4 @@
-import {commuteForOrder,orderRoutePoint,queryOrderCommute,routeLabel,routeLink,runLimited} from "./route-client.js?v=2";
+import {commuteForOrder,orderRoutePoint,queryOrderCommute,routeLabel,routeLink,runLimited} from "./route-client.js?v=3";
 import { APP_CONFIG } from "./app-env.js";
 import { SUBJECTS, GRADES } from "./data.js";
 import { inferCoordsFromText, resolveUserAddress } from "./commute.js?v=6";
@@ -99,7 +99,6 @@ let routeOriginKey="";
 let routeObserver=null;
 const autoRouteQueue=new Set();
 let autoRouteTimer=null;
-const autoAttempted=new Set();
 let autoRouteEnabled=true;
 try{autoRouteEnabled=localStorage.getItem("tutorhub_auto_amap_routes")!=="off";}catch{}
 let expandedOrderId = null;
@@ -376,7 +375,7 @@ function switchView(viewName) {
 function originRouteKey(origin){return JSON.stringify([origin.lat,origin.lng,Boolean(origin.gcj02)]);}
 function resetRouteOrigin(origin){
  const key=originRouteKey(origin);
- if(routeOriginKey!==key){routeOriginKey=key;autoAttempted.clear();autoRouteQueue.clear();}
+ if(routeOriginKey!==key){routeOriginKey=key;autoRouteQueue.clear();}
  return key;
 }
 function queueVisibleRoutes(grid){
@@ -386,8 +385,7 @@ function queueVisibleRoutes(grid){
  if(origin.lat==null||origin.lng==null)return;
  const enqueue=id=>{
    const o=visibleBoardOrders.find(x=>x.id===id);
-   const key=o&&JSON.stringify([o.id,o.publicAddress,o.district]);
-   if(!o||autoAttempted.has(key)||commuteForOrder(origin,o).status!=="unqueried")return;
+   if(!o||commuteForOrder(origin,o).status!=="unqueried")return;
    autoRouteQueue.add(id);
    clearTimeout(autoRouteTimer);autoRouteTimer=setTimeout(drainAutoRoutes,120);
  };
@@ -417,7 +415,6 @@ async function planVisibleRoutes(single,automatic=false){
  try{
    const results=await runLimited(orders,async o=>{
      if(originRouteKey(Store.getOrigin())!==originKey||state.view!=="hall"||(automatic&&!autoRouteEnabled))return null;
-     autoAttempted.add(JSON.stringify([o.id,o.publicAddress,o.district]));
      const job=queryOrderCommute(origin,o,{retry:!automatic});
      // Update only the status chip while a request runs; do not disturb the scroll position.
      for(const node of document.querySelectorAll("[data-route-label]"))if(node.dataset.routeLabel===o.id)node.textContent=routeLabel(commuteForOrder(origin,o));
@@ -497,7 +494,7 @@ function renderHall() {
     mapVerificationNote.textContent = [
       approximate ? `${approximate} 条家教单尚未核实到具体地点，已标在镇/区中心（橙色示意点，非实际授课位置）。` : "",
       unresolved ? `${unresolved} 条家教单因缺少可确定的行政区，暂时无法绘制标记。` : "",
-      approximate ? "这类位置不参与精确通勤时间估算。" : ""
+      approximate ? "这类位置不参与高德通勤查询。" : ""
     ].filter(Boolean).join(" ");
   }
 
@@ -534,7 +531,7 @@ function renderHall() {
     const displayDistrict = o.district === "线上" ? "线上" : canonicalDistrict(o.district) || "地点待补充";
     const dest=orderRoutePoint(o);
     const commuteHtml = `<span class="chip commute" data-route-label="${escapeHtml(o.id)}">${escapeHtml(routeLabel(o.commute))}</span>`;
-    const routeActions=o.mode==="线上"?"":`<div class="route-actions"><button type="button" class="btn btn-sm" data-plan-route="${escapeHtml(o.id)}">${o.commute?.source==="amap"?"查看已查路线":"重试高德通勤"}</button>${dest&&origin.lat!=null&&origin.lng!=null?`<a href="${escapeHtml(routeLink(origin,dest,"ride"))}" target="_blank" rel="noopener noreferrer">骑行路线（手机）</a><a href="${escapeHtml(routeLink(origin,dest,"bus"))}" target="_blank" rel="noopener noreferrer">公交路线</a>`:""}</div>`;
+    const routeActions=o.mode==="线上"?"":`<div class="route-actions"><button type="button" class="btn btn-sm" data-plan-route="${escapeHtml(o.id)}" ${o.commute?.source==="amap"||o.commute?.status==="loading"?"disabled":""}>${o.commute?.source==="amap"?"已查询":o.commute?.status==="unqueried"?"立即查询":"重试高德通勤"}</button>${dest&&origin.lat!=null&&origin.lng!=null?`<a href="${escapeHtml(routeLink(origin,dest,"ride"))}" target="_blank" rel="noopener noreferrer">骑行路线（手机）</a><a href="${escapeHtml(routeLink(origin,dest,"bus"))}" target="_blank" rel="noopener noreferrer">公交路线</a>`:""}</div>`;
     const routeDetails=o.commute?.source==="amap"?`<details class="route-details"><summary>路线详情</summary>${o.commute.transitLines?.length?`<p>公交/地铁：${escapeHtml(o.commute.transitLines.join(" → "))}</p>`:""}${o.commute.bikeSteps?.length?`<ol>${o.commute.bikeSteps.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ol>`:""}<p>高德规划耗时，实际以出行时情况为准。</p></details>`:"";
     return `
       <article class="order-card ${o.selected ? "order-selected" : ""}" data-route-order="${escapeHtml(o.id)}">
@@ -1607,7 +1604,7 @@ function showMapCandidates(candidates) {
     button.onclick = async () => {
       hideMapCandidates();
       await setMapOrigin(place);
-      $("mapLocationNote").textContent = `已将「${place.name}」设为我的位置，红色标记与通勤估算已更新。紫色家教点仅来自公开地址。`;
+      $("mapLocationNote").textContent = `已将「${place.name}」设为我的位置，红色标记与通勤查询已更新。紫色家教点仅来自公开地址。`;
       showToast(`位置已更新为「${place.name}」`);
     };
     box.append(button);
@@ -1912,7 +1909,7 @@ function initControls() {
       const resolved = await resolveUserAddress(text);
       hideMapCandidates();
       await setMapOrigin(resolved);
-      $("mapLocationNote").textContent = `已将「${text}」设为我的位置；地图上的红色标记和通勤估算已更新。`;
+      $("mapLocationNote").textContent = `已将「${text}」设为我的位置；地图上的红色标记和通勤查询已更新。`;
       showToast(`位置已更新为「${text}」`);
     } catch (err) { showToast(err.message); }
     finally { $("btnMapSearch").disabled = false; $("btnMapSearch").textContent = "📍 搜索位置"; }

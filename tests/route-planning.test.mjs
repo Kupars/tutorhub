@@ -59,6 +59,6 @@ test("no synthetic commute time is exposed before AMap succeeds or when location
    assert.equal(commuteForOrder(origin,validOrder).status,"unqueried");
    const r=await queryOrderCommute(origin,validOrder);
    assert.equal(r.bestMin,undefined);
-   assert.equal(commuteForOrder(origin,validOrder).status,"location_unverified");
+   assert.equal(commuteForOrder(origin,validOrder).status,"unavailable");
  }finally{globalThis.fetch=orig;}
 });

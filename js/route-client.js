@@ -17,25 +17,25 @@ export function orderRoutePoint(order){
 export function hasRouteAddress(order){
  const a=String(order?.publicAddress||"");return Boolean(a&&!isDistrictOnlyAddress(a,order?.district)&&!/待补充|某小区|线上|网课/.test(a));
 }
-export async function resolveRoutePoint(order){
+export async function resolveRoutePoint(order,onFailure=()=>{}){
  const local=orderRoutePoint(order);if(local)return local;
  const address=String(order?.publicAddress||"");
  if(!hasRouteAddress(order))return null;
  const query=mapGeocodeQuery(address,order.district);
  if(!query||query.length<4)return null;
- if(places.has(query))return places.get(query);
+ if(places.has(query)){const existing=await places.get(query);if(!existing.point)onFailure(existing.status);return existing.point;}
  const job=(async()=>{
   try{
    const data=await post({action:"geocode",address:query});
-   if(!data.ok||!valid(data))return null;
+   if(!data.ok||!valid(data))return {point:null,status:data.errorCode?"unavailable":"location_unverified"};
    const p={...data,...gcj02ToWgs84(data.lat,data.lng),gcj02:false};
-   if(!isPlausiblePublicGeocode({publicAddress:address,district:order.district},p))return null;
+   if(!isPlausiblePublicGeocode({publicAddress:address,district:order.district},p))return {point:null,status:"location_unverified"};
    adoptPublicRouteLocation(query,p);
-   return p;
-  }catch{return null;}
+   return {point:p};
+  }catch{return {point:null,status:"unavailable"};}
  })();
  if(places.size>=200)places.delete(places.keys().next().value);
- places.set(query,job);const p=await job;if(!p)places.delete(query);return p;
+ places.set(query,job);const result=await job;if(!result.point){places.delete(query);onFailure(result.status);}return result.point;
 }
 export async function resolveDepartureLandmark(value){
  const address=String(value||"").trim();
@@ -90,8 +90,9 @@ export async function queryOrderCommute(origin,order,{retry=false}={}){
  const set=status=>{orderStates.set(key,{status,until:Date.now()+(status==="loading"?60000:300000)});return {status};};
  set("loading");
  try{
-   const dest=await resolveRoutePoint(order);
-   if(!dest)return set("location_unverified");
+   let failure="location_unverified";
+   const dest=await resolveRoutePoint(order,status=>{failure=status;});
+   if(!dest)return set(failure);
    const route=await requestRoute(origin,dest);
    if(route){orderStates.delete(key);return route;}
    return set("unavailable");
