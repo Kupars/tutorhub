@@ -100,7 +100,7 @@ async function loadAmap(){
      script.onload=()=>{clearTimeout(timeout);globalThis.AMap?.Map?resolve(globalThis.AMap):reject(new Error("高德地图组件不可用"));};
      document.head.append(script);
    });
- })().catch(()=>null);
+ })().catch(error=>{console.warn("高德 SDK 加载失败",error?.message||"未知原因");return null;});
  return amapLoading;
 }
 function renderAmapMarkers(){
@@ -152,7 +152,8 @@ async function openAmapBoard(origin){
    renderAmapMarkers();
    void geocodePublicAddresses();
    return true;
- }catch{
+ }catch(error){
+   console.warn("高德底图初始化失败，使用备用地图",error?.message||"未知原因");
    try{candidate?.destroy();}catch{}
    amap=null;amapMarkers=[];amapSignature="";amapOrigin=null;amapPopup=null;container.replaceChildren();
    return false;

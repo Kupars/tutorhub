@@ -25,3 +25,18 @@ test("existing WGS84 pins convert back to GCJ02 without duplicate offset",()=>{
  const p={lat:39.1,lng:117.2};const g=wgs84ToGcj02(p.lat,p.lng),w=gcj02ToWgs84(g.lat,g.lng);
  assert(Math.abs(w.lat-p.lat)<1e-7);assert(Math.abs(w.lng-p.lng)<1e-7);
 });
+
+test("JSONP responses retain nosniff and are valid JavaScript with only a validated callback",async()=>{
+ const original=globalThis.fetch;
+ try{
+  const req=callback=>new Request("https://tutor.kupars.top/_AMapService/v3/log/init?key=public-js-key&callback="+encodeURIComponent(callback),{headers:{Referer:"https://tutor.kupars.top/"}});
+  for(const upstream of ['{"status":"1"}','jsonp_123({"status":"1"});']){
+   globalThis.fetch=async()=>new Response(upstream,{headers:{"Content-Type":"text/plain"}});
+   const res=await handleAmapProxy(req("jsonp_123"),env);
+   assert.equal(res.status,200);assert.match(res.headers.get("content-type"),/^application\/javascript/);assert.equal(res.headers.get("x-content-type-options"),"nosniff");assert.equal(await res.text(),'jsonp_123({"status":"1"});');
+  }
+  globalThis.fetch=async()=>new Response('jsonp_123({});alert(1)',{headers:{"Content-Type":"text/html"}});
+  assert.equal((await handleAmapProxy(req("jsonp_123"),env)).status,502);
+  assert.equal((await handleAmapProxy(req("foo);alert(1)//"),env)).status,400);
+ }finally{globalThis.fetch=original;}
+});
